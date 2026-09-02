@@ -43,6 +43,41 @@ enum SearchRecents {
     }
 }
 
+/// "Read by people you follow" shelf, persisted per uid for a day. The tab's view
+/// is destroyed whenever the user leaves the Search tab, so without this the whole
+/// shelf (a `userBooks` query across everyone you follow, then cover hydration)
+/// re-ran on every visit.
+enum FollowedReadsCache {
+    /// How long a saved shelf is served before it's rebuilt.
+    private static let maxAge: TimeInterval = 24 * 60 * 60
+
+    struct Saved: Codable {
+        /// The shuffled pool of book ids, in the order they should hydrate.
+        var pool: [String]
+        /// Covers already hydrated, so the shelf draws without a round trip.
+        var books: [Book]
+        /// Offset into `pool` of the next unhydrated id.
+        var nextIndex: Int
+        var savedAt: Date
+    }
+
+    private static func key(_ uid: String) -> String { "followedReadShelf.\(uid)" }
+
+    /// The saved shelf, or nil if there is none or it's older than `maxAge`.
+    static func load(uid: String) -> Saved? {
+        guard let data = UserDefaults.standard.data(forKey: key(uid)),
+              let saved = try? JSONDecoder().decode(Saved.self, from: data),
+              Date().timeIntervalSince(saved.savedAt) < maxAge else { return nil }
+        return saved
+    }
+
+    static func save(pool: [String], books: [Book], nextIndex: Int, uid: String) {
+        let saved = Saved(pool: pool, books: books, nextIndex: nextIndex, savedAt: Date())
+        guard let data = try? JSONEncoder().encode(saved) else { return }
+        UserDefaults.standard.set(data, forKey: key(uid))
+    }
+}
+
 /// Identifiable wrapper so a Firebase uid can drive `navigationDestination(item:)`.
 private struct SearchedUserSelection: Identifiable, Hashable {
     let id: String
@@ -505,10 +540,25 @@ struct SearchView: View {
 
     /// Builds the shuffled pool of finished-book ids from the follow graph (books
     /// already in the user's own library excluded) and hydrates the first batch.
-    /// Once per view instance so the random pick doesn't reshuffle on re-appear.
+    /// A shelf built within the last day is restored from `FollowedReadsCache`
+    /// instead: the Search tab's view is thrown away every time the user leaves
+    /// the tab, so rebuilding on appear meant re-querying the whole follow graph
+    /// on every visit — and reshuffling the covers along with it.
     private func loadFollowedReadsIfNeeded() async {
         guard !hasLoadedFollowedReads else { return }
         hasLoadedFollowedReads = true
+        if let saved = FollowedReadsCache.load(uid: recentsUid) {
+            // Books added to the user's own library since the shelf was saved are
+            // dropped here rather than at save time: the library changes far more
+            // often than the pool does.
+            let ownBookIds = Set(appState.userBooks.map(\.bookId))
+            await MainActor.run {
+                followedReadPool = saved.pool.filter { !ownBookIds.contains($0) }
+                followedReadBooks = saved.books.filter { !ownBookIds.contains($0.id) }
+                followedReadNextIndex = min(saved.nextIndex, followedReadPool.count)
+            }
+            return
+        }
         let following = authService.appUser?.following ?? []
         guard !following.isEmpty else { return }
         await MainActor.run { isLoadingFollowedReads = true }
@@ -531,6 +581,9 @@ struct SearchView: View {
             followedReadNextIndex += nextIds.count
             followedReadBooks.append(contentsOf: nextIds.compactMap { books[$0] })
             isLoadingMoreFollowedReads = false
+            // Saved on every batch, so covers the user scrolled to are still there
+            // when they come back to the tab.
+            FollowedReadsCache.save(pool: followedReadPool, books: followedReadBooks, nextIndex: followedReadNextIndex, uid: recentsUid)
         }
     }
 
