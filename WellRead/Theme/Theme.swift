@@ -414,6 +414,10 @@ struct GlossyProminentStyle: ViewModifier {
                     )
             )
             .shadow(color: Theme.shadowInk.opacity(0.30), radius: 9, x: 0, y: 4)
+            // The gloss fill lands outside the Button, so it can't make the capsule
+            // tappable on its own — claim the frame so the whole CTA answers taps
+            // even when the button doesn't use `.springPress`.
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
     }
 }
 
@@ -429,6 +433,15 @@ extension View {
 struct SpringPressButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            // A custom ButtonStyle hit tests the label's *drawn* content, not its
+            // layout frame: a `Text` sized with `.frame(maxWidth: .infinity)` and
+            // `.padding()` only answers taps that land on the glyphs, and any fill
+            // applied outside the Button (`.glossyProminent`, a `.background` on the
+            // Button rather than the label) doesn't count. That leaves a wide CTA
+            // dead everywhere but its words, which reads as "the button needs two
+            // taps". Claiming the whole label frame here fixes every springPress
+            // button at once.
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .opacity(configuration.isPressed ? 0.92 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)

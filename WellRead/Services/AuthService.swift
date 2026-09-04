@@ -35,6 +35,11 @@ final class AuthService: ObservableObject {
             Task { @MainActor in
                 self?.firebaseUser = user
                 self?.isLoading = false
+                Analytics.updateOptOut(
+                    uid: user?.uid,
+                    email: user?.email,
+                    displayName: user?.displayName
+                )
                 if let user = user {
                     await self?.loadOrCreateAppUser(firebaseUser: user)
                 } else {

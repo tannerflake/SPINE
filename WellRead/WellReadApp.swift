@@ -18,6 +18,12 @@ import UserNotifications
 /// `nil` when no key is configured — call sites use optional chaining, so
 /// analytics silently no-op instead of crashing.
 enum Analytics {
+    /// Persisted opt-out for internal accounts. Auth state resolves a beat after
+    /// launch, so without a remembered answer the founder's session-start and
+    /// screen-view autocaptures would land before `updateOptOut` could run. The
+    /// flag is written once he signs in and honored from the next launch onward.
+    private static let optOutDefaultsKey = "analyticsOptedOut"
+
     static let amplitude: Amplitude? = {
         guard let key = ApiKeys.amplitude else {
             print("Amplitude API key missing — analytics disabled")
@@ -42,8 +48,25 @@ enum Analytics {
             maskLevel: .medium,
             enableRemoteConfig: false
         ))
+        client.optOut = UserDefaults.standard.bool(forKey: optOutDefaultsKey)
         return client
     }()
+
+    /// Called whenever Firebase Auth state resolves. Internal accounts (the
+    /// founder's own logins, test/App Review logins) are opted out of analytics
+    /// entirely: no events and, since the replay plugin observes `optOut`, no
+    /// session recordings either. Their traffic would otherwise skew every
+    /// product metric on a base of a few hundred real members.
+    ///
+    /// Signed out we keep the last answer rather than resetting: a device that
+    /// was opted out stays opted out until a non-internal account signs in.
+    static func updateOptOut(uid: String?, email: String?, displayName: String?) {
+        guard let uid else { return }
+        let optOut = uid == SpineFounder.uid
+            || TestAccountSignatures.matches(email: email, displayName: displayName)
+        UserDefaults.standard.set(optOut, forKey: optOutDefaultsKey)
+        amplitude?.optOut = optOut
+    }
 }
 
 /// Use the same Firestore database everywhere.
