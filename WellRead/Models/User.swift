@@ -38,6 +38,10 @@ struct User: Identifiable, Codable, Equatable {
     /// account that existed before this field shipped is grandfathered in rather than losing a stamp
     /// it already showed them. See `UserRepository.ensureUserDocument` and `TestAccountSignatures`.
     var ogIneligible: Bool = false
+    /// Readers the user X'd out of a "Readers to follow" feed suggestion
+    /// (`dismissedRecommendedUids` in Firestore). Never suggested again; still
+    /// visible in the roster strip and search, since that's not a recommendation.
+    var dismissedRecommendedUids: [String] = []
 
     static let demo = User(
         id: UUID(),

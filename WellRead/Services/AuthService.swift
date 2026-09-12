@@ -19,6 +19,13 @@ import GoogleSignIn
 final class AuthService: ObservableObject {
     @Published private(set) var firebaseUser: FirebaseAuth.User?
     @Published private(set) var appUser: User?
+    /// True while `appUser` is a synthetic stand-in built from the Firebase Auth
+    /// record because Firestore could not be reached (see `loadOrCreateAppUser`).
+    /// Its profile fields are placeholders — `profileSetupCompleted` is false —
+    /// so nothing may route on them. Routing on them is exactly what used to drop
+    /// a fully onboarded member back into the onboarding wizard after a network
+    /// stall; `RootView` now waits this out instead.
+    @Published private(set) var appUserIsProvisional = false
     @Published private(set) var isLoading = true
     @Published var authError: String?
 
@@ -26,6 +33,9 @@ final class AuthService: ObservableObject {
     private var currentNonce: String?
     private var googleSignInAttempt = 0
     private let userRepo: UserRepository
+    /// Background retry that keeps reaching for the real Firestore document
+    /// while `appUser` is provisional.
+    private var appUserHealTask: Task<Void, Never>?
 
     init(userRepository: UserRepository = UserRepository()) {
         self.userRepo = userRepository
@@ -43,7 +53,10 @@ final class AuthService: ObservableObject {
                 if let user = user {
                     await self?.loadOrCreateAppUser(firebaseUser: user)
                 } else {
+                    self?.appUserHealTask?.cancel()
+                    self?.appUserHealTask = nil
                     self?.appUser = nil
+                    self?.appUserIsProvisional = false
                 }
             }
         }
@@ -55,10 +68,98 @@ final class AuthService: ObservableObject {
         }
     }
 
-    /// Loads the Firestore user document, or builds a minimal User from Firebase Auth so the app never sticks on loading (e.g. offline or slow network).
+    /// Resolves the signed-in account to a `User`, in strict order of trust:
+    /// the live Firestore document, then Firestore's on-disk cache, and only as
+    /// a last resort a placeholder built from the Firebase Auth record so the
+    /// app never sticks on a spinner.
+    ///
+    /// The placeholder carries `profileSetupCompleted: false` and no real handle
+    /// or name, so it is flagged with `appUserIsProvisional` and a retry is
+    /// started. Callers must treat a provisional user as "profile unknown"
+    /// rather than "profile incomplete".
     private func loadOrCreateAppUser(firebaseUser user: FirebaseAuth.User) async {
         let uid = user.uid
-        let fallbackUser = User(
+        if let fromFirestore = await fetchUserDocument(firebaseUser: user) {
+            adopt(fromFirestore, provisional: false)
+        } else if let cached = await userRepo.getCachedUser(uid: uid) {
+            // Firestore is unreachable, but this device has already seen this
+            // member's document. The cached copy is real data: use it rather
+            // than fabricating an empty profile.
+            adopt(cached, provisional: false)
+        } else {
+            adopt(Self.placeholderUser(for: user), provisional: true)
+            startHealingProvisionalUser(firebaseUser: user)
+        }
+        /// FCM may have delivered a registration token before `Auth` had a uid; `persistFCMTokenToFirestore` skipped. Re-fetch and save now.
+        PushNotificationService.syncFCMTokenToFirestoreIfSignedIn()
+    }
+
+    /// One attempt at the server-backed document, bounded by a timeout so a
+    /// stalled Firestore connection can't hang the launch indefinitely.
+    private func fetchUserDocument(firebaseUser user: FirebaseAuth.User, timeout: UInt64 = 10_000_000_000) async -> User? {
+        let uid = user.uid
+        return await withTaskGroup(of: User?.self) { group in
+            group.addTask {
+                await self.userRepo.ensureUserDocument(
+                    uid: uid,
+                    displayName: user.displayName,
+                    email: user.email,
+                    photoURL: user.photoURL?.absoluteString
+                )
+                return await self.userRepo.getUser(uid: uid)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeout)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? nil
+        }
+    }
+
+    private func adopt(_ user: User, provisional: Bool) {
+        if !provisional {
+            appUserHealTask?.cancel()
+            appUserHealTask = nil
+            if let uid = firebaseUser?.uid, !user.needsProfileCompletion {
+                OnboardingCompletionMemo.markComplete(uid: uid)
+            }
+        }
+        appUser = user
+        appUserIsProvisional = provisional
+    }
+
+    /// Keeps retrying the real document behind a provisional user. Without this
+    /// the app would stay on placeholder data for the whole session once a
+    /// launch happened to land during a network stall.
+    private func startHealingProvisionalUser(firebaseUser user: FirebaseAuth.User) {
+        appUserHealTask?.cancel()
+        appUserHealTask = Task { [weak self] in
+            var delay: UInt64 = 2_000_000_000
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: delay)
+                if Task.isCancelled { return }
+                guard let self else { return }
+                // Signed out, or already healed by another path.
+                guard self.firebaseUser?.uid == user.uid, self.appUserIsProvisional else { return }
+                if let resolved = await self.fetchUserDocument(firebaseUser: user, timeout: 15_000_000_000) {
+                    if Task.isCancelled { return }
+                    guard self.firebaseUser?.uid == user.uid else { return }
+                    self.adopt(resolved, provisional: false)
+                    return
+                }
+                delay = min(delay * 2, 30_000_000_000)
+            }
+        }
+    }
+
+    /// Last-resort stand-in so the app renders something when Firestore is
+    /// unreachable and nothing is cached. Never treat its profile fields as
+    /// authoritative — see `appUserIsProvisional`.
+    private static func placeholderUser(for user: FirebaseAuth.User) -> User {
+        let uid = user.uid
+        return User(
             id: UUID(),
             username: user.email?.components(separatedBy: "@").first ?? "user_\(String(uid.prefix(8)))",
             displayName: user.displayName?.isEmpty == false ? user.displayName! : (user.email ?? "User"),
@@ -76,34 +177,23 @@ final class AuthService: ObservableObject {
             readingGoal: nil,
             readingInterestTags: []
         )
-        let fromFirestore: User? = await withTaskGroup(of: User?.self) { group in
-            group.addTask {
-                await self.userRepo.ensureUserDocument(
-                    uid: uid,
-                    displayName: user.displayName,
-                    email: user.email,
-                    photoURL: user.photoURL?.absoluteString
-                )
-                return await self.userRepo.getUser(uid: uid)
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s timeout
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first ?? nil
+    }
+
+    /// Manual retry for the "trouble connecting" state in `RootView`.
+    func retryAppUserLoad() async {
+        guard let user = firebaseUser else { return }
+        if let resolved = await fetchUserDocument(firebaseUser: user) {
+            guard firebaseUser?.uid == user.uid else { return }
+            adopt(resolved, provisional: false)
         }
-        self.appUser = fromFirestore ?? fallbackUser
-        /// FCM may have delivered a registration token before `Auth` had a uid; `persistFCMTokenToFirestore` skipped. Re-fetch and save now.
-        PushNotificationService.syncFCMTokenToFirestoreIfSignedIn()
     }
 
     /// Refreshes appUser from Firestore (e.g. after profile photo upload). Call from MainActor.
     func refreshAppUser() async {
         guard let uid = firebaseUser?.uid else { return }
         if let user = await userRepo.getUser(uid: uid) {
-            self.appUser = user
+            guard firebaseUser?.uid == uid else { return }
+            adopt(user, provisional: false)
         }
     }
 
@@ -280,6 +370,8 @@ final class AuthService: ObservableObject {
         _ = try await Functions.functions(region: "us-central1")
             .httpsCallable("deleteAccount")
             .call([:])
+
+        OnboardingCompletionMemo.forget(uid: user.uid)
 
         // The Auth user is gone server-side; clear the local session so the
         // auth listener flips the app back to the welcome screen.

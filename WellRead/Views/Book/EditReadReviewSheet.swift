@@ -93,46 +93,14 @@ struct EditReadReviewSheet: View {
                         Text("Read dates")
                             .font(Theme.caption())
                             .foregroundStyle(Theme.textSecondary)
-                        HStack(spacing: 8) {
-                            Image(systemName: "pencil")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(Theme.textSecondary)
-                            DatePicker("", selection: $dateFinished, displayedComponents: .date)
-                                .datePickerStyle(.compact)
-                                .labelsHidden()
-                                .tint(Theme.accent)
-                            if !additionalReadDates.isEmpty {
-                                Button {
-                                    removePrimaryReadDate()
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundStyle(Theme.danger)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
+                        readDateRow($dateFinished, onDelete: additionalReadDates.isEmpty ? nil : { removePrimaryReadDate() })
                         ForEach(additionalReadDates.indices, id: \.self) { i in
-                            HStack(spacing: 8) {
-                                Image(systemName: "pencil")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(Theme.textSecondary)
-                                DatePicker("", selection: $additionalReadDates[i], displayedComponents: .date)
-                                    .datePickerStyle(.compact)
-                                    .labelsHidden()
-                                    .tint(Theme.accent)
-                                Button {
-                                    additionalReadDates.remove(at: i)
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundStyle(Theme.danger)
-                                }
-                                .buttonStyle(.plain)
-                            }
+                            readDateRow($additionalReadDates[i], onDelete: { additionalReadDates.remove(at: i) })
                         }
                         Button {
-                            additionalReadDates.append(dateFinished)
+                            // Never seed a re-read with the long-ago sentinel: two
+                            // "a long, long time ago" rows say nothing.
+                            additionalReadDates.append(ReadDate.isLongAgo(dateFinished) ? Date() : dateFinished)
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "plus.circle")
@@ -285,6 +253,55 @@ struct EditReadReviewSheet: View {
                 Task { await deleteReview() }
             }
             Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    /// One read date. A long-ago read reads as prose, never as the 1900 sentinel:
+    /// "Pick a date" swaps it back to a real calendar, the hourglass swaps it the
+    /// other way.
+    @ViewBuilder
+    private func readDateRow(_ date: Binding<Date>, onDelete: (() -> Void)?) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: ReadDate.isLongAgo(date.wrappedValue) ? "hourglass" : "pencil")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+            if ReadDate.isLongAgo(date.wrappedValue) {
+                Text("A long, long time ago")
+                    .font(Theme.callout())
+                    .foregroundStyle(Theme.textPrimary)
+                Button {
+                    date.wrappedValue = Date()
+                } label: {
+                    Text("Pick a date")
+                        .font(Theme.caption())
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 0)
+            } else {
+                DatePicker("", selection: date, displayedComponents: .date)
+                    .datePickerStyle(.compact)
+                    .labelsHidden()
+                    .tint(Theme.accent)
+                Button {
+                    date.wrappedValue = ReadDate.longAgo
+                } label: {
+                    Image(systemName: "hourglass")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("A long, long time ago")
+            }
+            if let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.danger)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 

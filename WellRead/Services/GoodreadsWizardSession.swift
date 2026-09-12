@@ -129,6 +129,7 @@ struct GoodreadsWizardSession: Codable {
             switch GoodreadsImportService.status(for: row.exclusiveShelf) {
             case .read: read.append(row)
             case .wantToRead, .currentlyReading: queue.append(row)
+            case .didNotFinish: break // never produced by this mapping today
             }
         }
         read.sort { sortDate($0) > sortDate($1) }

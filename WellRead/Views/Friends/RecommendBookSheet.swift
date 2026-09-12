@@ -21,8 +21,9 @@ struct RecommendBookSheet: View {
         let user: User
     }
 
-    @State private var readers: [Reader] = []
-    @State private var isLoading = true
+    /// Shared roster, cached across presentations (see `UserDirectory`) so the
+    /// list is there the moment the sheet opens.
+    @ObservedObject private var directory = UserDirectory.shared
     @State private var searchText = ""
     @State private var note = ""
     @State private var sendingTo: Set<String> = []
@@ -91,9 +92,7 @@ struct RecommendBookSheet: View {
         // An unsent note survives a deep-link tap.
         .composerDraftGuard(note)
         .task {
-            let list = await UserRepository().fetchAllReaderProfiles(excludingUid: appState.authUserId, limit: 500)
-            readers = list.map { Reader(uid: $0.uid, user: $0.user) }
-            isLoading = false
+            directory.warm(uid: appState.authUserId, following: appState.currentUser?.following ?? [])
         }
     }
 
@@ -212,6 +211,12 @@ struct RecommendBookSheet: View {
             size: 40
         )
     }
+
+    private var readers: [Reader] {
+        directory.readers.map { Reader(uid: $0.id, user: $0.user) }
+    }
+
+    private var isLoading: Bool { directory.isLoading }
 
     private var filteredReaders: [Reader] {
         guard !searchText.isEmpty else { return readers }

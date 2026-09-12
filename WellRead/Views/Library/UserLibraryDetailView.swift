@@ -77,6 +77,10 @@ struct UserLibraryDetailView: View {
         return Self.sortedBacklog(backlog)
     }
 
+    private var dnfBooks: [UserBook] {
+        books.filter { $0.status == .didNotFinish }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
     private static func sortedBacklog(_ books: [UserBook]) -> [UserBook] {
         let explicit = books.filter { $0.queueOrder != nil }.sorted { $0.queueOrder! < $1.queueOrder! }
         let implicit = books.filter { $0.queueOrder == nil }.sorted { $0.updatedAt > $1.updatedAt }
@@ -206,6 +210,7 @@ struct UserLibraryDetailView: View {
                 isOnReadList: appState.isBookOnReadList(bookId: book.id),
                 isInQueue: appState.isBookInQueue(bookId: book.id),
                 onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
+                onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
                 // On someone else's library their review lives in "Read by"
                 // (pinned + highlighted via sourceReaderUid) instead of a
                 // duplicate top card; own library keeps the review card.
@@ -556,6 +561,7 @@ struct UserLibraryDetailView: View {
                 readingNow: wantToReadReadingNow,
                 upNext: wantToReadUpNext,
                 backlog: wantToReadBacklog,
+                dnf: dnfBooks,
                 onUpdateShelfAndOrder: { _, _, _ in },
                 onBookTap: { selectedBookForProfile = $0 },
                 readOnly: true

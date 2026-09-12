@@ -16,10 +16,14 @@ struct ProfileLibraryView: View {
     @EnvironmentObject var queueDragCoordinator: QueueBookDragCoordinator
     @State private var segment: LibraryReadQueueTab = .read
     @State private var selectedYear: Int? = nil
+    /// Tier list multi-select is active: hides the floating + button under its action bar.
+    @State private var isTierSelecting = false
     @State private var selectedBookForProfile: Book? = nil
     @State private var showGoodreadsImport = false
     @State private var goodreadsImportInitialRows: [GoodreadsRow]? = nil
     @State private var showGoodreadsImportErrorAlert = false
+    /// Resume a paused link → queue session from the queue callout.
+    @State private var showLinkImportResume = false
     /// Dropped a queue book onto the Read tab — show mark-as-read flow before updating Firestore.
     @State private var pendingMarkReadFromQueue: UserBook?
     /// Shelf whose "Add" tile was tapped — presents the search sheet scoped to that shelf.
@@ -44,6 +48,22 @@ struct ProfileLibraryView: View {
     @AppStorage(AppearancePreference.storageKey) private var appearanceRaw = AppearancePreference.defaultValue.rawValue
     #if DEBUG
     #endif
+
+    /// The App Store rating prompt (owned by MainTabView) may only land on a
+    /// plain, unobstructed view of the viewer's own tier list with something
+    /// actually ranked in it. Every local sheet, cover and push is listed here so
+    /// the prompt never stacks on top of one the user opened themselves.
+    private var isShowingOwnRankedTierList: Bool {
+        segment == .read
+            && appState.readBooks.contains { $0.tier != nil }
+            && selectedBookForProfile == nil
+            && addToShelfTarget == nil
+            && pendingMarkReadFromQueue == nil
+            && !isTierSelecting
+            && !showYearList && !showUserFeed && !showMyCard
+            && !showEditProfile && !showNotifications && !showLinkImportResume
+            && !showGoodreadsImport && !showAddBookSearch
+    }
 
     private var readBooksFilteredByYear: [UserBook] {
         let read = appState.readBooks
@@ -109,20 +129,32 @@ struct ProfileLibraryView: View {
                         .padding(.vertical, 2)
                     }
 
-                    if segment == .read && appState.goodreadsWizardRemainingCount > 0 {
-                        goodreadsResumeCallout
-                    }
+                    resumeCallouts
 
                     libraryContent
                 }
                 .padding(.horizontal, 4)
             }
             .overlay(alignment: .bottomTrailing) {
-                floatingAddBookButton
+                // Out of the way while the tier list's selection bar owns the bottom edge.
+                if !isTierSelecting {
+                    floatingAddBookButton
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.background, for: .navigationBar)
-            .onAppear { appState.refreshGoodreadsWizardResumeState() }
+            .onAppear {
+                appState.refreshGoodreadsWizardResumeState()
+                appState.refreshLinkImportResumeState()
+            }
+            .sheet(isPresented: $showLinkImportResume, onDismiss: {
+                appState.refreshLinkImportResumeState()
+            }) {
+                LinkImportView(payload: nil)
+                    .environmentObject(appState)
+                    .environmentObject(authService)
+            }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationsView()
                     .environmentObject(authService)
@@ -151,6 +183,7 @@ struct ProfileLibraryView: View {
                     isOnReadList: appState.isBookOnReadList(bookId: book.id),
                     isInQueue: appState.isBookInQueue(bookId: book.id),
                     onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
+                    onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
                     readEntryForReview: appState.userReadBook(forBookId: book.id),
                     canEditReadReview: true
                 )
@@ -186,6 +219,15 @@ struct ProfileLibraryView: View {
                         .environmentObject(authService)
                         .environmentObject(appState)
                 }
+            }
+            // Publishes "the user is looking at their own ranked tier list right
+            // now" for the rating prompt. `initial: true` covers the common case:
+            // a returning user whose library loaded before this view mounted.
+            .onChange(of: isShowingOwnRankedTierList, initial: true) { _, showing in
+                appState.isViewingOwnRankedTierList = showing
+            }
+            .onDisappear {
+                appState.isViewingOwnRankedTierList = false
             }
             // Same full page as the Search tab, presented over the library and scoped
             // to the shelf whose "Add" tile was tapped (hence the Cancel button).
@@ -260,27 +302,21 @@ struct ProfileLibraryView: View {
                 segment = .wantToRead
             }
             .sheet(item: $pendingMarkReadFromQueue) { userBook in
-                MarkAsReadQueueSheet(
-                    userBook: userBook,
-                    onConfirm: { date, rating, postToFeed, caption, tier in
-                        guard let latest = appState.userBooks.first(where: { $0.id == userBook.id && $0.status == .wantToRead }) else {
-                            pendingMarkReadFromQueue = nil
-                            return
-                        }
-                        appState.promoteQueueEntryToRead(
-                            userBook: latest,
-                            dateFinished: date,
-                            rating: rating,
-                            postToFeed: postToFeed,
-                            caption: caption,
-                            tier: tier
-                        )
+                MarkAsReadDrawer(bookId: userBook.bookId, book: userBook.book) { date, rating, postToFeed, caption, tier in
+                    guard let latest = appState.userBooks.first(where: { $0.id == userBook.id && $0.status == .wantToRead }) else {
                         pendingMarkReadFromQueue = nil
-                    },
-                    onCancel: {
-                        pendingMarkReadFromQueue = nil
+                        return
                     }
-                )
+                    appState.promoteQueueEntryToRead(
+                        userBook: latest,
+                        dateFinished: date,
+                        rating: rating,
+                        postToFeed: postToFeed,
+                        caption: caption,
+                        tier: tier
+                    )
+                    pendingMarkReadFromQueue = nil
+                }
             }
         }
     }
@@ -731,6 +767,66 @@ struct ProfileLibraryView: View {
         return full.firstIndex(where: { $0.id == insertBefore.id })
     }
 
+    /// Paused-import callouts, one per segment (kept out of `body` — a second
+    /// conditional there tipped the type checker over its limit).
+    @ViewBuilder
+    private var resumeCallouts: some View {
+        if segment == .read && appState.goodreadsWizardRemainingCount > 0 {
+            goodreadsResumeCallout
+        }
+        if segment == .wantToRead && appState.linkImportRemainingCount > 0 {
+            linkImportResumeCallout
+        }
+    }
+
+    /// "Finish adding" callout above the queue when a link → queue session is
+    /// paused. Tapping resumes exactly where the user left off.
+    private var linkImportResumeCallout: some View {
+        Button {
+            showLinkImportResume = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "link")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Theme.onChrome)
+                    .frame(width: 30, height: 30)
+                    .background(Theme.accentGloss)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(SpinesGlyphs.caps("Finish adding books"))
+                        .font(.system(size: 12, weight: .bold))
+                        .tracking(0.5)
+                        .foregroundStyle(Theme.accent)
+                    Text(linkImportResumeMessage)
+                        .font(Theme.caption())
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            .padding(10)
+            .background(Theme.surfaceElevated)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
+                    .strokeBorder(Theme.accent.opacity(0.45), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, Theme.horizontalPadding - 4)
+        .padding(.bottom, 8)
+    }
+
+    private var linkImportResumeMessage: String {
+        let n = appState.linkImportRemainingCount
+        let noun = n == 1 ? "book" : "books"
+        let source = appState.loadLinkImportSession()?.sourceLabel ?? ""
+        return source.isEmpty ? "\(n) \(noun) left from a shared link" : "\(n) \(noun) left from \(source)"
+    }
+
     private var goodreadsResumeMessage: String {
         let n = appState.goodreadsWizardRemainingCount
         let noun = n == 1 ? "book" : "books"
@@ -754,13 +850,23 @@ struct ProfileLibraryView: View {
                     selectedYear: selectedYear,
                     countForYear: { readBookCount(forYear: $0) },
                     onSelect: { selectedYear = $0 }
-                )
+                ),
+                multiSelect: TierMultiSelectActions(
+                    moveToTier: { ids, tier in appState.moveReadBooksToTier(userBookIds: ids, tier: tier) },
+                    remove: { ids in await appState.removeReadBooks(userBookIds: ids) },
+                    setReadYear: { ids, year in appState.setReadYear(userBookIds: ids, year: year) },
+                    userId: appState.authUserId
+                ),
+                onSelectionModeChanged: { selecting in
+                    withAnimation(.easeInOut(duration: 0.2)) { isTierSelecting = selecting }
+                }
             )
         } else {
             QueueLibraryView(
                 readingNow: appState.wantToReadReadingNow,
                 upNext: appState.wantToReadUpNext,
                 backlog: appState.wantToReadBacklog,
+                dnf: appState.dnfBooks,
                 onUpdateShelfAndOrder: { id, shelf, idx in
                     appState.setQueueShelfAndOrder(for: id, shelf: shelf, insertionIndex: idx)
                 },
@@ -769,7 +875,12 @@ struct ProfileLibraryView: View {
                 recommendations: appState.incomingRecommendations,
                 recommenderNames: appState.recommenderProfiles.mapValues(\.displayName),
                 onAcceptRecommendation: { appState.acceptRecommendation($0) },
-                onDismissRecommendation: { appState.dismissRecommendation($0) }
+                onDismissRecommendation: { appState.dismissRecommendation($0) },
+                onCommitProgress: { id, fraction in appState.setReadingProgress(userBookId: id, progress: fraction) },
+                onMarkFinished: { ub in
+                    guard ub.book != nil else { return }
+                    pendingMarkReadFromQueue = ub
+                }
             )
         }
     }
@@ -779,135 +890,5 @@ struct ProfileLibraryView: View {
 private struct ShelfAddTarget: Identifiable {
     let shelf: QueueShelf
     var id: String { shelf.rawValue }
-}
-
-// MARK: - Mark as read (queue → Read tab drop)
-
-private struct MarkAsReadQueueSheet: View {
-    let userBook: UserBook
-    /// (dateFinished, rating, postToFeed, thoughts, tier). Tier nil = Unranked → tier-list "Rank me" prompt.
-    let onConfirm: (Date, Double?, Bool, String?, String?) -> Void
-    let onCancel: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var isThoughtsFocused: Bool
-    @State private var markAsReadDate = Date()
-    @State private var markAsReadPostToFeed = true
-    @State private var markAsReadThoughts = ""
-    @State private var selectedTier: String? = nil
-
-    private var bookTitle: String {
-        userBook.book?.title ?? "Book"
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text(bookTitle)
-                            .font(Theme.title())
-                            .foregroundStyle(Theme.textPrimary)
-                            .lineLimit(4)
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Mark as read")
-                                .font(Theme.title2())
-                                .foregroundStyle(Theme.textPrimary)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("When did you finish?")
-                                    .font(Theme.caption())
-                                    .foregroundStyle(Theme.textSecondary)
-                                DatePicker("", selection: $markAsReadDate, displayedComponents: .date)
-                                    .datePickerStyle(.compact)
-                                    .labelsHidden()
-                                    .tint(Theme.accent)
-                            }
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Thoughts")
-                                    .font(Theme.caption())
-                                    .foregroundStyle(Theme.textSecondary)
-                                ZStack(alignment: .topLeading) {
-                                    if markAsReadThoughts.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                        Text("Thoughts on this book…")
-                                            .font(Theme.body())
-                                            .foregroundStyle(Theme.textSecondary.opacity(0.7))
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 10)
-                                    }
-                                    TextEditor(text: $markAsReadThoughts)
-                                        .font(Theme.body())
-                                        .foregroundStyle(Theme.textPrimary)
-                                        .scrollContentBackground(.hidden)
-                                        .frame(minHeight: 160, maxHeight: 320)
-                                        .focused($isThoughtsFocused)
-                                }
-                                .padding(12)
-                                .background(Theme.background.opacity(0.6))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                            }
-                            .id("markReadThoughtsBlock")
-
-                            InlineTierPicker(selection: $selectedTier)
-
-                            Toggle(isOn: $markAsReadPostToFeed) {
-                                Text("Post to feed")
-                                    .font(Theme.callout())
-                                    .foregroundStyle(Theme.textPrimary)
-                            }
-                            .tint(Theme.toggleOn)
-
-                            Button {
-                                let date = markAsReadDate
-                                let post = markAsReadPostToFeed
-                                let thoughts = markAsReadThoughts.trimmingCharacters(in: .whitespacesAndNewlines)
-                                onConfirm(date, nil, post, thoughts.isEmpty ? nil : thoughts, selectedTier)
-                                dismiss()
-                            } label: {
-                                Text("Mark as read")
-                                    .font(Theme.headline())
-                                    .foregroundStyle(Theme.background)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                    .background(Theme.accentGloss)
-                                    .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(20)
-                    .padding(.bottom, 24)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: isThoughtsFocused) { _, focused in
-                    if focused {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                proxy.scrollTo("markReadThoughtsBlock", anchor: .center)
-                            }
-                        }
-                    }
-                }
-            }
-            .background(Theme.background)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        onCancel()
-                        dismiss()
-                    }
-                }
-            }
-        }
-        .presentationDetents([.large])
-        // Half-typed thoughts survive a deep-link tap.
-        .composerDraftGuard(markAsReadThoughts)
-        .onAppear {
-            markAsReadDate = Date()
-            markAsReadPostToFeed = true
-            markAsReadThoughts = ""
-            selectedTier = nil
-        }
-    }
 }
 

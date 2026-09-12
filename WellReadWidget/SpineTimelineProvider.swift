@@ -4,9 +4,14 @@
 //
 //  Renders whatever the app last wrote into the App Group. The app calls
 //  WidgetCenter.reloadAllTimelines() after each snapshot write. When the
-//  snapshot has more content than fits one frame (multiple own books, or
-//  more friend books than one page), the timeline carries minute-cadence
-//  entries that rotate through it; otherwise a single .never entry.
+//  snapshot holds more friend books than one page shows, the timeline carries
+//  minute-cadence entries that rotate through them; otherwise a single .never
+//  entry.
+//
+//  One minute is WidgetKit's practical floor for swapping pre-rendered entries;
+//  a widget cannot animate or tick on its own, so a faster cycle is not
+//  available at any budget. The friends pane compensates by showing four books
+//  per page instead of three.
 //
 
 import WidgetKit
@@ -53,10 +58,11 @@ struct SpineTimelineProvider: TimelineProvider {
         completion(Timeline(entries: entries, policy: .atEnd))
     }
 
+    /// Only the friends pane pages now — both families show the reader's whole
+    /// Reading now shelf at once, so a shelf alone never needs a timeline.
     private static func hasRotatingContent(_ snapshot: WidgetSnapshot?) -> Bool {
         guard let snapshot, snapshot.isSignedIn else { return false }
-        return snapshot.myBooks.count > 1
-            || snapshot.friendBookItems.count > MediumWidgetView.friendsPerPage
+        return snapshot.friendBookItems.count > MediumWidgetView.friendsPerPage
     }
 }
 
@@ -67,8 +73,8 @@ extension WidgetSnapshot {
         schemaVersion: WidgetSharedStore.currentSchemaVersion,
         isSignedIn: true,
         myBooks: [
-            BookEntry(bookId: "sample-1", title: "East of Eden", author: "John Steinbeck", coverFilename: nil),
-            BookEntry(bookId: "sample-2", title: "Giovanni's Room", author: "James Baldwin", coverFilename: nil),
+            BookEntry(bookId: "sample-1", title: "East of Eden", author: "John Steinbeck", coverFilename: nil, progress: 0.62),
+            BookEntry(bookId: "sample-2", title: "Giovanni's Room", author: "James Baldwin", coverFilename: nil, progress: 0.18),
         ],
         friends: [
             FriendEntry(uid: "f1", displayName: "Avery", avatarFilename: nil, books: [
@@ -79,6 +85,9 @@ extension WidgetSnapshot {
             ]),
             FriendEntry(uid: "f3", displayName: "Sam", avatarFilename: nil, books: [
                 BookEntry(bookId: "sample-5", title: "Dune", author: "Frank Herbert", coverFilename: nil),
+            ]),
+            FriendEntry(uid: "f4", displayName: "Robin", avatarFilename: nil, books: [
+                BookEntry(bookId: "sample-6", title: "Piranesi", author: "Susanna Clarke", coverFilename: nil),
             ]),
         ],
         generatedAt: .now

@@ -2,7 +2,11 @@
 //  ShareViewController.swift
 //  WellReadShareExtension
 //
-//  Receives shared Goodreads link (or file), saves it, shows a modal with "Open SPINE" so the user can return to the app.
+//  Receives a share from another app and hands it to SPINE:
+//   • a Goodreads export link / CSV → the Goodreads import
+//   • any other link, web page, or text → "add to queue" (the app reads the
+//     page, finds the books it mentions, and walks the user through queuing them)
+//  Saves the payload to the App Group, then shows a modal with "Open SPINE".
 //
 
 import UIKit
@@ -13,6 +17,11 @@ private let appGroupId = "group.com.wellread.app"
 private let keychainService = "WellReadGoodreadsImport"
 private let keychainAccount = "PendingURL"
 private let wellReadImportURL = URL(string: "wellread://goodreads-import")!
+private let wellReadLinkImportURL = URL(string: "wellread://link-import")!
+// Link → queue payload. Mirrors LinkImportShareHelper in the app target.
+private let pendingLinkImportKey = "PendingLinkImport"
+private let pendingLinkImportFileName = "pending_link_import.json"
+private let pendingLinkImportPayloadKey = "PendingLinkImportPayload"
 private let sharedFileName = "incoming_goodreads.csv"
 private let pendingImportURLFileName = "pending_import_url.txt"
 private let pendingImportKey = "PendingGoodreadsImport"
@@ -28,6 +37,9 @@ final class ShareViewController: UIViewController {
     private let titleLabel = UILabel()
     private let messageLabel = UILabel()
     private let openButton = UIButton(type: .system)
+    /// Which flow "Open SPINE" lands on — Goodreads import by default, the
+    /// link → queue flow once a non-Goodreads share has been saved.
+    private var openTarget: URL = wellReadImportURL
 
     private static func isGoodreadsCSV(_ data: Data) -> Bool {
         guard data.count > 10, let head = String(data: data.prefix(1024), encoding: .utf8) else { return false }
@@ -117,7 +129,7 @@ final class ShareViewController: UIViewController {
     }
 
     @objc private func openThenFinish() {
-        extensionContext?.open(wellReadImportURL) { [weak self] _ in
+        extensionContext?.open(openTarget) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.finish()
             }
@@ -132,14 +144,39 @@ final class ShareViewController: UIViewController {
         for item in items {
             guard let attachments = item.attachments, !attachments.isEmpty else { continue }
             for provider in attachments {
+                // Safari (with LinkShare.js) hands over the page's URL, title, and
+                // visible text in one property list — no refetch needed in the app.
+                if provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier) {
+                    provider.loadItem(forTypeIdentifier: UTType.propertyList.identifier, options: nil) { [weak self] item, _ in
+                        guard let self = self else { return }
+                        let results = (item as? [String: Any])?[NSExtensionJavaScriptPreprocessingResultsKey] as? [String: Any]
+                        let urlString = results?["url"] as? String
+                        if let export = Self.goodreadsExportURL(from: urlString) {
+                            self.saveURLAndShowModal(export)
+                            return
+                        }
+                        let url = urlString.flatMap { URL(string: $0) }
+                        guard url != nil || !((results?["text"] as? String) ?? "").isEmpty else {
+                            self.saveErrorAndShowModal(message: "Couldn't read the page. Try sharing the link again.")
+                            return
+                        }
+                        self.saveLinkAndShowModal(
+                            url: url,
+                            title: results?["title"] as? String,
+                            description: results?["description"] as? String,
+                            text: results?["text"] as? String
+                        )
+                    }
+                    return
+                }
                 // Prefer URL (Goodreads often shares the export link as URL or plain text); then file/data.
                 if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                     provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] url, _ in
-                        guard let self = self, let link = url as? URL else { self?.saveErrorAndShowModal(message: "Couldn't read the link. Try sharing again from Goodreads."); return }
+                        guard let self = self, let link = url as? URL else { self?.saveErrorAndShowModal(message: "Couldn't read the link. Try sharing again."); return }
                         if link.isFileURL {
                             self.handleFileURL(link)
                         } else {
-                            self.saveURLAndShowModal(link)
+                            self.routeWebURL(link)
                         }
                     }
                     return
@@ -157,9 +194,9 @@ final class ShareViewController: UIViewController {
                         if let data = payload as? Data {
                             self.handleCSVData(data)
                         } else if let url = payload as? URL {
-                            if url.isFileURL { self.handleFileURL(url) } else { self.saveURLAndShowModal(url) }
+                            if url.isFileURL { self.handleFileURL(url) } else { self.routeWebURL(url) }
                         } else {
-                            self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share the Goodreads export link or CSV file to SPINE.")
+                            self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to SPINE.")
                         }
                     }
                     return
@@ -184,9 +221,9 @@ final class ShareViewController: UIViewController {
                         if let data = payload as? Data {
                             self.handleCSVData(data)
                         } else if let url = payload as? URL {
-                            if url.isFileURL { self.handleFileURL(url) } else { self.saveURLAndShowModal(url) }
+                            if url.isFileURL { self.handleFileURL(url) } else { self.routeWebURL(url) }
                         } else {
-                            self.saveErrorAndShowModal(message: "Couldn't read the shared content. Save the CSV to Files, then share that file to SPINE.")
+                            self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to SPINE.")
                         }
                     }
                     return
@@ -222,37 +259,107 @@ final class ShareViewController: UIViewController {
             if let data = payload as? Data {
                 self.handleCSVData(data)
             } else if let url = payload as? URL {
-                if url.isFileURL { self.handleFileURL(url) } else { self.saveURLAndShowModal(url) }
+                if url.isFileURL { self.handleFileURL(url) } else { self.routeWebURL(url) }
             } else if let str = payload as? String {
-                if let url = Self.goodreadsExportURL(from: str) {
-                    self.saveURLAndShowModal(url)
-                } else if let data = str.data(using: .utf8) {
-                    self.handleCSVData(data)
-                } else {
-                    self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share the Goodreads export link or CSV file to SPINE.")
-                }
+                self.handleTextOrDataItem(str)
             } else {
-                self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share the Goodreads export link or CSV file to SPINE.")
+                self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to SPINE.")
             }
         }
     }
 
     private func handleTextOrDataItem(_ item: Any?) {
         if let data = item as? Data {
-            handleCSVData(data)
+            if Self.isGoodreadsCSV(data) {
+                handleCSVData(data)
+            } else if let str = String(data: data, encoding: .utf8) {
+                handleTextOrDataItem(str)
+            } else {
+                saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to SPINE.")
+            }
             return
         }
         if let str = item as? String {
-            if let url = Self.goodreadsExportURL(from: str) {
+            let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let url = Self.goodreadsExportURL(from: trimmed) {
                 saveURLAndShowModal(url)
                 return
             }
-            if let data = str.data(using: .utf8) {
+            if let data = trimmed.data(using: .utf8), Self.isGoodreadsCSV(data) {
                 handleCSVData(data)
                 return
             }
+            // A bare link pasted as text (the TikTok / Instagram apps share this way).
+            if !trimmed.contains(where: \.isWhitespace),
+               let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+                routeWebURL(url)
+                return
+            }
+            // Anything else — a caption, a highlighted paragraph, a pasted list —
+            // goes to the app as text for it to pull book titles out of.
+            guard trimmed.count >= 3 else {
+                saveErrorAndShowModal(message: "That share was empty. Share a link, a web page, or some text that mentions books.")
+                return
+            }
+            saveLinkAndShowModal(url: nil, title: nil, description: nil, text: trimmed)
+            return
         }
-        saveErrorAndShowModal(message: "Couldn't read the shared text. Make sure you're sharing the Goodreads export link or CSV.")
+        saveErrorAndShowModal(message: "Couldn't read the shared text. Share a link, a web page, or a Goodreads CSV file to SPINE.")
+    }
+
+    /// A non-file URL: Goodreads export links keep their import flow; every other
+    /// link is a page the app should read for books to queue.
+    private func routeWebURL(_ url: URL) {
+        if let export = Self.goodreadsExportURL(from: url.absoluteString) {
+            saveURLAndShowModal(export)
+        } else {
+            saveLinkAndShowModal(url: url, title: nil, description: nil, text: nil)
+        }
+    }
+
+    /// Save a link → queue payload (URL plus whatever page text Safari captured)
+    /// to the App Group, then show the modal. Falls back to the shared
+    /// UserDefaults (with the text trimmed) when the container is unavailable.
+    private func saveLinkAndShowModal(url: URL?, title: String?, description: String?, text: String?) {
+        var payload: [String: Any] = ["receivedAt": Date().timeIntervalSince1970]
+        if let url { payload["url"] = url.absoluteString }
+        if let title, !title.isEmpty { payload["title"] = title }
+        if let description, !description.isEmpty { payload["description"] = description }
+        if let text, !text.isEmpty { payload["text"] = text }
+        let defaults = UserDefaults(suiteName: appGroupId)
+        // A stale Goodreads share must not fire alongside this one.
+        defaults?.set(false, forKey: pendingImportKey)
+        defaults?.removeObject(forKey: pendingImportErrorKey)
+        defaults?.removeObject(forKey: pendingImportURLKey)
+        defaults?.removeObject(forKey: pendingLinkImportPayloadKey)
+        var saved = false
+        if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId),
+           let data = try? JSONSerialization.data(withJSONObject: payload) {
+            let dest = container.appendingPathComponent(pendingLinkImportFileName)
+            _ = try? FileManager.default.removeItem(at: dest)
+            saved = (try? data.write(to: dest)) != nil
+        }
+        if !saved {
+            var small = payload
+            if let text = text, text.count > 20_000 { small["text"] = String(text.prefix(20_000)) }
+            if let data = try? JSONSerialization.data(withJSONObject: small),
+               let json = String(data: data, encoding: .utf8) {
+                defaults?.set(json, forKey: pendingLinkImportPayloadKey)
+                saved = true
+            }
+        }
+        guard saved else {
+            saveErrorAndShowModal(message: "Couldn't save the link. Copy it and paste it into SPINE's search instead.")
+            return
+        }
+        defaults?.set(true, forKey: pendingLinkImportKey)
+        defaults?.synchronize()
+        clearCSVPasteboardKeychainFlag()
+        openTarget = wellReadLinkImportURL
+        DispatchQueue.main.async { [weak self] in
+            self?.titleLabel.text = "Add to your queue"
+            self?.showModal(message: "Link received. Tap Open SPINE to find the books.", linkReceived: true)
+        }
     }
 
     /// Handle file URL: read contents (in case copy fails due to sandbox). If CSV, save and show modal; else copy file and show modal.
@@ -280,6 +387,7 @@ final class ShareViewController: UIViewController {
                 UserDefaults(suiteName: appGroupId)?.set(true, forKey: pendingImportKey)
                 UserDefaults(suiteName: appGroupId)?.removeObject(forKey: pendingImportErrorKey)
                 UserDefaults(suiteName: appGroupId)?.removeObject(forKey: pendingImportURLKey)
+                UserDefaults(suiteName: appGroupId)?.set(false, forKey: pendingLinkImportKey)
                 UserDefaults(suiteName: appGroupId)?.synchronize()
                 clearCSVPasteboardKeychainFlag()
                 DispatchQueue.main.async { [weak self] in
@@ -351,6 +459,7 @@ final class ShareViewController: UIViewController {
         let defaults = UserDefaults(suiteName: appGroupId)
         defaults?.set(urlString, forKey: pendingImportURLKey)
         defaults?.set(false, forKey: pendingImportKey)
+        defaults?.set(false, forKey: pendingLinkImportKey)
         defaults?.removeObject(forKey: pendingImportErrorKey)
         defaults?.synchronize()
         if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId) {

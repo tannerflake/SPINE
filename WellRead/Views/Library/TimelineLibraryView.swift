@@ -18,7 +18,7 @@ struct TimelineLibraryView: View {
         var dict: [String: [UserBook]] = [:]
         for ub in withDate {
             guard let d = ub.dateFinished else { continue }
-            let key = formatter.string(from: d)
+            let key = ReadDate.isLongAgo(d) ? ReadDate.oldLabel : formatter.string(from: d)
             dict[key, default: []].append(ub)
         }
         return dict.sorted { ($0.value.first?.dateFinished ?? .distantPast) > ($1.value.first?.dateFinished ?? .distantPast) }

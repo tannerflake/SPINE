@@ -70,7 +70,9 @@ final class WidgetDataService {
     private func refresh(appState: AppState) async {
         guard let uid = appState.authUserId else { return }
 
-        let ownBooks = appState.wantToReadReadingNow.prefix(Self.maxOwnBooks).compactMap(\.book)
+        // Keep the UserBook alongside the Book: the widget draws each cover's
+        // bookmark + percent from `readingProgress`, which only the row carries.
+        let ownRows = appState.wantToReadReadingNow.prefix(Self.maxOwnBooks)
 
         var friends: [WidgetSnapshot.FriendEntry]
         if let cached = cachedFriends, let last = lastFriendFetch,
@@ -83,8 +85,9 @@ final class WidgetDataService {
         }
 
         var myEntries: [WidgetSnapshot.BookEntry] = []
-        for book in ownBooks {
-            myEntries.append(await bookEntry(for: book))
+        for row in ownRows {
+            guard let book = row.book else { continue }
+            myEntries.append(await bookEntry(for: book, progress: row.readingProgress))
         }
 
         let snapshot = WidgetSnapshot(
@@ -135,12 +138,15 @@ final class WidgetDataService {
 
     // MARK: - Images
 
-    private func bookEntry(for book: Book) async -> WidgetSnapshot.BookEntry {
+    /// `progress` is nil for friends' books (their `UserBook` rows aren't fetched)
+    /// and for own books the reader has never scrubbed.
+    private func bookEntry(for book: Book, progress: Double? = nil) async -> WidgetSnapshot.BookEntry {
         WidgetSnapshot.BookEntry(
             bookId: book.id,
             title: book.title,
             author: book.author,
-            coverFilename: await coverFilename(for: book)
+            coverFilename: await coverFilename(for: book),
+            progress: progress.map { min(1, max(0, $0)) }
         )
     }
 

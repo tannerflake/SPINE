@@ -243,8 +243,21 @@ struct TierListView: View {
     var selectedBookIds: Set<String> = []
     /// When set, the S tier box grows a header strip with this year dropdown in its top-right corner.
     var yearFilter: TierYearFilter? = nil
+    /// Non-nil turns on double-tap multi-select (own library only; ignored with `readOnly`).
+    var multiSelect: TierMultiSelectActions? = nil
+    /// Fires as selection mode starts and ends so the owner can clear chrome that
+    /// would collide with the bottom action bar (the floating + button).
+    var onSelectionModeChanged: ((Bool) -> Void)? = nil
 
     @EnvironmentObject private var queueDragCoordinator: QueueBookDragCoordinator
+
+    // Multi-select (see TierMultiSelect.swift for the bar, sheet and cover runner).
+    @State private var isSelecting = false
+    @State private var selection: Set<UUID> = []
+    @State private var showMoveSheet = false
+    @State private var showYearSheet = false
+    @State private var showRemoveConfirm = false
+    @StateObject private var coverFix = TierCoverFixRunner()
 
     /// Measured callout height (updated via preference) so the tail seats just above the book.
     @State private var calloutHeight: CGFloat = 58
@@ -317,7 +330,8 @@ struct TierListView: View {
                                     readOnly: readOnly,
                                     highlightedBookId: highlightedBookId,
                                     selectedBookIds: selectedBookIds,
-                                    emptyHint: (!readOnly && hasNoRankedBooks) ? tierEmptyHint(for: tier) : nil
+                                    emptyHint: (!readOnly && hasNoRankedBooks) ? tierEmptyHint(for: tier) : nil,
+                                    cellSelection: cellSelection
                                 )
                             }
                         }
@@ -329,7 +343,8 @@ struct TierListView: View {
                             onBookTap: onBookTap,
                             readOnly: readOnly,
                             highlightedBookId: highlightedBookId,
-                            selectedBookIds: selectedBookIds
+                            selectedBookIds: selectedBookIds,
+                            cellSelection: cellSelection
                         )
                         .id("unranked")
                     }
@@ -375,7 +390,8 @@ struct TierListView: View {
                 // by each row's rounded-rect mask, and point it at the exact book.
                 .overlayPreferenceValue(TierHighlightAnchorKey.self) { anchor in
                     GeometryReader { overlayProxy in
-                        if let anchor, showCallout {
+                        // Hidden while selecting: the callout would sit over the checks.
+                        if let anchor, showCallout, !isSelecting {
                             let rect = overlayProxy[anchor]
                             let W = overlayProxy.size.width
                             let bubbleW: CGFloat = 200
@@ -417,6 +433,201 @@ struct TierListView: View {
                 }
             }
         }
+        // Multi-select chrome. A safe-area inset (not an overlay) so it stacks on
+        // the tab bar's own inset and the last tier row can scroll clear of it.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isSelecting, multiSelect != nil {
+                TierSelectionActionBar(
+                    selectionCount: selection.count,
+                    coverFixPhase: coverFix.phase,
+                    canFixCovers: multiSelect?.userId != nil,
+                    onDone: exitSelection,
+                    onMove: { showMoveSheet = true },
+                    onDelete: { showRemoveConfirm = true },
+                    onEditDate: { showYearSheet = true },
+                    onFixCovers: startCoverFix,
+                    onStopFixing: { coverFix.stop() },
+                    onUndoCovers: {
+                        if let uid = multiSelect?.userId { coverFix.undoAll(userId: uid) }
+                    },
+                    onKeepCovers: { coverFix.keep() }
+                )
+            }
+        }
+        // Discovery nudge while a cover is in hand: dragging books one at a time
+        // is the moment multi-select is worth surfacing.
+        .overlay(alignment: .bottom) {
+            if showsMultiSelectDragTip {
+                TierMultiSelectDragTip()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showsMultiSelectDragTip)
+        .sheet(isPresented: $showMoveSheet) {
+            let ladder: [String?] = tierLabels.map { Optional($0) } + [nil]
+            MoveToTierSheet(
+                selectionCount: selection.count,
+                tierCounts: Dictionary(uniqueKeysWithValues: ladder.map { ($0, sortedBooks(for: $0).count) }),
+                commonTier: selectionCommonTier,
+                onMove: performMove
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showYearSheet) {
+            MoveToYearSheet(
+                existingYears: readYearsInLibrary,
+                yearCounts: readYearCounts,
+                onMove: performYearMove
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .alert(removeConfirmTitle, isPresented: $showRemoveConfirm) {
+            Button("Remove", role: .destructive) { performRemove() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(selection.count == 1
+                 ? "This removes the book from your read shelf and deletes your review and feed post if any."
+                 : "This removes them from your read shelf and deletes your reviews and feed posts if any.")
+        }
+        .sensoryFeedback(.selection, trigger: selection)
+        .sensoryFeedback(.impact(weight: .medium), trigger: isSelecting) { _, now in now }
+        .onChange(of: isSelecting) { _, now in onSelectionModeChanged?(now) }
+        // Switching to the Queue tab tears this view down without ending selection
+        // mode first; the owner must still hear that it ended.
+        .onDisappear {
+            if isSelecting { onSelectionModeChanged?(false) }
+        }
+    }
+
+    // MARK: - Multi-select
+
+    /// Shown only on a list that can actually multi-select, while a read book is
+    /// being dragged and selection mode hasn't started yet.
+    private var showsMultiSelectDragTip: Bool {
+        cellSelection != nil && !isSelecting && queueDragCoordinator.isDraggingReadBook
+    }
+
+    /// Cell plumbing, or nil when this list can't select (read-only, or no actions).
+    private var cellSelection: TierCellSelection? {
+        guard !readOnly, multiSelect != nil else { return nil }
+        return TierCellSelection(
+            isSelecting: isSelecting,
+            selectedIds: selection,
+            coverFixStatuses: coverFix.statuses,
+            onToggle: toggleSelection,
+            onEnter: enterSelection
+        )
+    }
+
+    /// The selection in display order: S row first, Unranked last, row order within.
+    private var selectedUserBooks: [UserBook] {
+        let ladder: [String?] = tierLabels.map { Optional($0) } + [nil]
+        return ladder.flatMap { t in sortedBooks(for: t).filter { selection.contains($0.id) } }
+    }
+
+    /// `.some(tier)` when every selected book already sits in one tier (nil tier = Unranked).
+    private var selectionCommonTier: String?? {
+        let tiers = Set(selectedUserBooks.map(\.normalizedTier))
+        if tiers.count == 1, let only = tiers.first { return .some(only) }
+        return nil
+    }
+
+    private var removeConfirmTitle: String {
+        selection.count == 1
+            ? "Remove this book from your read shelf?"
+            : "Remove \(selection.count) books from your read shelf?"
+    }
+
+    private func enterSelection(with userBookId: UUID) {
+        guard cellSelection != nil else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selection = [userBookId]
+            isSelecting = true
+        }
+    }
+
+    private func toggleSelection(_ userBookId: UUID) {
+        if selection.contains(userBookId) {
+            selection.remove(userBookId)
+        } else {
+            selection.insert(userBookId)
+        }
+    }
+
+    /// Leaves selection mode. A cover fix still running finishes its in-flight
+    /// book and keeps what it changed, same as walking away from the single-book flow.
+    private func exitSelection() {
+        coverFix.keep()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selection.removeAll()
+            isSelecting = false
+        }
+    }
+
+    private func performMove(to tier: String?) {
+        let books = selectedUserBooks
+        guard !books.isEmpty else { return }
+        multiSelect?.moveToTier(books.map(\.id), tier)
+        showMoveSheet = false
+        let noun = books.count == 1 ? "1 book" : "\(books.count) books"
+        let destination = tier.map { "\($0) Tier" } ?? "Unranked"
+        ToastCenter.shared.show(Toast(style: .success, status: "Moved", message: "\(noun) moved to \(destination)"))
+        exitSelection()
+    }
+
+    /// Years this library has read books in, newest first — the shortcut rows in
+    /// the year sheet.
+    private var readYearsInLibrary: [Int] {
+        let cal = Calendar.current
+        let years = userBooks.filter { $0.status == .read }
+            .flatMap { $0.allReadDates.map { cal.component(.year, from: $0) } }
+        return Array(Set(years)).sorted(by: >)
+    }
+
+    private var readYearCounts: [Int: Int] {
+        let cal = Calendar.current
+        var counts: [Int: Int] = [:]
+        for ub in userBooks where ub.status == .read {
+            for year in Set(ub.allReadDates.map({ cal.component(.year, from: $0) })) {
+                counts[year, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    /// Re-file the selection under `year`. Each book moves the read that its
+    /// primary date belongs to, so a re-read logged in another year stays put.
+    private func performYearMove(to year: Int) {
+        let books = selectedUserBooks
+        guard !books.isEmpty, let multiSelect else { return }
+        multiSelect.setReadYear(books.map(\.id), year)
+        showYearSheet = false
+        let noun = books.count == 1 ? "1 book" : "\(books.count) books"
+        ToastCenter.shared.show(Toast(style: .success, status: "Moved", message: "\(noun) moved to \(year)"))
+        exitSelection()
+    }
+
+    private func performRemove() {
+        guard let multiSelect else { return }
+        let ids = selectedUserBooks.map(\.id)
+        guard !ids.isEmpty else { return }
+        exitSelection()
+        Task { @MainActor in
+            let failures = await multiSelect.remove(ids)
+            if failures == 0 {
+                let noun = ids.count == 1 ? "1 book" : "\(ids.count) books"
+                ToastCenter.shared.show(Toast(style: .success, status: "Removed", message: "\(noun) removed from your read shelf"))
+            } else {
+                ToastCenter.shared.show(Toast(style: .error, status: "Failed", message: "\(failures) of \(ids.count) couldn't be removed"))
+            }
+        }
+    }
+
+    private func startCoverFix() {
+        guard let uid = multiSelect?.userId else { return }
+        coverFix.start(books: selectedUserBooks, userId: uid)
     }
 
     /// How many books at the front of the S tier count as the user's absolute favorites:
@@ -512,7 +723,7 @@ struct TierListView: View {
 
     /// "2025 (16)" / "All (288)" label for the year tab and its menu rows.
     private func yearFilterLabel(_ year: Int?, _ filter: TierYearFilter) -> String {
-        let name = year.map(String.init) ?? "All"
+        let name = year.map(ReadDate.yearLabel) ?? "All"
         return "\(name) (\(filter.countForYear(year)))"
     }
 
@@ -564,6 +775,9 @@ struct TierListView: View {
 private let tierBookSizeMin: CGFloat = 48
 private let tierBookSizeMax: CGFloat = 88
 private let tierRowPadding: CGFloat = 1
+/// Vertical gap between rows of covers inside a tier. Small, but non-zero so
+/// the covers don't read as squished top to bottom.
+private let tierRowSpacing: CGFloat = 5
 /// Shared fill for the Top N badge and the favorites box behind its covers:
 /// one color that meets halfway between the old grey wash (0.14/0.24 toward
 /// chrome) and the solid chrome chip, so badge and box read as a matched set.
@@ -591,6 +805,8 @@ struct TierRowView: View {
     var selectedBookIds: Set<String> = []
     /// Faint copy shown in this row when it's empty (own S/F tier, nothing ranked yet).
     var emptyHint: String? = nil
+    /// Multi-select plumbing from TierListView; nil when this list can't select.
+    var cellSelection: TierCellSelection? = nil
 
     var header: String {
         tier ?? "Unranked"
@@ -676,7 +892,13 @@ struct TierRowView: View {
             : stride(from: 0, to: books.count, by: booksPerRow).map { start in
                 Array(books[start..<min(start + booksPerRow, books.count)])
             }
-        LazyVStack(alignment: .leading, spacing: 2) {
+        // A plain VStack, not a LazyVStack: nested lazy stacks estimate the
+        // height of rows they haven't built yet, and every re-render (selection
+        // toggles, listener echoes, coming back from a book page) can revise
+        // those estimates for rows above the viewport, which shoves the scroll
+        // position to a different spot in the tier. Eager rows cost a few
+        // hundred cheap covers on the biggest libraries and keep the layout exact.
+        VStack(alignment: .leading, spacing: tierRowSpacing) {
             if rows.isEmpty {
                 ZStack(alignment: .leading) {
                     HStack(spacing: 0) {
@@ -699,7 +921,7 @@ struct TierRowView: View {
                 let topRowCount = activeTopCount.map { $0 / booksPerRow } ?? 0
                 let allRows = Array(rows.enumerated())
                 if activeTopCount != nil {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: tierRowSpacing) {
                         ForEach(allRows.prefix(topRowCount), id: \.offset) { rowIndex, rowBooks in
                             bookRow(rowIndex: rowIndex, rowBooks: rowBooks, booksPerRow: booksPerRow, slotHeight: slotHeight, bookSize: bookSize)
                         }
@@ -732,7 +954,11 @@ struct TierRowView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: books.map(\.id))
-        .padding(.vertical, 2)
+        // Extra top room: the multi-select check rides 6pt above each cover
+        // (plus its halo), and the row's rounded-rect clip would chop it off on
+        // the first row otherwise. Static so entering selection never reflows.
+        .padding(.top, 8)
+        .padding(.bottom, 3)
     }
 
     /// One row of up to 4 covers with drop slots before each and a flexible trailing slot.
@@ -742,7 +968,7 @@ struct TierRowView: View {
             ForEach(Array(rowBooks.enumerated()), id: \.element.id) { i, ub in
                 TierRowDropSlot(tier: tier, insertionIndex: startIndex + i, onUpdateTierAndOrder: onUpdateTierAndOrder, minHeight: slotHeight, readOnly: readOnly)
                 if ub.book != nil {
-                    TierBookCell(userBook: ub, tier: tier, insertionIndex: startIndex + i, bookSize: bookSize, onUpdateTierAndOrder: onUpdateTierAndOrder, onBookTap: onBookTap, readOnly: readOnly, isHighlighted: highlightedBookId != nil && ub.book?.id == highlightedBookId, isSelected: selectedBookIds.contains(ub.bookId))
+                    TierBookCell(userBook: ub, tier: tier, insertionIndex: startIndex + i, bookSize: bookSize, onUpdateTierAndOrder: onUpdateTierAndOrder, onBookTap: onBookTap, readOnly: readOnly, isHighlighted: highlightedBookId != nil && ub.book?.id == highlightedBookId, isSelected: selectedBookIds.contains(ub.bookId), cellSelection: cellSelection)
                 }
             }
             TierRowDropSlot(tier: tier, insertionIndex: startIndex + rowBooks.count, onUpdateTierAndOrder: onUpdateTierAndOrder, fillsRow: true, minHeight: slotHeight, readOnly: readOnly)
@@ -769,8 +995,26 @@ struct TierBookCell: View {
     var isHighlighted: Bool = false
     /// True when picked as a Discover seed book (readOnly picker mode) — shows a check overlay.
     var isSelected: Bool = false
+    /// Own-library multi-select (double-tap to start). Nil when unavailable.
+    var cellSelection: TierCellSelection? = nil
 
     @State private var pulseOn = false
+
+    /// Single tap: toggles the book while selecting, opens it otherwise.
+    private var singleTapAction: (() -> Void)? {
+        if let cellSelection, cellSelection.isSelecting {
+            let id = userBook.id
+            return { cellSelection.onToggle(id) }
+        }
+        guard let onBookTap, let book = userBook.book else { return nil }
+        return { onBookTap(book) }
+    }
+
+    private var doubleTapAction: (() -> Void)? {
+        guard let cellSelection else { return nil }
+        let id = userBook.id
+        return { cellSelection.onEnter(id) }
+    }
 
     var body: some View {
         Group {
@@ -784,7 +1028,9 @@ struct TierBookCell: View {
                             book: book,
                             userBookId: userBook.id,
                             bookSize: bookSize,
-                            onTap: onBookTap != nil ? { onBookTap?(book) } : nil,
+                            onTap: singleTapAction,
+                            onDoubleTap: doubleTapAction,
+                            isSelecting: cellSelection?.isSelecting == true,
                             dragCoordinator: queueDragCoordinator
                         )
                         .frame(width: bookSize, height: bookSize * 1.5)
@@ -802,6 +1048,7 @@ struct TierBookCell: View {
                         }
                     }
                     .overlay(highlightOverlay)
+                    .overlay(multiSelectOverlay)
                     .scaleEffect(isHighlighted && pulseOn ? 1.04 : 1.0)
                     .animation(.easeInOut(duration: 0.95).repeatForever(autoreverses: true), value: pulseOn)
                     .onAppear {
@@ -831,6 +1078,41 @@ struct TierBookCell: View {
                         .background(Circle().fill(Theme.background))
                         .offset(x: 6, y: -6)
                 }
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// Selection mode: an accent ring plus check on picked covers, a faint hollow
+    /// circle on the rest (so every cover reads as tappable), and the cover-fix
+    /// badge in place of the check while a batch cover fix is running or awaiting
+    /// keep/undo.
+    @ViewBuilder
+    private var multiSelectOverlay: some View {
+        if let cellSelection, cellSelection.isSelecting {
+            let picked = cellSelection.selectedIds.contains(userBook.id)
+            let fixStatus = cellSelection.coverFixStatuses[userBook.id]
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Theme.accent.opacity(picked ? 1 : 0), lineWidth: 2.5)
+                .frame(width: bookSize, height: bookSize * 1.5)
+                .overlay(alignment: .topTrailing) {
+                    Group {
+                        if let fixStatus {
+                            TierCoverFixBadge(status: fixStatus)
+                        } else if picked {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(Theme.accent)
+                                .background(Circle().fill(Theme.background))
+                        } else {
+                            Circle()
+                                .strokeBorder(Theme.textTertiary.opacity(0.7), lineWidth: 1.5)
+                                .background(Circle().fill(Theme.background.opacity(0.85)))
+                                .frame(width: 18, height: 18)
+                        }
+                    }
+                    .offset(x: 6, y: -6)
+                }
+                .animation(.easeInOut(duration: 0.15), value: picked)
                 .allowsHitTesting(false)
         }
     }

@@ -278,3 +278,31 @@ enum PersonSearch {
         .map(\.row)
     }
 }
+
+/// How connected a reader you don't follow is to you: people you both follow,
+/// plus people you follow who follow them, plus one if they already follow you.
+///
+/// The founder is excluded from every term — he follows and is followed by the
+/// whole roster, so counting him would hand every pair one meaningless mutual.
+///
+/// Shared by the Social tab's people strip and the Users scope of Search, so
+/// "people you might know" means the same thing in both places.
+enum PeopleSimilarity {
+    /// - Parameters:
+    ///   - peers: the people you follow, as (uid, their following list).
+    static func score(
+        candidateUid: String,
+        candidateFollowing: [String],
+        following: Set<String>,
+        peers: [(uid: String, following: [String])],
+        currentUid: String?
+    ) -> Int {
+        let mutualPool = following.subtracting([SpineFounder.uid])
+        var score = mutualPool.intersection(candidateFollowing).count
+        for peer in peers where peer.uid != SpineFounder.uid && peer.following.contains(candidateUid) {
+            score += 1
+        }
+        if let me = currentUid, candidateFollowing.contains(me) { score += 1 }
+        return score
+    }
+}

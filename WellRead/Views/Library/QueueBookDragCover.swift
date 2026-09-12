@@ -343,11 +343,23 @@ struct QueueBookDragCover: UIViewControllerRepresentable {
 }
 
 /// Same as `QueueBookDragCover` but drives **Read** tab chrome (red −) while dragging a tier-list read book.
+///
+/// Taps are handled here in UIKit rather than by `BookCoverView`'s SwiftUI tap so a
+/// double-tap (enter multi-select) can be told apart from a single tap (open the
+/// book). Outside selection mode the single tap waits for the double-tap
+/// recognizer to fail, which is the standard ~0.3s iOS disambiguation delay; in
+/// selection mode the double-tap recognizer is disabled so toggling is instant.
 struct ReadListBookDragCover: UIViewControllerRepresentable {
     let book: Book
     let userBookId: UUID
     let bookSize: CGFloat
     var onTap: (() -> Void)?
+    /// Double-tap on the cover. Nil disables double-tap detection entirely (no
+    /// single-tap delay).
+    var onDoubleTap: (() -> Void)? = nil
+    /// True while the tier list is in multi-select: taps toggle immediately and
+    /// drag-and-drop is switched off so the action bar is the only way to move.
+    var isSelecting: Bool = false
     @ObservedObject var dragCoordinator: QueueBookDragCoordinator
 
     func makeCoordinator() -> ReadCoordinator {
@@ -359,31 +371,63 @@ struct ReadListBookDragCover: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> UIHostingController<BookCoverView> {
-        let root = BookCoverView(book: book, size: bookSize, onTap: onTap)
+        // No SwiftUI onTap: the coordinator's recognizers own every tap.
+        let root = BookCoverView(book: book, size: bookSize, onTap: nil)
         let host = UIHostingController(rootView: root)
         host.view.backgroundColor = .clear
         context.coordinator.host = host
+        context.coordinator.hostedBook = book
+        context.coordinator.hostedSize = bookSize
         context.coordinator.userBookId = userBookId
         context.coordinator.onTap = onTap
+        context.coordinator.onDoubleTap = onDoubleTap
 
         let drag = UIDragInteraction(delegate: context.coordinator)
         host.view.addInteraction(drag)
+        context.coordinator.dragInteraction = drag
+
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(ReadCoordinator.handleDoubleTap))
+        doubleTap.numberOfTapsRequired = 2
+        let singleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(ReadCoordinator.handleSingleTap))
+        singleTap.require(toFail: doubleTap)
+        host.view.addGestureRecognizer(doubleTap)
+        host.view.addGestureRecognizer(singleTap)
+        context.coordinator.doubleTapRecognizer = doubleTap
+        context.coordinator.applyMode(isSelecting: isSelecting, doubleTapEnabled: onDoubleTap != nil)
 
         return host
     }
 
     func updateUIViewController(_ host: UIHostingController<BookCoverView>, context: Context) {
-        host.rootView = BookCoverView(book: book, size: bookSize, onTap: onTap)
+        // Only swap the hosted cover when it actually changed. Reassigning
+        // rootView on every SwiftUI update (selection toggles re-render every
+        // cell) makes each hosting view invalidate and re-lay out inside the
+        // tier list's scroll view, which is both slow with hundreds of covers
+        // and a source of scroll-position churn.
+        if context.coordinator.hostedBook != book || context.coordinator.hostedSize != bookSize {
+            host.rootView = BookCoverView(book: book, size: bookSize, onTap: nil)
+            context.coordinator.hostedBook = book
+            context.coordinator.hostedSize = bookSize
+        }
         context.coordinator.host = host
         context.coordinator.userBookId = userBookId
         context.coordinator.onTap = onTap
+        context.coordinator.onDoubleTap = onDoubleTap
+        context.coordinator.applyMode(isSelecting: isSelecting, doubleTapEnabled: onDoubleTap != nil)
     }
 
     final class ReadCoordinator: NSObject, UIDragInteractionDelegate {
         var userBookId: UUID
         let dragCoordinator: QueueBookDragCoordinator
         var onTap: (() -> Void)?
+        var onDoubleTap: (() -> Void)?
         weak var host: UIHostingController<BookCoverView>?
+        /// What the hosting controller currently shows, so updates can skip
+        /// the rootView swap when nothing about the cover changed.
+        var hostedBook: Book?
+        var hostedSize: CGFloat = 0
+        weak var dragInteraction: UIDragInteraction?
+        weak var doubleTapRecognizer: UITapGestureRecognizer?
 
         init(
             userBookId: UUID,
@@ -393,6 +437,20 @@ struct ReadListBookDragCover: UIViewControllerRepresentable {
             self.userBookId = userBookId
             self.dragCoordinator = dragCoordinator
             self.onTap = onTap
+        }
+
+        /// Selection mode: instant single taps (no double-tap to wait on) and no drag lift.
+        func applyMode(isSelecting: Bool, doubleTapEnabled: Bool) {
+            doubleTapRecognizer?.isEnabled = doubleTapEnabled && !isSelecting
+            dragInteraction?.isEnabled = !isSelecting
+        }
+
+        @objc func handleSingleTap() {
+            onTap?()
+        }
+
+        @objc func handleDoubleTap() {
+            onDoubleTap?()
         }
 
         func dragInteraction(_ interaction: UIDragInteraction, sessionWillBegin session: UIDragSession) {
@@ -427,6 +485,142 @@ struct ReadListBookDragCover: UIViewControllerRepresentable {
             let params = UIDragPreviewParameters()
             params.visiblePath = UIBezierPath(roundedRect: view.bounds, cornerRadius: 6)
             return UITargetedDragPreview(view: view, parameters: params)
+        }
+    }
+}
+
+// MARK: - Reading now card (whole-card lift)
+
+/// Hosts a full Reading now card so a long press anywhere on it (above the
+/// scrubber) lifts the *whole card* as the drag preview. Same `TierDragItem`
+/// payload as the covers, so it drops on every existing queue target: between
+/// other Reading now cards, into Up next / Backlog slots, or on the Read segment.
+/// The card also accepts drops itself: top half inserts before it, bottom half after.
+///
+/// The scrubber band (everything below `liftableHeight`) never lifts, so holding
+/// the bookmark thumb still doesn't pick the card up mid-scrub.
+struct QueueReadingNowDragCard<Content: View>: UIViewControllerRepresentable {
+    let userBookId: UUID
+    /// Height from the card's top edge inside which a long press starts a lift.
+    let liftableHeight: CGFloat
+    /// (dropped userBook id, insertBefore)
+    var onDropItem: ((UUID, Bool) -> Void)? = nil
+    @ObservedObject var dragCoordinator: QueueBookDragCoordinator
+    @ViewBuilder var content: () -> Content
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(userBookId: userBookId, dragCoordinator: dragCoordinator)
+    }
+
+    func makeUIViewController(context: Context) -> UIHostingController<Content> {
+        let host = UIHostingController(rootView: content())
+        host.view.backgroundColor = .clear
+        host.view.clipsToBounds = false
+        host.sizingOptions = [.intrinsicContentSize]
+        context.coordinator.host = host
+        context.coordinator.userBookId = userBookId
+        context.coordinator.liftableHeight = liftableHeight
+        context.coordinator.onDropItem = onDropItem
+
+        let drag = UIDragInteraction(delegate: context.coordinator)
+        host.view.addInteraction(drag)
+        let drop = UIDropInteraction(delegate: context.coordinator)
+        host.view.addInteraction(drop)
+        return host
+    }
+
+    func updateUIViewController(_ host: UIHostingController<Content>, context: Context) {
+        host.rootView = content()
+        context.coordinator.host = host
+        context.coordinator.userBookId = userBookId
+        context.coordinator.liftableHeight = liftableHeight
+        context.coordinator.onDropItem = onDropItem
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiViewController host: UIHostingController<Content>, context: Context) -> CGSize? {
+        // Compressed height: the card has a Spacer in its text column, so an
+        // expanded proposal would balloon it to fill the whole scroll view.
+        let width = proposal.width ?? UIView.layoutFittingExpandedSize.width
+        let fitted = host.sizeThatFits(in: CGSize(width: width, height: UIView.layoutFittingCompressedSize.height))
+        return CGSize(width: proposal.width ?? fitted.width, height: fitted.height)
+    }
+
+    final class Coordinator: NSObject, UIDragInteractionDelegate, UIDropInteractionDelegate {
+        var userBookId: UUID
+        var liftableHeight: CGFloat = .greatestFiniteMagnitude
+        let dragCoordinator: QueueBookDragCoordinator
+        var onDropItem: ((UUID, Bool) -> Void)?
+        weak var host: UIHostingController<Content>?
+
+        init(userBookId: UUID, dragCoordinator: QueueBookDragCoordinator) {
+            self.userBookId = userBookId
+            self.dragCoordinator = dragCoordinator
+        }
+
+        // MARK: UIDragInteractionDelegate
+
+        func dragInteraction(_ interaction: UIDragInteraction, itemsForBeginning session: UIDragSession) -> [UIDragItem] {
+            // Refuse lifts that start on the scrubber row.
+            if let view = host?.view, session.location(in: view).y > liftableHeight { return [] }
+            let provider = NSItemProvider()
+            let idString = userBookId.uuidString
+            provider.registerDataRepresentation(for: UTType.plainText, visibility: .all) { completion in
+                completion(Data(idString.utf8), nil)
+                return nil
+            }
+            let item = UIDragItem(itemProvider: provider)
+            item.localObject = idString
+            return [item]
+        }
+
+        func dragInteraction(_ interaction: UIDragInteraction, sessionWillBegin session: UIDragSession) {
+            Task { @MainActor in
+                LibraryDragHaptics.dragLiftBegan()
+                dragCoordinator.setDraggingQueueBook(true)
+                dragCoordinator.beginDragSession(session)
+            }
+        }
+
+        func dragInteraction(_ interaction: UIDragInteraction, session: UIDragSession, didEndWith operation: UIDropOperation) {
+            Task { @MainActor in
+                dragCoordinator.setDraggingQueueBook(false)
+                dragCoordinator.endDragSession()
+            }
+        }
+
+        func dragInteraction(_ interaction: UIDragInteraction, previewForLifting item: UIDragItem, session: UIDragSession) -> UITargetedDragPreview? {
+            guard let view = host?.view else { return nil }
+            let params = UIDragPreviewParameters()
+            params.visiblePath = UIBezierPath(roundedRect: view.bounds, cornerRadius: Theme.cardCornerRadius)
+            params.backgroundColor = .clear
+            return UITargetedDragPreview(view: view, parameters: params)
+        }
+
+        // MARK: UIDropInteractionDelegate
+
+        func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+            guard onDropItem != nil,
+                  let idString = session.localDragSession?.items.first?.localObject as? String
+            else { return false }
+            // Dropping a card on itself is a no-op; let the drop fall through.
+            return idString != userBookId.uuidString
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnter session: UIDropSession) {
+            LibraryDragHaptics.dropTargetHoverEntered()
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+            UIDropProposal(operation: .move)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+            guard let view = host?.view,
+                  let idString = session.localDragSession?.items.first?.localObject as? String,
+                  let droppedId = UUID(uuidString: idString)
+            else { return }
+            let insertBefore = session.location(in: view).y < view.bounds.midY
+            onDropItem?(droppedId, insertBefore)
         }
     }
 }

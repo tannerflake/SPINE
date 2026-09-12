@@ -6,7 +6,9 @@
 //  header: "FOLLOWING" (current readers leading) pins at the left until
 //  "ALL USERS" (quick-follow plus on each avatar) scrolls in and replaces
 //  it. Below, a feed of finished books, reviews, and recommendations from
-//  people you follow. Ink/paper palette with receipt-style row separators.
+//  people you follow, with two pseudo posts folded in — "Selected for you"
+//  and "Readers to follow", three items down and six below that, in either
+//  order — see FeedInterstitials.swift. Ink/paper palette with receipt-style row separators.
 //
 
 import SwiftUI
@@ -28,12 +30,13 @@ struct FeedView: View {
     /// Paged roster behind the people strip. Owned here so pull to refresh can
     /// reload it, rendered by `PeopleStrip`.
     @StateObject private var peopleModel = PeopleStripModel()
+    /// Slot assignments for the "Selected for you" / "Readers to follow"
+    /// pseudo posts (see `FeedInterstitials.swift`).
+    @StateObject private var interstitialModel = FeedInterstitialModel()
     /// Reading-now covers for feed post authors (floating book fans on the
     /// avatars), fetched for the authors on screen rather than the whole app.
     @State private var readingNowByUid: [String: [Book]] = [:]
     @State private var showFounderWelcome = false
-    /// Post briefly tinted after a push-tap scroll so the review the user tapped is unmistakable.
-    @State private var highlightedPostId: String? = nil
     /// Own post awaiting delete confirmation (from the post's ellipsis menu).
     @State private var postPendingDelete: Post? = nil
     /// Tracks scroll position so re-tapping the Feed tab knows whether to scroll to
@@ -85,30 +88,21 @@ struct FeedView: View {
                                     ForEach(feedItems) { item in
                                         feedItemView(item)
                                             .id(item.id)
-                                            .background(Theme.accent.opacity(
-                                                highlightedPostId.map { item.postIds.contains($0) } == true ? 0.14 : 0
-                                            ))
                                     }
                                     feedFooter
                                 }
-                                .animation(.easeInOut(duration: 0.35), value: highlightedPostId)
                                 .padding(.bottom, 100)
                             }
                         }
                         .id(Self.feedTopAnchorId)
                     }
                     .modifier(FeedScrollTopTracking(isAtTop: $isScrolledToFeedTop))
+                    .modifier(FeedScrollOffsetTracking { appState.feedScrollOffsetY = $0 })
+                    .modifier(FeedScrollOffsetRestore(offset: appState.feedScrollRestoreOffsetY) {
+                        appState.feedScrollRestoreOffsetY = nil
+                    })
                     .refreshable {
                         await refreshFeed()
-                    }
-                    .onAppear {
-                        scrollToPushedPostIfNeeded(proxy: scrollProxy)
-                    }
-                    .onChange(of: appState.scrollToFeedPostId) { _, _ in
-                        scrollToPushedPostIfNeeded(proxy: scrollProxy)
-                    }
-                    .onChange(of: appState.feedPosts.count) { _, _ in
-                        scrollToPushedPostIfNeeded(proxy: scrollProxy)
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .spineFeedTabTappedAgain)) { _ in
                         // Pushed into a profile/book (or the notifications
@@ -167,6 +161,7 @@ struct FeedView: View {
                     isOnReadList: appState.isBookOnReadList(bookId: book.id),
                     isInQueue: appState.isBookInQueue(bookId: book.id),
                     onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
+                    onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
                     readEntryForReview: appState.userReadBook(forBookId: book.id),
                     canEditReadReview: true,
                     sourceReaderUid: bookProfileSourceUid
@@ -242,6 +237,7 @@ struct FeedView: View {
             .onChange(of: authService.firebaseUser?.uid) { _, _ in
                 // The strip reloads itself; drop the previous member's covers.
                 readingNowByUid = [:]
+                interstitialModel.reset()
             }
         }
     }
@@ -249,7 +245,10 @@ struct FeedView: View {
     /// Feed posts folded into renderable items — same-day posting bursts from
     /// one author (4+ posts on a calendar day) collapse into a swipeable carousel.
     private var feedItems: [FeedItem] {
-        FeedItem.makeItems(from: appState.feedPosts)
+        FeedItem.interleavingInterstitials(
+            into: FeedItem.makeItems(from: appState.feedPosts),
+            feedIsComplete: !appState.canLoadMoreFeedPosts && !appState.isLoadingMoreFeedPosts
+        )
     }
 
     @ViewBuilder
@@ -283,6 +282,114 @@ struct FeedView: View {
                 displayTier: { effectiveTier(for: $0) },
                 readingNowBooks: group.posts.first.map { readingNowFanBooks(for: $0) } ?? []
             )
+        case .interstitial(let slot):
+            interstitialView(slot: slot)
+        }
+    }
+
+    // MARK: - Interstitials
+
+    /// One pseudo post. The two slots draw different kinds, so a slot whose
+    /// content isn't there yet (roster still loading, Discover pool empty)
+    /// renders nothing rather than repeating the other row.
+    @ViewBuilder
+    private func interstitialView(slot: Int) -> some View {
+        switch interstitialModel.preferredKind(for: slot) {
+        case .people:
+            let readers = interstitialReaders(slot: slot)
+            if readers.isEmpty {
+                Color.clear.frame(height: 0)
+            } else {
+                peoplePicksRow(readers)
+                    .onAppear { interstitialModel.markSeen(slot: slot) }
+            }
+        case .books:
+            let pool = appState.discoverPoolBooks
+            let books = interstitialModel.books(for: slot, pool: pool)
+            if books.isEmpty {
+                Color.clear
+                    .frame(height: 0)
+                    .onAppear { appState.ensureDiscoverPoolDepth() }
+            } else {
+                FeedBookPicksRow(
+                    books: books,
+                    onBookTap: { book in
+                        Analytics.amplitude?.track(eventType: "Tapped Feed Pick Book", eventProperties: ["book_id": book.id])
+                        bookProfileSourceUid = nil
+                        selectedBookForProfile = book
+                    },
+                    onSeeMore: {
+                        Analytics.amplitude?.track(eventType: "Tapped Feed Picks See More")
+                        NotificationCenter.default.post(name: .spineOpenDiscoverFromFeed, object: nil)
+                    }
+                )
+                .onAppear {
+                    interstitialModel.markSeen(slot: slot)
+                    if interstitialModel.slotWantsMoreBooks(slot, pool: pool) {
+                        appState.ensureDiscoverPoolDepth()
+                    }
+                }
+            }
+        }
+    }
+
+    private func interstitialReaders(slot: Int) -> [PeopleStripModel.Reader] {
+        interstitialModel.readers(
+            for: slot,
+            ranked: peopleModel.discoverable,
+            following: Set(authService.appUser?.following ?? []),
+            persistedDismissed: authService.appUser?.dismissedRecommendedUids ?? []
+        )
+    }
+
+    private func peoplePicksRow(_ readers: [PeopleStripModel.Reader]) -> some View {
+        FeedPeoplePicksRow(
+            readers: readers,
+            readingNowByUid: peopleModel.readingNowByUid,
+            followInFlight: interstitialModel.followInFlight,
+            onFollow: { followSuggestedReader($0) },
+            onDismiss: { dismissSuggestedReader($0) }
+        )
+    }
+
+    /// Same write as the people strip's quick-follow plus. The card leaves the
+    /// row once `appUser.following` refreshes and the next candidate slides in.
+    private func followSuggestedReader(_ reader: PeopleStripModel.Reader) {
+        guard let uid = authService.firebaseUser?.uid, uid != reader.uid else { return }
+        guard interstitialModel.beginFollow(reader.uid) else { return }
+        Analytics.amplitude?.track(eventType: "Followed From Feed Picks", eventProperties: ["target_uid": reader.uid])
+        Task {
+            do {
+                try await userRepo.setFollowing(currentUid: uid, targetUid: reader.uid, follow: true)
+                await authService.refreshAppUser()
+                await MainActor.run {
+                    WidgetDataService.shared.scheduleRefresh(appState: appState, delay: 1.0, forceFriendRefresh: true)
+                }
+            } catch {
+                #if DEBUG
+                print("followSuggestedReader: \(error)")
+                #endif
+            }
+            await MainActor.run { interstitialModel.endFollow(reader.uid) }
+        }
+    }
+
+    /// X on a reader card: gone from this row now, and from every future
+    /// suggestion via the user doc. The roster strip and search still list them.
+    private func dismissSuggestedReader(_ reader: PeopleStripModel.Reader) {
+        WizardHaptics.step()
+        interstitialModel.dismiss(uid: reader.uid)
+        Analytics.amplitude?.track(eventType: "Dismissed Feed Reader Pick", eventProperties: ["target_uid": reader.uid])
+        guard let uid = authService.firebaseUser?.uid else { return }
+        Task {
+            do {
+                try await userRepo.addDismissedRecommendedUid(currentUid: uid, targetUid: reader.uid)
+                await authService.refreshAppUser()
+            } catch {
+                #if DEBUG
+                print("dismissSuggestedReader: \(error)")
+                #endif
+            }
         }
     }
 
@@ -356,44 +463,16 @@ struct FeedView: View {
         return appState.userReadBook(forBookId: bid)?.tier
     }
 
-    /// A deep link opened a post's drawer: scroll the feed to that post behind it and tint it briefly, so
-    /// dismissing lands on the review. Waits for the feed listener to deliver posts (cold start); gives up
-    /// once the feed has loaded without the post (e.g. a hidden read-discussion carrier).
-    private func scrollToPushedPostIfNeeded(proxy: ScrollViewProxy) {
-        guard let id = appState.scrollToFeedPostId else { return }
-        // The post may render standalone or inside a day-group carousel — scroll
-        // to whichever feed item contains it.
-        guard let itemId = feedItems.first(where: { $0.postIds.contains(id) })?.id else {
-            if !appState.feedPosts.isEmpty {
-                appState.scrollToFeedPostId = nil
-            }
-            return
-        }
-        appState.scrollToFeedPostId = nil
-        // Small delay so the tab switch settles before animating the scroll.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            withAnimation(.easeInOut(duration: 0.5)) {
-                proxy.scrollTo(itemId, anchor: .center)
-            }
-            highlightedPostId = id
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-                if highlightedPostId == id {
-                    highlightedPostId = nil
-                }
-            }
-        }
-    }
-
     private func openDeepLinkedPostIfNeeded() {
         guard let id = appState.deepLinkFeedPostId else { return }
         appState.deepLinkFeedPostId = nil
         let targetCommentId = appState.deepLinkFeedCommentId
         appState.deepLinkFeedCommentId = nil
         commentsScrollTargetId = targetCommentId
-        // Position the feed on the review behind the sheet, so dismissing the
-        // thread lands on the post being discussed (no-op for posts not in the
-        // feed, e.g. hidden read-discussion carriers).
-        appState.scrollToFeedPostId = id
+        // The sheet is self-contained (the review is its header), so the feed
+        // behind it is left where it was: scrolling to the post used to fail
+        // silently whenever it wasn't in the listener window, or never in the
+        // feed at all (hidden read-discussion carriers).
         if let p = appState.feedPosts.first(where: { $0.id.uuidString == id }) {
             postForComments = p
             return
@@ -452,6 +531,9 @@ struct FeedView: View {
     /// strip and reading-now covers. Feed posts themselves are already live via the
     /// Firestore listener, so there's nothing to re-fetch for those.
     private func refreshFeed() async {
+        // Re-picks the interstitial rows the reader has actually reached (an
+        // untouched row keeps its picks, see FeedInterstitialModel).
+        interstitialModel.handleFeedReload()
         await peopleModel.reload(
             currentUid: authService.firebaseUser?.uid,
             following: authService.appUser?.following ?? []
@@ -583,6 +665,12 @@ struct FeedPostRow: View {
                             .font(Theme.callout())
                             .foregroundStyle(Theme.textSecondary)
                             .lineLimit(1)
+                        if let finished = finishedDateLabel {
+                            Text(finished)
+                                .font(Theme.caption())
+                                .foregroundStyle(Theme.textSecondary.opacity(0.38))
+                                .lineLimit(1)
+                        }
                         if let t = displayTier {
                             TierBadge(tier: t)
                         }
@@ -668,6 +756,20 @@ struct FeedPostRow: View {
                 previewComments = Array(all.suffix(2))
             }
         }
+    }
+
+    /// Lightweight "Finished: Mar. 12, 2011" line under the tier badge. Abbreviated
+    /// months take a trailing period, spelled-out ones (May) don't, and the
+    /// 1900 sentinel reads as prose instead of a date.
+    private var finishedDateLabel: String? {
+        guard let date = post.dateFinished else { return nil }
+        if ReadDate.isLongAgo(date) { return "Finished: a long time ago" }
+        let month = date.formatted(.dateTime.month(.abbreviated))
+        let full = date.formatted(.dateTime.month(.wide))
+        let suffix = month == full ? "" : "."
+        let day = Calendar.current.component(.day, from: date)
+        let year = Calendar.current.component(.year, from: date)
+        return "Finished: \(month)\(suffix) \(day), \(year)"
     }
 
     /// Double-tapping the review body likes it. Like Instagram, it only ever
@@ -978,6 +1080,68 @@ struct ExpandableReviewText: View {
 /// re-tapping the Feed tab knows to scroll to top vs. refresh. Uses
 /// `onScrollGeometryChange` where available; on iOS 17 `isAtTop` just keeps its
 /// default `true`, so a re-tap always refreshes instead of scrolling.
+/// Mirrors the feed's scroll offset out to `AppState`, so a trip to the
+/// Discover tab (which tears this scroll view down) can come back to the same
+/// place. iOS 17 gets no tracking and lands at the top on return.
+private struct FeedScrollOffsetTracking: ViewModifier {
+    let onChange: (CGFloat) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            // `contentOffset` is measured against the adjusted content inset (the
+            // top safe area), while `scrollTo(y:)` measures from the content's
+            // own start — add the inset back so the two agree.
+            content.onScrollGeometryChange(for: CGFloat.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top
+            } action: { _, y in
+                onChange(y)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// The other half: puts the feed back at `offset` when it reappears (returning
+/// from Discover). Retried once shortly after, since the lazy rows above the
+/// target may not have been built yet on the first attempt.
+private struct FeedScrollOffsetRestore: ViewModifier {
+    let offset: CGFloat?
+    let onRestore: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            FeedScrollOffsetRestoreBody(offset: offset, onRestore: onRestore) { content }
+        } else {
+            content
+        }
+    }
+}
+
+@available(iOS 18.0, *)
+private struct FeedScrollOffsetRestoreBody<Content: View>: View {
+    let offset: CGFloat?
+    let onRestore: () -> Void
+    @ViewBuilder let content: () -> Content
+    @State private var position = ScrollPosition()
+
+    var body: some View {
+        content()
+            .scrollPosition($position)
+            .onAppear { restore(offset) }
+            .onChange(of: offset) { _, new in restore(new) }
+    }
+
+    private func restore(_ target: CGFloat?) {
+        guard let target, target > 1 else { return }
+        onRestore()
+        position.scrollTo(y: target)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            position.scrollTo(y: target)
+        }
+    }
+}
+
 private struct FeedScrollTopTracking: ViewModifier {
     @Binding var isAtTop: Bool
     func body(content: Content) -> some View {

@@ -3,10 +3,19 @@
 //  Spine
 //
 //  Netflix-style "% match" for a book, computed on-device from the user's
-//  library (ratings + tiers → genre/author affinities), their interest tags,
-//  and followed readers' ratings of the book — each friend weighted by how
-//  closely their taste has agreed with the user's on books they've both rated.
-//  Deterministic weighted-points scorer in the BookSearchRanker style.
+//  library (ratings + tiers → nearest-neighbour taste + author affinity), their
+//  interest tags, and followed readers' ratings of the book — each friend
+//  weighted by how closely their taste has agreed with the user's on books
+//  they've both rated. Deterministic weighted-points scorer in the
+//  BookSearchRanker style.
+//
+//  Rebalanced 2026-09-06 against a leave-one-out pass over 16k real rated
+//  reads (score each book as if unread, compare to how the reader actually
+//  rated it). The original averaged affinity across every genre token the
+//  candidate carried, so a loved fantasy novel was dragged toward the reader's
+//  lukewarm mean for "fiction", and everything landed in 58–74. Now the
+//  library books most *like* the candidate carry the genre signal, a rated
+//  book by the same author moves the score a lot, and the range is 10–99.
 //
 
 import Foundation
@@ -22,7 +31,7 @@ final class MatchScoreService {
 
     // MARK: - Public API
 
-    /// Percentage match (40–99) for `book`, or `nil` when there's no taste
+    /// Percentage match (10–99) for `book`, or `nil` when there's no taste
     /// signal to score against (cold start: no rated/tiered reads, no interest
     /// tags, no followed readers of this book).
     ///
@@ -48,34 +57,26 @@ final class MatchScoreService {
             return nil
         }
 
-        var points = 60.0
+        var points = 50.0
         var hasSignal = false
 
         // Interest-tag overlap: two or more shared tags is a full-marks match.
+        // Secondary to what they've actually read, so it tops out at +10.
         if !interestTags.isEmpty && !profileTags.isEmpty {
             let matches = profileTags.filter { interestTags.contains($0.lowercased()) }.count
             if matches > 0 { hasSignal = true }
-            points += min(1.0, Double(matches) / 2.0) * 16.0
+            points += min(1.0, Double(matches) / 2.0) * 10.0
         }
 
-        // Genre affinity from the library.
-        let genreAffinities = genreAffinityMap(history: ratedHistory)
-        let candidateTokens = genreTokens(book.genres)
-        var genreWeight = 0.0
-        var genreSum = 0.0
-        for token in candidateTokens {
-            guard let (sum, count) = genreAffinities[token] else { continue }
-            let weight = min(Double(count), 4.0) / 4.0
-            genreSum += (sum / Double(count)) * weight
-            genreWeight += weight
-        }
-        if genreWeight > 0 {
+        // Taste neighbourhood: how the reader rated the shelf books most like this
+        // one. Up to ±34 — an S-tier near-twin alone lifts a book into the 80s.
+        if let neighbourhood = tasteNeighbourhood(candidate: book, history: ratedHistory) {
             hasSignal = true
-            let g = genreSum / genreWeight
-            points += g * (g >= 0 ? 14.0 : 10.0) * min(1.0, genreWeight)
+            points += neighbourhood.signal * 34.0 * neighbourhood.confidence
         }
 
-        // Author affinity: the user has read (and rated) this author before.
+        // Author affinity: the reader has rated this author before. One book is
+        // already strong evidence (confidence 0.74), so a lone S-tier adds ~+28.
         let candidateAuthors = authorTokens(book.author)
         var authorValues: [Double] = []
         for entry in ratedHistory {
@@ -87,8 +88,9 @@ final class MatchScoreService {
         if !authorValues.isEmpty {
             hasSignal = true
             let mean = authorValues.reduce(0, +) / Double(authorValues.count)
-            let confidence = 0.5 + 0.5 * min(Double(authorValues.count), 3.0) / 3.0
-            points += mean * 10.0 * confidence
+            let n = Double(authorValues.count)
+            let confidence = n / (n + 0.35)
+            points += mean * 38.0 * confidence
         }
 
         // Followed readers' verdicts, trust-weighted by taste agreement.
@@ -108,7 +110,65 @@ final class MatchScoreService {
         }
 
         guard hasSignal else { return nil }
-        return Int(min(99.0, max(40.0, points)).rounded())
+        return Int(min(99.0, max(10.0, points)).rounded())
+    }
+
+    // MARK: - Taste neighbourhood
+
+    /// Genre signal from the shelf books most similar to the candidate, −1…+1,
+    /// with a 0…1 confidence.
+    ///
+    /// Similarity is the share of the candidate's genre tokens a shelf book also
+    /// carries, each token weighted by how *rare* it is on this reader's shelf
+    /// (log inverse frequency) — so "fiction" on a fiction-heavy shelf counts
+    /// for nothing and "epic fantasy" counts for a lot. The signal blends the
+    /// reader's broad verdict across everything nearby (40%), their verdict on
+    /// the five nearest books (30%), and the single best sim×affinity peak (30%)
+    /// so one S-tier near-twin can carry a book on its own.
+    private func tasteNeighbourhood(candidate: Book, history: [UserBook]) -> (signal: Double, confidence: Double)? {
+        let candidateTokens = genreTokens(candidate.genres)
+        guard !candidateTokens.isEmpty else { return nil }
+
+        var frequency: [String: Int] = [:]
+        var shelf: [(tokens: Set<String>, affinity: Double)] = []
+        for entry in history {
+            guard let entryBook = entry.book, let a = affinity(of: entry) else { continue }
+            let tokens = genreTokens(entryBook.genres)
+            guard !tokens.isEmpty else { continue }
+            shelf.append((tokens, a))
+            for token in tokens { frequency[token, default: 0] += 1 }
+        }
+        guard !shelf.isEmpty else { return nil }
+
+        let shelfCount = Double(shelf.count)
+        func weight(_ token: String) -> Double {
+            log((shelfCount + 1.0) / (Double(frequency[token] ?? 0) + 1.0))
+        }
+        let denominator = candidateTokens.reduce(0.0) { $0 + weight($1) }
+        guard denominator > 0 else { return nil }
+
+        var neighbours: [(similarity: Double, affinity: Double)] = []
+        for entry in shelf {
+            let shared = candidateTokens.intersection(entry.tokens)
+            guard !shared.isEmpty else { continue }
+            let similarity = shared.reduce(0.0) { $0 + weight($1) } / denominator
+            neighbours.append((similarity, entry.affinity))
+        }
+        guard !neighbours.isEmpty else { return nil }
+
+        let broadWeight = neighbours.reduce(0.0) { $0 + $1.similarity }
+        guard broadWeight > 0 else { return nil }
+        let broad = neighbours.reduce(0.0) { $0 + $1.similarity * $1.affinity } / broadWeight
+
+        neighbours.sort { $0.similarity > $1.similarity }
+        let nearest = Array(neighbours.prefix(5))
+        let nearWeight = nearest.reduce(0.0) { $0 + $1.similarity * $1.similarity }
+        guard nearWeight > 0 else { return nil }
+        let near = nearest.reduce(0.0) { $0 + $1.similarity * $1.similarity * $1.affinity } / nearWeight
+        let peak = max(0.0, nearest.map { $0.similarity * $0.affinity }.max() ?? 0.0)
+
+        let signal = 0.4 * broad + 0.3 * near + 0.3 * peak
+        return (signal, min(1.0, nearWeight))
     }
 
     // MARK: - Trust (taste similarity with a followed reader)
@@ -161,17 +221,10 @@ final class MatchScoreService {
         }
     }
 
-    private func genreAffinityMap(history: [UserBook]) -> [String: (sum: Double, count: Int)] {
-        var map: [String: (sum: Double, count: Int)] = [:]
-        for entry in history {
-            guard let entryBook = entry.book, let a = affinity(of: entry) else { continue }
-            for token in genreTokens(entryBook.genres) {
-                let existing = map[token] ?? (0, 0)
-                map[token] = (existing.sum + a, existing.count + 1)
-            }
-        }
-        return map
-    }
+    /// Tokens that describe marketing, not taste.
+    private static let ignoredGenreTokens: Set<String> = [
+        "general", "new york times bestseller", "bestseller", "bestsellers",
+    ]
 
     /// Google/publisher categories arrive as "Fiction / Thrillers / Suspense" —
     /// split into comparable lowercase tokens, dropping the meaningless "general".
@@ -180,7 +233,7 @@ final class MatchScoreService {
         for genre in genres {
             for part in genre.split(separator: "/") {
                 let token = part.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if !token.isEmpty && token != "general" { tokens.insert(token) }
+                if !token.isEmpty && !Self.ignoredGenreTokens.contains(token) { tokens.insert(token) }
             }
         }
         return tokens

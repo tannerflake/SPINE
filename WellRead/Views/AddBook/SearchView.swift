@@ -83,12 +83,6 @@ private struct SearchedUserSelection: Identifiable, Hashable {
     let id: String
 }
 
-/// A member row in the "Users" search scope (Firebase uid + profile).
-private struct SearchedReader: Identifiable {
-    let id: String
-    let user: User
-}
-
 struct SearchView: View {
     /// What the search field is querying: the book catalog or SPINE members.
     enum SearchScope {
@@ -108,10 +102,9 @@ struct SearchView: View {
     @State private var query = ""
     /// Always starts on books; the segment under the field flips it to members.
     @State private var scope: SearchScope = .books
-    /// All member profiles, fetched once per visit and filtered locally.
-    @State private var readers: [SearchedReader] = []
-    @State private var isLoadingReaders = false
-    @State private var hasLoadedReaders = false
+    /// The member roster, held across visits to the tab and refreshed behind the
+    /// list rather than in front of it (see `UserDirectory`). Filtering is local.
+    @ObservedObject private var directory = UserDirectory.shared
     @State private var selectedUser: SearchedUserSelection?
     @State private var results: [Book] = []
     @State private var isSearching = false
@@ -197,6 +190,7 @@ struct SearchView: View {
                     isOnReadList: appState.isBookOnReadList(bookId: book.id),
                     isInQueue: appState.isBookInQueue(bookId: book.id),
                     onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
+                    onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
                     readEntryForReview: appState.userReadBook(forBookId: book.id),
                     canEditReadReview: true,
                     shelfActionTitle: targetShelf.map(Self.shelfCTATitle),
@@ -330,11 +324,14 @@ struct SearchView: View {
         .onAppear {
             refreshRecents()
             Task { await loadFollowedReadsIfNeeded() }
+            // Warmed on appear, not on the flip to Users: by the time the segment
+            // is tapped the roster is already there.
+            warmDirectory()
         }
         .onChange(of: scope) { _, newScope in
             searchTask?.cancel()
             if newScope == .users {
-                Task { await loadReadersIfNeeded() }
+                warmDirectory()
             } else {
                 // Coming back to books: re-run whatever is in the field.
                 scheduleSearch(for: query)
@@ -420,11 +417,13 @@ struct SearchView: View {
     // MARK: - Users scope
 
     /// Roster results for the "Users" scope: everyone when the field is empty,
-    /// name/handle matches once the user types.
-    @ViewBuilder
+    /// name/handle matches once the user types. People the reader follows are
+    /// always their own section, above everyone else.
     private var usersStep: some View {
-        Group {
-            if isLoadingReaders {
+        // Ranked once per pass rather than once per section.
+        let sections = readerSections
+        return Group {
+            if directory.isLoading {
                 VStack(spacing: 14) {
                     SpinningSpineLogo(size: 72)
                     Text("Loading readers…").font(Theme.callout()).foregroundStyle(Theme.textSecondary)
@@ -432,8 +431,8 @@ struct SearchView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
                 Spacer(minLength: 0)
-            } else if filteredReaders.isEmpty {
-                Text(hasLoadedReaders && !readers.isEmpty
+            } else if sections.followed.isEmpty && sections.others.isEmpty {
+                Text(!directory.readers.isEmpty
                      ? "No members match \u{201C}\(query.trimmingCharacters(in: .whitespacesAndNewlines))\u{201D}."
                      : "No other members yet.")
                     .font(Theme.callout())
@@ -444,15 +443,25 @@ struct SearchView: View {
                 Spacer(minLength: 0)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(filteredReaders) { reader in
-                            Button {
-                                isSearchFocused = false
-                                selectedUser = SearchedUserSelection(id: reader.id)
-                            } label: {
-                                readerRow(reader.user)
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        if !sections.followed.isEmpty {
+                            // The header only earns its place when there is a second
+                            // section under it to tell it apart from.
+                            if !sections.others.isEmpty {
+                                readerSectionHeader("People you follow")
                             }
-                            .buttonStyle(.plain)
+                            ForEach(sections.followed) { reader in
+                                readerButton(reader)
+                            }
+                        }
+                        if !sections.others.isEmpty {
+                            if !sections.followed.isEmpty {
+                                readerSectionHeader("Other SPINE users")
+                                    .padding(.top, 8)
+                            }
+                            ForEach(sections.others) { reader in
+                                readerButton(reader)
+                            }
                         }
                     }
                     .padding()
@@ -460,6 +469,24 @@ struct SearchView: View {
                 }
             }
         }
+    }
+
+    private func readerSectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(Theme.caption())
+            .textCase(.uppercase)
+            .kerning(0.8)
+            .foregroundStyle(Theme.textSecondary)
+    }
+
+    private func readerButton(_ reader: UserDirectory.Reader) -> some View {
+        Button {
+            isSearchFocused = false
+            selectedUser = SearchedUserSelection(id: reader.id)
+        } label: {
+            readerRow(reader.user)
+        }
+        .buttonStyle(.plain)
     }
 
     private func readerRow(_ user: User) -> some View {
@@ -494,23 +521,84 @@ struct SearchView: View {
         .contentShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius))
     }
 
-    /// Name matches first, handle matches after (see `PersonSearch`).
-    private var filteredReaders: [SearchedReader] {
+    /// Matching members split into the two sections the list draws: people the
+    /// reader follows first, everyone else after.
+    ///
+    /// Inside "people you follow", name matches rank above handle matches (see
+    /// `PersonSearch`). Everyone else is ordered exactly the way the Social tab's
+    /// people strip orders them — most connected to you first (see
+    /// `PeopleSimilarity`), then whoever is reading something now, then the
+    /// most-read readers — with a typed query taking precedence and connection
+    /// breaking its ties.
+    private var readerSections: (followed: [UserDirectory.Reader], others: [UserDirectory.Reader]) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return readers }
-        return PersonSearch.ranked(readers, query: trimmed, user: { $0.user })
+        let following = Set(authService.appUser?.following ?? [])
+        var followed: [UserDirectory.Reader] = []
+        var others: [UserDirectory.Reader] = []
+        for reader in directory.readers {
+            if following.contains(reader.id) { followed.append(reader) } else { others.append(reader) }
+        }
+        // Scored against everyone you follow, not just the ones matching the
+        // query, so typing never changes how connected someone is to you.
+        let peers = followed
+        followed = trimmed.isEmpty
+            ? sortFollowed(followed)
+            : PersonSearch.ranked(followed, query: trimmed, user: { $0.user })
+        return (followed, rankOthers(others, query: trimmed, following: following, peers: peers))
     }
 
-    /// Fetches the member roster once per visit; filtering is local from there.
-    private func loadReadersIfNeeded() async {
-        guard !hasLoadedReaders, !isLoadingReaders else { return }
-        isLoadingReaders = true
-        let rows = await UserRepository().fetchAllReaderProfiles(excludingUid: appState.authUserId, limit: 500)
-        await MainActor.run {
-            readers = rows.map { SearchedReader(id: $0.uid, user: $0.user) }
-            hasLoadedReaders = true
-            isLoadingReaders = false
+    /// People you follow, browsing: whoever is reading something now first, then
+    /// alphabetical — the people strip's order.
+    private func sortFollowed(_ rows: [UserDirectory.Reader]) -> [UserDirectory.Reader] {
+        let readingNow = directory.readingNowUids
+        return rows.sorted { a, b in
+            let aReading = readingNow.contains(a.id)
+            let bReading = readingNow.contains(b.id)
+            if aReading != bReading { return aReading }
+            return a.user.displayName.localizedCaseInsensitiveCompare(b.user.displayName) == .orderedAscending
         }
+    }
+
+    private func rankOthers(
+        _ rows: [UserDirectory.Reader],
+        query: String,
+        following: Set<String>,
+        peers: [UserDirectory.Reader]
+    ) -> [UserDirectory.Reader] {
+        let peerFollowing = peers.map { (uid: $0.id, following: $0.user.following) }
+        let currentUid = appState.authUserId
+        let readingNow = directory.readingNowUids
+        let scored = rows.compactMap { row -> (row: UserDirectory.Reader, match: Int, score: Int)? in
+            var match = 0
+            if !query.isEmpty {
+                guard let rank = PersonSearch.rank(row.user, query: query) else { return nil }
+                match = rank
+            }
+            let score = PeopleSimilarity.score(
+                candidateUid: row.id,
+                candidateFollowing: row.user.following,
+                following: following,
+                peers: peerFollowing,
+                currentUid: currentUid
+            )
+            return (row, match, score)
+        }
+        return scored.sorted { a, b in
+            if a.match != b.match { return a.match < b.match }
+            if a.score != b.score { return a.score > b.score }
+            let aReading = readingNow.contains(a.row.id)
+            let bReading = readingNow.contains(b.row.id)
+            if aReading != bReading { return aReading }
+            if a.row.user.totalBooksRead != b.row.user.totalBooksRead {
+                return a.row.user.totalBooksRead > b.row.user.totalBooksRead
+            }
+            return a.row.user.displayName.localizedCaseInsensitiveCompare(b.row.user.displayName) == .orderedAscending
+        }
+        .map(\.row)
+    }
+
+    private func warmDirectory() {
+        directory.warm(uid: appState.authUserId, following: authService.appUser?.following ?? [])
     }
 
     // MARK: - Recents
@@ -809,36 +897,34 @@ struct SearchView: View {
     }
 }
 
-/// Books | Users selector under the search field. Same sliding-lens language as
-/// the library's Read/Queue control, but deliberately small: it's a scope hint
-/// under the field, not a primary control, so it stays narrow and short.
+/// Books | Users selector under the search field. Same sliding-lens language and
+/// proportions as the library's Read/Queue control, and the same width as the
+/// field above it: a narrower control read as lopsided, pinned to the left under
+/// a full-width field. (Apple Music's search scopes sit the same way.)
 private struct SearchScopeSegmentControl: View {
     @Binding var scope: SearchView.SearchScope
 
-    /// Keeps the control off the full width of the search field above it.
-    private static let width: CGFloat = 168
-    private static let lensCornerRadius: CGFloat = 7
+    private static let lensCornerRadius: CGFloat = 8
 
     var body: some View {
         HStack(spacing: 0) {
             pill("Books", value: .books)
             pill("Users", value: .users)
         }
-        .padding(2)
+        .padding(3)
         .background {
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 9).fill(Theme.surface)
+                RoundedRectangle(cornerRadius: 10).fill(Theme.surface)
                 GeometryReader { geo in
                     let half = geo.size.width / 2
                     LibrarySegmentGlassLens(cornerRadius: Self.lensCornerRadius)
-                        .frame(width: max(0, half - 4))
-                        .offset(x: 2 + (scope == .books ? 0 : half))
+                        .frame(width: max(0, half - 6))
+                        .offset(x: 3 + (scope == .books ? 0 : half))
                         .animation(LibrarySegmentControlAnimation.selection, value: scope)
                 }
                 .allowsHitTesting(false)
             }
         }
-        .frame(width: Self.width)
         .sensoryFeedback(.selection, trigger: scope)
     }
 
@@ -848,10 +934,10 @@ private struct SearchScopeSegmentControl: View {
             scope = value
         } label: {
             Text(title)
-                .font(Theme.caption().weight(isSelected ? .semibold : .regular))
+                .font(Theme.callout().weight(isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 5)
+                .padding(.vertical, 7)
         }
         .buttonStyle(.plain)
         .contentShape(RoundedRectangle(cornerRadius: Self.lensCornerRadius))

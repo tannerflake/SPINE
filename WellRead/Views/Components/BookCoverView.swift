@@ -35,8 +35,15 @@ enum CoverFetchResult {
 final class CoverImageCache {
     static let shared = CoverImageCache()
 
-    /// Max seconds for each URL attempt (network + decode). `FallbackCoverImage` also enforces a **total** budget per cover.
+    /// Max seconds of *inactivity* on a cover request. `FallbackCoverImage` also enforces a **total** budget per cover.
     static let loadTimeoutSeconds: TimeInterval = 4
+
+    /// Max seconds for an entire cover transfer. Deliberately far above
+    /// `loadTimeoutSeconds`: on a weak connection a 150KB cover makes steady
+    /// progress but takes well over 4s, and capping the transfer there killed
+    /// downloads that were working fine. This is only an upper bound — every
+    /// attempt is still raced against the caller's remaining budget.
+    static let resourceTimeoutSeconds: TimeInterval = 15
 
     private let cache = NSCache<NSString, UIImage>()
     private let session: URLSession
@@ -56,7 +63,7 @@ final class CoverImageCache {
         cache.totalCostLimit = 100 * 1024 * 1024 // ~100 MB decoded bitmap budget
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = Self.loadTimeoutSeconds
-        config.timeoutIntervalForResource = Self.loadTimeoutSeconds
+        config.timeoutIntervalForResource = Self.resourceTimeoutSeconds
         config.waitsForConnectivity = false
         session = URLSession(configuration: config)
     }
@@ -627,7 +634,7 @@ private struct CoverTapModifier: ViewModifier {
 }
 
 /// Book-cover-style placeholder when no image is available: title centered, author along the bottom in a smaller type.
-private struct TitleOnlyBookCover: View {
+struct TitleOnlyBookCover: View {
     let title: String
     var author: String? = nil
     let size: CGFloat
@@ -683,10 +690,32 @@ private struct TitleOnlyBookCover: View {
     private var bottomPadding: CGFloat { max(6, size * 0.07) }
 }
 
-/// Total seconds to obtain **any** cover image (network or cache); after this, show title placeholder.
-/// Generous on purpose: resolution locking means only the *first ever* load of a book pays
-/// this — better a longer shimmer once than a permanent wrong placeholder on a slow network.
+/// Total seconds to keep *trying* for a cover image. Decoupled from what the user
+/// sees: the shimmer gives up at `coverShimmerDeadlineSeconds` and paints the
+/// generated cover while the chain runs on underneath, so a generous budget here
+/// costs patience, not a spinner.
 private let coverLoadTotalBudgetSeconds: TimeInterval = 10
+
+/// How long a cover may shimmer before we paint `TitleOnlyBookCover` instead.
+/// The fetch is *not* cancelled — a cover that lands after this swaps in (see
+/// `succeed`). The placeholder is the resting state, not a terminal one.
+private let coverShimmerDeadlineSeconds: TimeInterval = 2.5
+
+/// Runs `work`, giving up after `seconds`. Used for chain steps that do their own
+/// multi-request networking and would otherwise ignore the total budget.
+private func withCoverTimeout<T: Sendable>(_ seconds: TimeInterval, _ work: @escaping @Sendable () async -> T) async -> T? {
+    let ns = UInt64(max(0.05, seconds) * 1_000_000_000)
+    return await withTaskGroup(of: T?.self) { group in
+        group.addTask { await work() }
+        group.addTask {
+            try? await Task.sleep(nanoseconds: ns)
+            return nil
+        }
+        let first = await group.next() ?? nil
+        group.cancelAll()
+        return first
+    }
+}
 
 /// Tries each URL in order within a single total time budget; uses memory + disk cached images when available.
 /// Once a URL succeeds it's locked in `CoverResolutionStore`, so subsequent renders (and
@@ -821,18 +850,21 @@ private struct FallbackCoverImage: View {
 
     var body: some View {
         ZStack {
-            if useTitlePlaceholder {
-                if let title = placeholderTitle, !title.isEmpty {
-                    TitleOnlyBookCover(title: title, author: placeholderAuthor, size: size)
-                } else {
-                    genericPlaceholder
-                }
-            } else if let img = loadedImage {
+            // Image first: once we have real artwork it wins outright, so a cover
+            // arriving after the shimmer deadline can't be masked by a placeholder
+            // flag someone forgot to clear.
+            if let img = loadedImage {
                 Image(uiImage: img)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: size, height: size * 1.5)
                     .clipped()
+            } else if useTitlePlaceholder {
+                if let title = placeholderTitle, !title.isEmpty {
+                    TitleOnlyBookCover(title: title, author: placeholderAuthor, size: size)
+                } else {
+                    genericPlaceholder
+                }
             } else {
                 CoverShimmer()
             }
@@ -901,21 +933,40 @@ private struct FallbackCoverImage: View {
                 store.lock(bookId: bookId, signature: signature, url: url)
                 loadedImage = img
                 loadedIdentity = identity
+                // Chain outran the shimmer deadline: replace the generated cover.
+                useTitlePlaceholder = false
             }
+
+            // Stop the shimmer well before the budget expires and let the generated
+            // cover stand in while the chain keeps working. Cancelled on every exit
+            // path (including `.task` teardown when the cell scrolls away).
+            let shimmerDeadline = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(coverShimmerDeadlineSeconds * 1_000_000_000))
+                guard !Task.isCancelled, loadedImage == nil else { return }
+                useTitlePlaceholder = true
+            }
+            defer { shimmerDeadline.cancel() }
+
+            var sawTransient = false
 
             // 1. A previously locked winner: go straight to it (usually a disk-cache hit).
             if let locked = store.resolvedURL(bookId: bookId, signature: signature) {
-                if case .success(let img) = await loadCover(url: locked, timeout: remaining()) {
+                switch await loadCover(url: locked, timeout: remaining()) {
+                case .success(let img):
                     succeed(img, url: locked)
                     return
+                case .missing:
+                    // Remote image really is gone — drop the lock so the chain re-resolves.
+                    store.clear(bookId: bookId)
+                case .rateLimited, .transient:
+                    // Just a slow or flaky link. Keeping the lock matters: clearing it
+                    // here meant one bad-wifi session threw away the known-good URL for
+                    // every book, forcing a full chain re-run on the next launch.
+                    sawTransient = true
                 }
-                // Remote image vanished or network is down — clear the stale lock and
-                // let the normal chain (below) re-resolve.
-                store.clear(bookId: bookId)
             }
 
             // 2. Fallback chain: Open Library → Google Books (ordering built in Book.coverImageURLsToTry).
-            var sawTransient = false
             for url in urls {
                 if remaining() <= 0 { sawTransient = true; break }
                 if url.host?.contains("covers.openlibrary.org") == true,
@@ -937,9 +988,19 @@ private struct FallbackCoverImage: View {
 
             // 3. Last resort: iTunes/Apple Books artwork lookup.
             if remaining() > 0, let title = placeholderTitle, !title.isEmpty {
-                let artworkURLs = await ITunesCoverService.shared.artworkURLs(
-                    isbn: isbn, title: title, author: placeholderAuthor
-                )
+                // Two sequential requests on its own 8s-per-request session, so left
+                // unbounded this alone could hold a cover past the total budget.
+                let author = placeholderAuthor
+                let bookISBN = isbn
+                let artworkLookup = await withCoverTimeout(remaining()) {
+                    await ITunesCoverService.shared.artworkURLs(
+                        isbn: bookISBN, title: title, author: author
+                    )
+                }
+                // nil = we ran out of budget; an empty array = iTunes genuinely has
+                // nothing, which is a definitive miss and must stay recordable.
+                if artworkLookup == nil { sawTransient = true }
+                let artworkURLs = artworkLookup ?? []
                 for url in artworkURLs {
                     if remaining() <= 0 { sawTransient = true; break }
                     if case .success(let img) = await loadCover(url: url, timeout: remaining()) {

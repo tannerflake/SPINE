@@ -18,6 +18,9 @@ struct DiscoverView: View {
     /// advances to a fresh suggestion, so every increment is a distinct book.
     /// DiscoverCriteriaStrip reads this to hold its tune callout until 3.
     @AppStorage("discoverActionedBookCount") private var actionedBookCount = 0
+    /// First visit to Discover ever: the mood sheet opens itself a beat after
+    /// the page settles so the very first suggestions are ones they asked for.
+    @AppStorage("discoverMoodSheetAutoShown") private var hasAutoShownMoodSheet = false
 
     var body: some View {
         NavigationStack {
@@ -49,6 +52,19 @@ struct DiscoverView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                // Came in from the feed's "Discover more" tile: the swipe back
+                // from the left edge goes home to the feed, the way it would on
+                // a pushed page. Simultaneous so the card underneath still
+                // scrolls and swipes normally.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 20).onEnded { value in
+                        guard appState.discoverEnteredFromFeed,
+                              value.startLocation.x <= 40,
+                              value.translation.width > 70,
+                              abs(value.translation.height) < 80 else { return }
+                        returnToFeed()
+                    }
+                )
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -64,6 +80,7 @@ struct DiscoverView: View {
                     isOnReadList: appState.isBookOnReadList(bookId: book.id),
                     isInQueue: appState.isBookInQueue(bookId: book.id),
                     onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
+                    onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
                     readEntryForReview: appState.userReadBook(forBookId: book.id),
                     canEditReadReview: true,
                     showRecommend: false
@@ -98,6 +115,7 @@ struct DiscoverView: View {
                 } else if appState.discoverCurrentSuggestion == nil, appState.discoverSuggestionQueue.isEmpty, !appState.isLoadingDiscoverSuggestions {
                     appState.loadDiscoverSuggestionsIfNeeded()
                 }
+                autoShowMoodSheetOnFirstVisit()
             }
             .sheet(isPresented: $showCriteriaEditor) {
                 DiscoverCriteriaEditorSheet(initial: appState.discoverCriteria)
@@ -111,6 +129,19 @@ struct DiscoverView: View {
     /// Banner at the top of the Discover tab.
     private var spineDiscoverHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if appState.discoverEnteredFromFeed {
+                Button {
+                    returnToFeed()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .frame(width: 40, height: 32, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to the feed")
+            }
             Text("DISCOVER")
                 .font(.system(size: 22, weight: .bold))
                 .tracking(2)
@@ -118,9 +149,31 @@ struct DiscoverView: View {
             BrandRule(width: 48)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .topTrailing) {
+            if !appState.discoverPassedBooks.isEmpty {
+                undoPassButton
+            }
+        }
         .padding(.horizontal, Theme.horizontalPadding)
         .padding(.top, 8)
         .padding(.bottom, 12)
+    }
+
+    /// Top-right undo: only there once something has been passed on this
+    /// session. The u-turn glyph starts low, curves up, and heads back left.
+    private var undoPassButton: some View {
+        Button {
+            undoLastPass()
+        } label: {
+            Image(systemName: "arrow.uturn.left")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Go back to the book you passed on")
+        .transition(.opacity.combined(with: .scale(scale: 0.8)))
     }
 
     private var loadingView: some View {
@@ -188,6 +241,7 @@ struct DiscoverView: View {
             isOnReadList: appState.isBookOnReadList(bookId: book.id),
             isInQueue: appState.isBookInQueue(bookId: book.id),
             onRemoveFromQueue: { appState.removeFromQueue(book: book) },
+            onMarkAsDNF: { appState.markAsDNF(book: book) },
             readEntryForReview: appState.userReadBook(forBookId: book.id),
             canEditReadReview: true,
             showRecommend: false
@@ -195,10 +249,40 @@ struct DiscoverView: View {
         .id(book.id)
     }
 
+    /// Back to the Feed tab, at the offset the reader left it (MainTabView
+    /// owns the tab switch and hands the feed its scroll position back).
+    private func returnToFeed() {
+        Analytics.amplitude?.track(eventType: "Returned To Feed From Discover")
+        NotificationCenter.default.post(name: .spineReturnToFeed, object: nil)
+    }
+
+    /// Open the mood sheet a second after the user's first ever arrival on
+    /// Discover. Only once per install, and never on top of a pushed book
+    /// profile or a sheet that is already up.
+    private func autoShowMoodSheetOnFirstVisit() {
+        guard !hasAutoShownMoodSheet else { return }
+        hasAutoShownMoodSheet = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard selectedBookForProfile == nil, !showCriteriaEditor else { return }
+            showCriteriaEditor = true
+        }
+    }
+
     private func performNotInterested(_ book: Book) {
         appState.addDismissedBookId(book.id)
+        appState.discoverPassedBooks.append(book)
         actionedBookCount += 1
         appState.advanceDiscoverSuggestion()
+    }
+
+    /// Undo the last Pass, putting that book back on screen.
+    private func undoLastPass() {
+        Analytics.amplitude?.track(eventType: "Undid Discover Pass")
+        actionedBookCount = max(0, actionedBookCount - 1)
+        withAnimation(.easeOut(duration: 0.2)) {
+            appState.undoLastDiscoverPass()
+        }
     }
 
     private func performWantToRead(_ book: Book) {

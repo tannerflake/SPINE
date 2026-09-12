@@ -12,8 +12,9 @@ import Foundation
 import FirebaseFirestore
 
 enum BookBlendStatus: String, Codable {
-    /// Requested; waiting on the recipient. Stays pending while the accepter's
-    /// device generates — flips straight to `ready` when the result is saved.
+    /// Requested; waiting on the recipient. The requester's device precomputes
+    /// the result onto this pending doc, so accepting is usually just the flip
+    /// to `ready`. A pending doc carrying a `result` has not been accepted yet.
     case pending
     case declined
     case ready

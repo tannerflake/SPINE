@@ -222,6 +222,27 @@ final class UserBookRepository {
         }
     }
 
+    /// Just the readers with something on their Reading Now shelf — no book
+    /// documents resolved. The roster-wide ranking in `UserDirectory` only needs
+    /// to know who is reading, not what, and hydrating every cover for that
+    /// would cost more than the rest of the member search put together.
+    func fetchUidsReadingNow() async -> Set<String> {
+        do {
+            let snapshot = try await db.collection(userBooks)
+                .whereField("queueShelf", isEqualTo: QueueShelf.readingNow.rawValue)
+                .getDocuments()
+            var uids: Set<String> = []
+            for doc in snapshot.documents {
+                guard let ub = userBook(from: doc.data(), docId: doc.documentID),
+                      ub.status == .wantToRead, ub.queueShelf == .readingNow else { continue }
+                uids.insert(ub.userId)
+            }
+            return uids
+        } catch {
+            return []
+        }
+    }
+
     /// Shared tail of the reading-now fetches: resolve book documents and put
     /// each reader's covers in shelf order, dropping readers with no covers.
     private func resolveReadingNowBooks(rowsByUid: [String: [UserBook]]) async -> [String: [Book]] {
@@ -382,7 +403,33 @@ final class UserBookRepository {
         } else {
             fields["additionalReadDates"] = NSNull()
         }
+        fields["queueNote"] = userBook.trimmedQueueNote.map { $0 as Any } ?? NSNull()
+        fields["readingProgress"] = userBook.readingProgress.map { min(1, max(0, $0)) as Any } ?? NSNull()
         return fields
+    }
+
+    /// Sets how far through a book the reader is (0...1) from the Reading now scrubber.
+    /// `dateStarted` is written only when given (first nudge off 0% stamps the start date).
+    func setReadingProgress(userBookId: UUID, progress: Double, dateStarted: Date? = nil) async throws {
+        let ref = db.collection(userBooks).document(userBookId.uuidString)
+        var fields: [String: Any] = [
+            "readingProgress": min(1, max(0, progress)),
+            "updatedAt": Timestamp(date: Date()),
+        ]
+        if let started = dateStarted {
+            fields["dateStarted"] = Timestamp(date: started)
+        }
+        try await ref.updateData(fields)
+    }
+
+    /// Sets (or clears, with `nil`) the private note-to-self on a queued book.
+    func setQueueNote(userBookId: UUID, note: String?) async throws {
+        let ref = db.collection(userBooks).document(userBookId.uuidString)
+        let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        try await ref.updateData([
+            "queueNote": trimmed.isEmpty ? NSNull() : trimmed as Any,
+            "updatedAt": Timestamp(date: Date()),
+        ])
     }
 
     /// Updates tier for a userBook.
@@ -419,6 +466,8 @@ final class UserBookRepository {
         let queueShelf = queueShelfRaw.flatMap { QueueShelf(rawValue: $0) }
         let queueOrder = data["queueOrder"] as? Int
         let additionalReadDates = (data["additionalReadDates"] as? [Timestamp]).map { $0.map { $0.dateValue() } }
+        let queueNote = data["queueNote"] as? String
+        let readingProgress = (data["readingProgress"] as? NSNumber).map { Double(truncating: $0) }
         return UserBook(
             id: id,
             userId: userId,
@@ -436,7 +485,9 @@ final class UserBookRepository {
             tierOrder: tierOrder,
             queueShelf: queueShelf,
             queueOrder: queueOrder,
-            additionalReadDates: additionalReadDates
+            additionalReadDates: additionalReadDates,
+            queueNote: queueNote,
+            readingProgress: readingProgress
         )
     }
 

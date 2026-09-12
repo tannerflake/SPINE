@@ -138,6 +138,21 @@ final class UserRepository {
         }
     }
 
+    /// Reads the user document straight from Firestore's on-disk cache, never
+    /// the network. `getUser` waits on the server (and can hang indefinitely on
+    /// a stalled connection); this is the offline answer for a member whose
+    /// document we've already seen on this device.
+    func getCachedUser(uid: String) async -> User? {
+        let ref = db.collection(users).document(uid)
+        do {
+            let snapshot = try await ref.getDocument(source: .cache)
+            guard snapshot.exists, let data = snapshot.data() else { return nil }
+            return user(from: data, uid: uid)
+        } catch {
+            return nil
+        }
+    }
+
     /// Session cache for bulk profile lookups (feed post authors). Profiles
     /// change rarely; a slightly stale name/photo beats re-fetching every
     /// author on each feed update. `getUser` stays uncached for fresh reads.
@@ -566,6 +581,14 @@ final class UserRepository {
         ])
     }
 
+    /// Hide `targetUid` from the feed's "Readers to follow" suggestions for good
+    /// (`dismissedRecommendedUids` array on the signed-in user's document).
+    func addDismissedRecommendedUid(currentUid: String, targetUid: String) async throws {
+        guard currentUid != targetUid else { return }
+        try await db.collection(users).document(currentUid)
+            .updateData(["dismissedRecommendedUids": FieldValue.arrayUnion([targetUid])])
+    }
+
     /// Follow or unfollow `targetUid` from the signed-in user’s document only (`following` array).
     func setFollowing(currentUid: String, targetUid: String, follow: Bool) async throws {
         guard currentUid != targetUid else { return }
@@ -625,7 +648,8 @@ final class UserRepository {
             readingInterestTags: data["readingInterestTags"] as? [String] ?? [],
             discoverCriteria: DiscoverCriteria(firestoreMap: data["discoverCriteria"] as? [String: Any]),
             // Missing field: grandfathered in as OG-eligible (see `User.ogIneligible`).
-            ogIneligible: data["ogIneligible"] as? Bool ?? false
+            ogIneligible: data["ogIneligible"] as? Bool ?? false,
+            dismissedRecommendedUids: data["dismissedRecommendedUids"] as? [String] ?? []
         )
     }
 }

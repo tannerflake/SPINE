@@ -8,6 +8,8 @@
 
 import SwiftUI
 import Combine
+import StoreKit
+import UIKit
 
 struct MainTabView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -22,9 +24,25 @@ struct MainTabView: View {
     @State private var showProfilePhotoNudgeModal = false
     @State private var showPhoneNumberNudgeModal = false
     @State private var showCurrentlyReadingPrompt = false
+    /// "Enjoying SPINE?" pre-prompt, surfaced from the viewer's own tier list.
+    @State private var showRateSpineModal = false
+    /// The viewer tapped "Rate SPINE" rather than dismissing, so the sheet's
+    /// `onDismiss` must not also record a "Not now" against them.
+    @State private var rateSpineTappedThrough = false
     @State private var keyboardVisible = false
+    /// Apple's native star prompt. Requested at most once per account by the
+    /// rating flow, so we stay far inside iOS's 3-per-year display cap.
+    @Environment(\.requestReview) private var requestReview
+    /// Lowest bottom edge the tab bar overlay has ever been laid out at — its
+    /// position with no keyboard avoidance applied. See `updateTabBarKeyboardLift`.
+    @State private var tabBarRestingBottomEdge: CGFloat = 0
+    /// How far keyboard avoidance has currently lifted the bar; cancelled out by an
+    /// equal downward offset so the bar never moves.
+    @State private var tabBarKeyboardLift: CGFloat = 0
     /// New-follower push tapped: the follower's profile presented full-height over any tab.
     @State private var deepLinkProfile: DeepLinkUserProfile?
+    /// Widget tap on a friend's cover: that book's profile, presented over any tab.
+    @State private var deepLinkBook: DeepLinkBook?
     /// Pending Book Blend invite surfaced as a launch modal (push-independent).
     @State private var incomingBlendInvite: BookBlend?
     /// True once a modal button decided the invite's fate — a plain swipe-down
@@ -37,6 +55,14 @@ struct MainTabView: View {
 
     private struct DeepLinkUserProfile: Identifiable {
         let id: String
+    }
+
+    /// A book resolved from a `wellread://book/{id}` widget tap, plus the friend
+    /// whose shelf it came from (drives the reader context on the profile).
+    private struct DeepLinkBook: Identifiable {
+        let book: Book
+        let readerUid: String?
+        var id: String { book.id }
     }
 
     enum Tab: String, CaseIterable {
@@ -74,13 +100,37 @@ struct MainTabView: View {
         // the page itself just appears, fully formed.
         .animation(nil, value: selectedTab)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Reserve space for the tab bar in layout (avoids full-screen content drawing under it).
+        // Reserve space for the tab bar in layout (avoids full-screen content drawing
+        // under it). Nothing is drawn here: the inset participates in keyboard
+        // avoidance no matter what it ignores, so it holds an invisible copy of the
+        // bar purely to book the right height. Letting it ride up with the keyboard
+        // is harmless when it's empty space.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            // The inset participates in keyboard avoidance no matter what the bar
-            // itself ignores, so the bar would ride up above the keyboard — hide it
-            // while the keyboard is up instead.
-            if !keyboardVisible {
+            tabBarGhost
+        }
+        // The bar the user actually sees is drawn here instead, and is pinned to the
+        // true bottom of the screen by cancelling out whatever vertical lift keyboard
+        // avoidance applied (`tabBarKeyboardLift`, measured below). `ignoresSafeArea`
+        // does not help here: an overlay is laid out inside the already-avoided frame
+        // and cannot climb back out of it.
+        //
+        // Measuring the lift rather than tracking the keyboard is the whole point. The
+        // bar used to be removed from the layout on a keyboard notification, so a
+        // missed or unpaired notification — routine when a sheet or drawer hands the
+        // first responder back and forth mid-transition — left SwiftUI holding a
+        // keyboard inset that nothing would ever clear, and the bar came back at that
+        // stale offset and stayed there, shoved halfway up the screen. A measured
+        // offset has no such state to get stuck in: whatever the lift is right now,
+        // real or stale, it is cancelled right now.
+        .overlay(alignment: .bottom) {
+            ZStack(alignment: .bottom) {
+                tabBarBottomProbe
                 tabBar
+                    .offset(y: tabBarKeyboardLift)
+                    // Cosmetic only now — the bar already sits behind the keyboard.
+                    // A stuck `keyboardVisible` can hide the bar but can't move it.
+                    .opacity(keyboardVisible ? 0 : 1)
+                    .allowsHitTesting(!keyboardVisible)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -115,6 +165,9 @@ struct MainTabView: View {
         // the action bar a clean breathing-room gap above the tab bar.
         .environment(\.mainTabBarOverlapExtraHeight, Theme.mainTabBarChromeHeight)
         .toastHost()
+        // One unclipped, full-screen host for finish-line confetti, above the tab
+        // bar. Attached only here: a second host would double the burst.
+        .finishConfettiHost()
     }
 
     /// Onboarding/nudge sheets attached to the tab content.
@@ -202,6 +255,35 @@ struct MainTabView: View {
             .environmentObject(appState)
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showRateSpineModal, onDismiss: {
+            // "Not now" and a swipe-down mean the same thing: start the 7-day
+            // clock on the first native prompt. Tapping through skips that,
+            // since the prompt is already on its way.
+            if let uid = authService.firebaseUser?.uid, !rateSpineTappedThrough {
+                AppReviewPromptStorage.recordNotNow(uid: uid)
+            }
+        }) {
+            RateSpineNudgeModal(
+                onRate: {
+                    guard let uid = authService.firebaseUser?.uid else {
+                        showRateSpineModal = false
+                        return
+                    }
+                    rateSpineTappedThrough = true
+                    // Taking them at their word: the star prompt fires below and
+                    // that's the last ask this account ever gets.
+                    AppReviewPromptStorage.markFinishedByTapThrough(uid: uid)
+                    showRateSpineModal = false
+                    // Let the sheet finish dismissing before the system alert
+                    // lands, the same beat the deep-link presenters use.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        presentSystemReviewPrompt(uid: uid, userInitiated: true)
+                    }
+                },
+                onNotNow: { showRateSpineModal = false }
+            )
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showPhoneNumberNudgeModal, onDismiss: {
             // "Later" and swipe-down both count toward the 4-dismissal cap; a
             // successful save sets the number before closing, so it doesn't.
@@ -253,12 +335,23 @@ struct MainTabView: View {
                 presentDeepLinkProfile(userId: uid)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .spineOpenBookProfile)) { note in
+            _ = PushNotificationService.consumePendingBookProfileTap()
+            if let bookId = note.userInfo?["bookId"] as? String, !bookId.isEmpty {
+                presentDeepLinkBook(bookId: bookId, readerUid: note.userInfo?["readerUid"] as? String)
+            }
+        }
         .sheet(item: $deepLinkProfile) { profile in
             NavigationStack {
                 UserLibraryDetailView(userId: profile.id)
             }
             .environmentObject(authService)
             .environmentObject(appState)
+        }
+        .sheet(item: $deepLinkBook) { entry in
+            DeepLinkBookProfileSheet(book: entry.book, readerUid: entry.readerUid)
+                .environmentObject(authService)
+                .environmentObject(appState)
         }
         .sheet(item: $incomingBlendInvite, onDismiss: {
             // Swipe-down without choosing = "Remind me in a bit".
@@ -306,12 +399,23 @@ struct MainTabView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        // A link/text shared to SPINE from another app: the link → queue wizard.
+        .sheet(item: $appState.pendingLinkImport, onDismiss: {
+            appState.refreshLinkImportResumeState()
+        }) { payload in
+            LinkImportView(payload: payload)
+                .environmentObject(appState)
+                .environmentObject(authService)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .spineHighlightTierBook)) { _ in
             selectedTab = .profile
         }
         .onReceive(NotificationCenter.default.publisher(for: .spineOpenQueue)) { _ in
             _ = PushNotificationService.consumePendingOpenQueueTap()
             selectedTab = .profile
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .spineOpenDiscover)) { _ in
+            selectedTab = .discover
         }
         // Blend pushes (invite / ready) present the Book Blend landing full-screen.
         .bookBlendPushPresenter()
@@ -339,8 +443,41 @@ struct MainTabView: View {
             if ProcessInfo.processInfo.arguments.contains("-uiPreviewCurrentlyReading") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showCurrentlyReadingPrompt = true }
             }
+            // `-uiPreviewRateApp` wipes this account's rating state so the
+            // pre-prompt fires again on the next visit to the tier list;
+            // `-uiPreviewRateAppFollowUp` backdates the "Not now" so the first
+            // native star prompt is due instead; `-uiPreviewRateAppRecurring`
+            // backdates the last native prompt so the 6-month one is due. All
+            // three exercise the real trigger rather than forcing the sheet, so
+            // the tier-list gating gets tested too. Note iOS's own 3-per-year
+            // cap is per device and can't be reset from in here.
+            if let uid = authService.firebaseUser?.uid {
+                if ProcessInfo.processInfo.arguments.contains("-uiPreviewRateAppRecurring") {
+                    AppReviewPromptStorage.simulateDueRecurrenceForPreview(uid: uid)
+                } else if ProcessInfo.processInfo.arguments.contains("-uiPreviewRateAppFollowUp") {
+                    AppReviewPromptStorage.simulateExpiredNotNowForPreview(uid: uid)
+                } else if ProcessInfo.processInfo.arguments.contains("-uiPreviewRateApp") {
+                    AppReviewPromptStorage.resetForPreview(uid: uid)
+                }
+            }
             // `-uiPreviewBlendInviteModal`: force the blend invite launch modal on
             // demo data for simulator UI verification.
+            // `-uiPreviewLinkImport <url-or-text>` opens the link → queue wizard on
+            // launch, as if that link had just been shared to SPINE — no share
+            // sheet driving needed to test the flow.
+            if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "-uiPreviewLinkImport"),
+               i + 1 < ProcessInfo.processInfo.arguments.count {
+                let raw = ProcessInfo.processInfo.arguments[i + 1]
+                var payload = LinkImportPayload()
+                if let u = URL(string: raw), let scheme = u.scheme, scheme.hasPrefix("http") {
+                    payload.url = u
+                } else {
+                    payload.text = raw
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    appState.pendingLinkImport = payload
+                }
+            }
             if ProcessInfo.processInfo.arguments.contains("-uiPreviewBlendInviteModal") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     blendInviteDecided = false
@@ -361,6 +498,9 @@ struct MainTabView: View {
             }
             if let uid = PushNotificationService.consumePendingProfileUserTap() {
                 presentDeepLinkProfile(userId: uid)
+            }
+            if let pending = PushNotificationService.consumePendingBookProfileTap() {
+                presentDeepLinkBook(bookId: pending.bookId, readerUid: pending.readerUid)
             }
             if PushNotificationService.consumePendingOpenQueueTap() {
                 selectedTab = .profile
@@ -396,6 +536,14 @@ struct MainTabView: View {
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 considerShowingPushNudgeModal()
+            }
+        }
+        // The rating ask is anchored to the tier list, not to launch: it fires
+        // the moment the viewer is looking at their own ranked tiers.
+        .onChange(of: appState.isViewingOwnRankedTierList, initial: true) { _, showing in
+            guard showing else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                considerShowingRateSpinePrompt()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -515,8 +663,9 @@ struct MainTabView: View {
         showCompleteProfileSheet || showPushNotificationPromptSheet || showWelcomeGoodreadsModal
             || showGoodreadsImportFromWelcome || showPushNudgeModal
             || showProfilePhotoNudgeModal || showPhoneNumberNudgeModal
-            || showCurrentlyReadingPrompt || deepLinkProfile != nil
-            || incomingBlendInvite != nil
+            || showCurrentlyReadingPrompt || showRateSpineModal
+            || deepLinkProfile != nil || deepLinkBook != nil
+            || incomingBlendInvite != nil || appState.pendingLinkImport != nil
     }
 
     /// Pending blend invite aimed at me that isn't snoozed/dismissed → surface the
@@ -544,8 +693,8 @@ struct MainTabView: View {
     /// or SwiftUI drops the deep-link sheet silently (only one sheet can present).
     private var isDeepLinkPending: Bool {
         deepLinkProfile != nil
+            || deepLinkBook != nil
             || appState.deepLinkFeedPostId != nil
-            || appState.scrollToFeedPostId != nil
             // A fast feed load can consume the pending ids before the nudge timers
             // fire — the recent-tap window covers that gap.
             || PushNotificationService.recentlyHandledDeepLinkTap
@@ -561,6 +710,68 @@ struct MainTabView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
             deepLinkProfile = DeepLinkUserProfile(id: userId)
         }
+    }
+
+    /// Widget tap on a friend's cover: fetch the book (the widget only carries an
+    /// id), then present its profile. Launch nudges stand down the same way they
+    /// do for a follower deep link — the tap outranks them.
+    private func presentDeepLinkBook(bookId: String, readerUid: String?) {
+        showProfilePhotoNudgeModal = false
+        showPhoneNumberNudgeModal = false
+        showPushNudgeModal = false
+        Task {
+            guard let book = await BookRepository().getBook(id: bookId) else { return }
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            await MainActor.run {
+                deepLinkBook = DeepLinkBook(book: book, readerUid: readerUid)
+            }
+        }
+    }
+
+    /// Asks for an App Store rating while the viewer is looking at their own
+    /// tier list with a ranked book in it. First time: the "Enjoying SPINE?"
+    /// pre-prompt, once per account. Tapping through fires Apple's star prompt
+    /// and ends the flow for good; waving it off gets that prompt 7 days later
+    /// and every 6 months from there.
+    private func considerShowingRateSpinePrompt() {
+        guard let uid = authService.firebaseUser?.uid,
+              authService.appUser?.needsProfileCompletion == false else { return }
+        // Re-check: the 1.2s beat is long enough to tap into a book or switch tabs.
+        guard appState.isViewingOwnRankedTierList else { return }
+        guard !isAnyLaunchModalUp, !isDeepLinkPending else { return }
+
+        switch AppReviewPromptStorage.pendingAction(uid: uid) {
+        case .none:
+            return
+        case .customModal:
+            AppReviewPromptStorage.recordCustomPromptShown(uid: uid)
+            rateSpineTappedThrough = false
+            showRateSpineModal = true
+        case .systemPrompt:
+            presentSystemReviewPrompt(uid: uid, userInitiated: false)
+        }
+    }
+
+    /// Fires Apple's star prompt. iOS decides whether to actually show it and
+    /// never tells us either way, so once the display budget is spent the call
+    /// is a guaranteed no-op. What to do about that depends on who asked:
+    /// someone who just tapped "Rate SPINE" gets sent to the App Store review
+    /// page, because they asked for something and deserve to land somewhere.
+    /// The passive 6-month prompt stays passive and does nothing: yanking a
+    /// viewer out to the App Store when all they did was open their tier list
+    /// would be a nasty surprise.
+    private func presentSystemReviewPrompt(uid: String, userInitiated: Bool) {
+        guard AppReviewPromptStorage.hasSystemPromptBudget(uid: uid) else {
+            if userInitiated { openAppStoreWriteReview() }
+            return
+        }
+        AppReviewPromptStorage.recordSystemPromptRequested(uid: uid)
+        requestReview()
+    }
+
+    private func openAppStoreWriteReview() {
+        guard let url = URL(string: AppLinks.appStore + "?action=write-review") else { return }
+        UIApplication.shared.open(url)
     }
 
     /// Recurring prompt when push permission is missing and snooze window has passed.
@@ -651,6 +862,58 @@ struct MainTabView: View {
         .sensoryFeedback(.selection, trigger: selectedTab)
     }
 
+    /// Zero-height marker pinned to the bottom of the overlay and deliberately NOT
+    /// offset, so it reports where keyboard avoidance has actually put the bottom
+    /// edge. `tabBar` is offset off this reading; measuring the offset view instead
+    /// would chase its own tail.
+    private var tabBarBottomProbe: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onChange(of: proxy.frame(in: .global).maxY, initial: true) { _, bottomEdge in
+                    updateTabBarKeyboardLift(bottomEdge: bottomEdge)
+                }
+        }
+        .frame(height: 0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// The resting bottom edge is simply the lowest one ever observed: keyboard
+    /// avoidance only ever raises it, so the maximum is the un-avoided position.
+    /// Learning it this way avoids pinning a baseline to a single early layout pass,
+    /// which is the one reading that could be captured wrong and then poison every
+    /// correction after it.
+    private func updateTabBarKeyboardLift(bottomEdge: CGFloat) {
+        guard bottomEdge.isFinite else { return }
+        if bottomEdge > tabBarRestingBottomEdge {
+            tabBarRestingBottomEdge = bottomEdge
+        }
+        let lift = max(0, tabBarRestingBottomEdge - bottomEdge)
+        guard abs(lift - tabBarKeyboardLift) > 0.5 else { return }
+        tabBarKeyboardLift = lift
+    }
+
+    /// Invisible stand-in for `tabBar`, used only by the bottom safe-area inset to
+    /// reserve exactly the height the real bar occupies. It mirrors the real bar's
+    /// layout (same labels, same padding chain) but drops the buttons and the lens
+    /// so it can't steal taps or fight the real bar over the `matchedGeometryEffect`
+    /// id. The background is omitted too: it's a `.background`, so it costs no height.
+    private var tabBarGhost: some View {
+        HStack(spacing: 0) {
+            tabItemLabel(icon: "person.2.fill", label: "Social", isSelected: false)
+            tabItemLabel(icon: "sparkles", label: "Discover", isSelected: false)
+            tabItemLabel(icon: "magnifyingglass", label: "Search", isSelected: false)
+            tabItemLabel(icon: "books.vertical.fill", label: "Profile", isSelected: false)
+        }
+        .padding(5)
+        .padding(.horizontal, 24)
+        .padding(.top, 2)
+        .padding(.bottom, -15)
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
     private func tabButton(_ tab: Tab, icon: String, label: String) -> some View {
         Button {
             if selectedTab != tab {
@@ -711,5 +974,48 @@ private extension UIView {
     var containsFirstResponder: Bool {
         if isFirstResponder { return true }
         return subviews.contains { $0.containsFirstResponder }
+    }
+}
+
+// MARK: - Widget deep link → book profile
+
+/// Book profile presented from a widget tap on a friend's cover. Its own
+/// NavigationStack (it can come up over any tab) with a Close button, and the
+/// friend's uid threaded through as reader context.
+private struct DeepLinkBookProfileSheet: View {
+    let book: Book
+    let readerUid: String?
+
+    @EnvironmentObject var appState: AppState
+    @EnvironmentObject var authService: AuthService
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            BookProfileView(
+                book: book,
+                readBooksForSimilar: appState.readBooks,
+                onWantToRead: { appState.addToWantToRead(book: book); dismiss() },
+                onStartReading: { appState.addToQueue(book: book, shelf: .readingNow); dismiss() },
+                onConfirmRead: { date, rating, post, caption, tier in
+                    appState.addAsRead(book: book, dateFinished: date, rating: rating, postToFeed: post, caption: caption, tier: tier)
+                    dismiss()
+                },
+                isOnReadList: appState.isBookOnReadList(bookId: book.id),
+                isInQueue: appState.isBookInQueue(bookId: book.id),
+                onRemoveFromQueue: { appState.removeFromQueue(book: book); dismiss() },
+                onMarkAsDNF: { appState.markAsDNF(book: book); dismiss() },
+                readEntryForReview: appState.userReadBook(forBookId: book.id),
+                canEditReadReview: true,
+                sourceReaderUid: readerUid
+            )
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") { dismiss() }
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
     }
 }

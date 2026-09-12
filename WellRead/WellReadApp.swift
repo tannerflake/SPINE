@@ -194,12 +194,25 @@ class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNot
             NotificationCenter.default.post(name: .openGoodreadsImport, object: nil)
             return true
         }
+        if url.scheme == "wellread", url.host == "link-import" {
+            NotificationCenter.default.post(name: .openLinkImport, object: nil)
+            return true
+        }
         if let postId = WellreadDeepLink.postId(from: url) {
             // Same rule as a push tap: an open sheet/drawer gets torn down first so
             // the thread opens now, not whenever the user closes it.
             PushNotificationService.routeAfterClearingPresentedModals {
                 NotificationCenter.default.post(name: .wellreadOpenFeedPost, object: nil, userInfo: ["postId": postId])
             }
+            return true
+        }
+        // Widget taps.
+        if WellreadDeepLink.isQueueLink(url) {
+            PushNotificationService.routeToQueue()
+            return true
+        }
+        if let link = WellreadDeepLink.bookLink(from: url) {
+            PushNotificationService.routeToBookProfile(bookId: link.bookId, readerUid: link.readerUid)
             return true
         }
         if GIDSignIn.sharedInstance.handle(url) {
@@ -211,6 +224,8 @@ class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNot
 
 extension Notification.Name {
     static let openGoodreadsImport = Notification.Name("openGoodreadsImport")
+    /// A non-Goodreads link/text was shared to SPINE: open the link → queue wizard.
+    static let openLinkImport = Notification.Name("openLinkImport")
 }
 
 @main
@@ -239,6 +254,14 @@ struct WellReadApp: App {
                 .onOpenURL { url in
                     if url.scheme == "wellread", url.host == "goodreads-import" {
                         handleGoodreadsImportFromShare()
+                    } else if url.scheme == "wellread", url.host == "link-import" {
+                        handleLinkImportFromShare()
+                    } else if WellreadDeepLink.isQueueLink(url) {
+                        // Widget: tapped one of your own reading-now covers.
+                        PushNotificationService.routeToQueue()
+                    } else if let link = WellreadDeepLink.bookLink(from: url) {
+                        // Widget: tapped a cover on someone else's shelf.
+                        PushNotificationService.routeToBookProfile(bookId: link.bookId, readerUid: link.readerUid)
                     } else if let postId = WellreadDeepLink.postId(from: url) {
                         // Same rule as a push tap: an open sheet/drawer is torn down
                         // first so the thread opens now, not whenever the user
@@ -255,12 +278,16 @@ struct WellReadApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .openGoodreadsImport)) { _ in
                     handleGoodreadsImportFromShare()
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .openLinkImport)) { _ in
+                    handleLinkImportFromShare()
+                }
                 .onChange(of: scenePhase) { _, newValue in
                     // Share extensions cannot open the containing app; when user manually switches to Spines after sharing, we process the pending URL here.
                     if newValue == .active {
                         Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s so UI is ready
                             handleGoodreadsImportFromShare()
+                            handleLinkImportFromShare()
                         }
                         WidgetDataService.shared.scheduleRefresh(appState: appState, delay: 3.0)
                     }
@@ -281,6 +308,16 @@ struct WellReadApp: App {
         if let sharedURL = GoodreadsShareHelper.consumePendingImportURL() {
             appState.pendingGoodreadsImportURL = sharedURL
             Task { await appState.fetchGoodreadsImportFromURL(sharedURL) }
+        }
+    }
+
+    /// A link or text shared to SPINE (anything that isn't a Goodreads export):
+    /// hand it to the link → queue wizard. Any sheet the user left open is torn
+    /// down first, same as a push deep link, so the wizard actually presents.
+    private func handleLinkImportFromShare() {
+        guard let payload = LinkImportShareHelper.consumePending() else { return }
+        PushNotificationService.routeAfterClearingPresentedModals {
+            appState.pendingLinkImport = payload
         }
     }
 

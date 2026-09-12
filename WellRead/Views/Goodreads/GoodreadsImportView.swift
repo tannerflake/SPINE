@@ -671,6 +671,9 @@ struct GoodreadsImportView: View {
     // Where the seeded date came from, so a missing Goodreads read date is
     // flagged instead of silently defaulting to today.
     @State private var cardDateNote: String? = nil
+    /// "A long, long time ago": ignores the picker and stores the `ReadDate.longAgo`
+    /// sentinel, for school-era books whose real date nobody knows.
+    @State private var cardDateIsLongAgo = false
     /// Review editor focus — cleared whenever the card advances so the keyboard
     /// from one book never carries over to the next.
     @FocusState private var reviewFocused: Bool
@@ -779,8 +782,10 @@ struct GoodreadsImportView: View {
         selectedTier = nil
         guard let row = model.currentRow else { return }
         cardReview = row.plainTextReview ?? ""
+        cardDateIsLongAgo = false
         if let dateRead = row.dateRead {
-            cardDateRead = dateRead
+            cardDateIsLongAgo = ReadDate.isLongAgo(dateRead)
+            cardDateRead = cardDateIsLongAgo ? Date() : dateRead
             cardDateNote = nil
         } else if let dateAdded = row.dateAdded {
             cardDateRead = dateAdded
@@ -973,8 +978,10 @@ struct GoodreadsImportView: View {
     /// result matches it to the Goodreads row (the normal review card takes
     /// over with the row's rating/review/date), instead of opening a profile.
     private func manualMatchCard(row: GoodreadsRow) -> some View {
-        GoodreadsManualMatchCard(
-            row: row,
+        ManualBookMatchCard(
+            title: row.title,
+            author: row.author,
+            hint: "Search for it below and tap the right edition to match it. Your Goodreads rating, review, and dates come along.",
             onMatch: { model.applyManualMatch($0) },
             onSkip: { model.markCurrentUnmatched() }
         )
@@ -1001,11 +1008,16 @@ struct GoodreadsImportView: View {
                         Text("Date read")
                             .font(Theme.caption())
                             .foregroundStyle(Theme.textSecondary)
-                        DatePicker("", selection: $cardDateRead, in: ...Date(), displayedComponents: .date)
-                            .datePickerStyle(.compact)
-                            .labelsHidden()
-                            .tint(Theme.accent)
-                        if let note = cardDateNote {
+                        // The 1900 sentinel never reaches a picker: a long-ago read
+                        // shows the chip alone, in prose.
+                        if !cardDateIsLongAgo {
+                            DatePicker("", selection: $cardDateRead, in: ...Date(), displayedComponents: .date)
+                                .datePickerStyle(.compact)
+                                .labelsHidden()
+                                .tint(Theme.accent)
+                        }
+                        cardLongAgoChip
+                        if let note = cardDateNote, !cardDateIsLongAgo {
                             Text(note)
                                 .font(Theme.caption())
                                 .foregroundStyle(Theme.textTertiary)
@@ -1043,7 +1055,7 @@ struct GoodreadsImportView: View {
                     model.acceptCurrentEdited(
                         stars: row.myRating,
                         review: cardReview,
-                        dateFinished: cardDateRead,
+                        dateFinished: cardDateIsLongAgo ? ReadDate.longAgo : cardDateRead,
                         tier: selectedTier
                     )
                 } label: {
@@ -1063,6 +1075,38 @@ struct GoodreadsImportView: View {
             }
         }
         .onAppear { syncCardState() }
+    }
+
+    /// Catch-all for books read so long ago the exact date is a guess. Stores the
+    /// `ReadDate.longAgo` sentinel, shown as "Old" everywhere the read date appears.
+    private var cardLongAgoChip: some View {
+        Button {
+            cardDateIsLongAgo.toggle()
+            // Turning it off must land on a real date, not Jan 1, 1900.
+            if !cardDateIsLongAgo, ReadDate.isLongAgo(cardDateRead) {
+                cardDateRead = Date()
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: cardDateIsLongAgo ? "checkmark" : "hourglass")
+                    .font(.system(size: 11, weight: .bold))
+                Text("A long, long time ago")
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(cardDateIsLongAgo ? Theme.onChrome : Theme.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                Capsule().fill(cardDateIsLongAgo ? Theme.chrome : Theme.surface)
+            )
+            .overlay(
+                Capsule().stroke(Theme.chrome.opacity(cardDateIsLongAgo ? 0 : 0.4), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 2)
     }
 
     private func cardSectionLabel(_ text: String) -> some View {
@@ -1538,8 +1582,13 @@ struct GoodreadsImportView: View {
 /// queue). The user searches the catalog and taps a result to match it with the
 /// Goodreads row — the wizard then imports the row's data for that book. Books
 /// are never lost here: the only exits are a manual match or an explicit skip.
-private struct GoodreadsManualMatchCard: View {
-    let row: GoodreadsRow
+/// Search-to-match card for a book the automatic lookup couldn't place. Shared
+/// by the Goodreads import and the link → queue wizard: `title`/`author` are
+/// whatever the source said, `hint` explains what tapping a result does.
+struct ManualBookMatchCard: View {
+    let title: String
+    let author: String
+    let hint: String
     let onMatch: (Book) -> Void
     let onSkip: () -> Void
 
@@ -1557,11 +1606,11 @@ private struct GoodreadsManualMatchCard: View {
                 Text("Couldn't match this book automatically")
                     .font(Theme.headline())
                     .foregroundStyle(Theme.textPrimary)
-                Text("\(row.title) — \(row.author)")
+                Text(author.isEmpty ? title : "\(title) — \(author)")
                     .font(Theme.callout())
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Search for it below and tap the right edition to match it. Your Goodreads rating, review, and dates come along.")
+                Text(hint)
                     .font(Theme.caption())
                     .foregroundStyle(Theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1672,9 +1721,9 @@ private struct GoodreadsManualMatchCard: View {
             .buttonStyle(.plain)
         }
         .onAppear {
-            let title = GoodreadsTitleMatcher.mainTitle(row.title)
-            let author = GoodreadsTitleMatcher.primaryAuthor(row.author)
-            query = author == "Unknown" ? title : "\(title) \(author)"
+            let mainTitle = GoodreadsTitleMatcher.mainTitle(title)
+            let primaryAuthor = GoodreadsTitleMatcher.primaryAuthor(author)
+            query = (primaryAuthor == "Unknown" || primaryAuthor.isEmpty) ? mainTitle : "\(mainTitle) \(primaryAuthor)"
             runSearch(debounce: false)
         }
         .onChange(of: query) { _, _ in

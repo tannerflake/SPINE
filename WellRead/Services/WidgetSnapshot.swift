@@ -17,6 +17,11 @@ struct WidgetSnapshot: Codable {
         let author: String
         /// Filename inside `WidgetSharedStore.imagesDirectory`; nil renders a title-card fallback.
         let coverFilename: String?
+        /// Reading progress 0...1 for the owner's own books (`userBooks.readingProgress`).
+        /// nil means never set — the widget draws no bookmark and no percent.
+        /// Always nil for friends' books: the friends query returns `Book`s, not
+        /// their `UserBook` rows, so their progress isn't available to the app.
+        var progress: Double? = nil
     }
 
     struct FriendEntry: Codable {
@@ -28,8 +33,8 @@ struct WidgetSnapshot: Codable {
 
     let schemaVersion: Int
     let isSignedIn: Bool
-    /// Own reading-now shelf in queue order (small widget shows the first;
-    /// medium fans out all of them).
+    /// Own reading-now shelf in queue order. Both families show every cover;
+    /// which one sits on top of the stack rotates with the timeline tick.
     let myBooks: [BookEntry]
     /// Friends with at least one reading-now book, at most 8; the medium
     /// widget rotates through their books in pages.
@@ -41,7 +46,7 @@ struct WidgetSnapshot: Codable {
 /// Encoder and decoder live side by side so the date strategy can't drift.
 enum WidgetSharedStore {
     static let appGroupId = "group.com.wellread.app"
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     static var containerURL: URL? {
         FileManager.default

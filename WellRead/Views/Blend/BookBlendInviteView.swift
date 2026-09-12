@@ -370,14 +370,22 @@ struct BookBlendLandingView: View {
         }
     }
 
+    /// Floor for the "Blending" beat. The requester's device usually precomputed
+    /// the result, so accepting is one field write and returns almost instantly.
+    /// Hold long enough for the two avatars to visibly merge, then reveal.
+    private static let minGeneratingBeat: TimeInterval = 1.2
+
     private func accept(_ blend: BookBlend) {
         acceptError = nil
         phase = .generating
+        let startedAt = Date()
         Task {
             do {
                 let ready = try await BookBlendService.shared.generateAndSave(blend, accepterUid: myUid)
-                // Let the merge animation land before the reveal.
-                try? await Task.sleep(nanoseconds: 600_000_000)
+                let elapsed = Date().timeIntervalSince(startedAt)
+                if elapsed < Self.minGeneratingBeat {
+                    try? await Task.sleep(nanoseconds: UInt64((Self.minGeneratingBeat - elapsed) * 1_000_000_000))
+                }
                 await MainActor.run { phase = .story(ready) }
             } catch {
                 await MainActor.run {

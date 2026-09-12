@@ -23,6 +23,9 @@
 		<key>NSExtensionAttributes</key>
 		<dict>
 			<!-- Specific activation rule (TRUEPREDICATE is rejected by App Store validation). Matches Goodreads links, CSV/text, and Files. -->
+			<!-- Safari runs LinkShare.js on the shared page and hands SPINE the page text + URL, so the app can find the books without refetching. -->
+			<key>NSExtensionJavaScriptPreprocessingFile</key>
+			<string>LinkShare</string>
 			<key>NSExtensionActivationRule</key>
 			<dict>
 				<key>NSExtensionActivationSupportsText</key>

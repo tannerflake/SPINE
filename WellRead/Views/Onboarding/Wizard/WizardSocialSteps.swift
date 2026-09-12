@@ -176,6 +176,24 @@ struct WizardRosterStep: View {
     /// Reader whose tier list is being peeked at in a sheet; dismissing the
     /// sheet lands right back on this step.
     @State private var peekEntry: OnboardingWizardModel.RosterEntry?
+    /// Name/handle filter. With several hundred members, finding the one
+    /// friend you know by scrolling an alphabetical list is the bottleneck;
+    /// the mutuals step then takes it from that one follow.
+    @State private var rosterSearch = ""
+
+    private var searchQuery: String {
+        rosterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var searchResults: [OnboardingWizardModel.RosterEntry] {
+        let query = searchQuery
+        guard !query.isEmpty else { return [] }
+        let handleQuery = query.hasPrefix("@") ? String(query.dropFirst()) : query
+        return model.roster.filter { entry in
+            entry.user.displayName.localizedCaseInsensitiveContains(query)
+                || (!handleQuery.isEmpty && entry.user.username.localizedCaseInsensitiveContains(handleQuery))
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -192,10 +210,16 @@ struct WizardRosterStep: View {
                 .wizardReveal(delay: 0.2)
                 .padding(.top, 10)
 
+            if !model.isLoadingRoster, !model.roster.isEmpty {
+                rosterSearchField
+                    .wizardReveal(delay: 0.3)
+                    .padding(.top, 14)
+            }
+
             rosterContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .wizardReveal(delay: 0.3)
-                .padding(.top, 16)
+                .padding(.top, searchQuery.isEmpty ? 16 : 10)
 
             VStack(spacing: 10) {
                 WizardCTAButton(title: "Continue") {
@@ -244,6 +268,27 @@ struct WizardRosterStep: View {
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if !searchQuery.isEmpty {
+            // Searching replaces the sectioned list with flat matches: the
+            // user knows who they're looking for, so ranking is noise here.
+            let results = searchResults
+            if results.isEmpty {
+                Text("No one named \u{201C}\(searchQuery)\u{201D} on SPINE yet.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 9) {
+                        ForEach(results) { entry in
+                            rosterRow(entry, sharedTags: nil, contactName: nil)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .scrollDismissesKeyboard(.interactively)
+            }
         } else {
             // Order of the list, top down: people you actually know, then
             // strangers who read like you, then everyone else. `similarReaders`
@@ -271,6 +316,35 @@ struct WizardRosterStep: View {
                 .padding(.vertical, 2)
             }
         }
+    }
+
+    private var rosterSearchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.textTertiary)
+            TextField("Search by name or @handle", text: $rosterSearch)
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.textPrimary)
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !rosterSearch.isEmpty {
+                Button {
+                    rosterSearch = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     /// People from the address book who are already here. First in the list:
@@ -405,15 +479,171 @@ struct WizardRosterStep: View {
         sharedTags: [String]?,
         contactName: String?
     ) -> some View {
+        WizardReaderRow(
+            model: model,
+            entry: entry,
+            subtitle: sharedTags.flatMap { $0.isEmpty ? nil : Self.sharesText($0) },
+            contactName: contactName,
+            onPeek: { peekEntry = $0 }
+        )
+    }
+
+    private static func sharesText(_ tags: [String]) -> String {
+        let shown = tags.prefix(4)
+        let extra = tags.count - shown.count
+        let list = shown.joined(separator: ", ")
+        return extra > 0 ? "Shares: \(list) +\(extra)" : "Shares: \(list)"
+    }
+}
+
+// MARK: - Mutuals step
+
+/// Shown right after the roster step, only when the user followed someone
+/// there (the model skips it otherwise): the people that person follows,
+/// ranked by how many of the new follows share them. Someone who just found
+/// one friend in a 600-row list is far likelier to know that friend's circle
+/// than anyone else on the roster, and re-sorting the roster under them at
+/// the moment they tapped Follow would be jarring, so this is its own screen.
+struct WizardMutualsStep: View {
+    @ObservedObject var model: OnboardingWizardModel
+
+    @State private var peekEntry: OnboardingWizardModel.RosterEntry?
+
+    /// Display names of the roster-step follows that produced this list, in
+    /// roster order, for the headline.
+    private var peerNames: [String] {
+        var seen = Set<String>()
+        return model.mutualCandidates
+            .flatMap(\.followedBy)
+            .filter { seen.insert($0).inserted }
+    }
+
+    private var headline: String {
+        let names = peerNames
+        if names.count == 1, let name = names.first {
+            return "\(possessive(name)) reading circle"
+        }
+        return "Friends of friends"
+    }
+
+    private var subline: String {
+        let names = peerNames.map(Self.firstName)
+        switch names.count {
+        case 1: return "Readers \(names[0]) follows. Odds are you know a few."
+        case 2: return "Readers \(names[0]) and \(names[1]) follow. Odds are you know a few."
+        default: return "Readers the people you just followed follow. Odds are you know a few."
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TypewriterText(
+                text: headline,
+                font: .system(size: 28, weight: .bold),
+                centered: false
+            )
+
+            Text(subline)
+                .font(.system(size: 16))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .wizardReveal(delay: 0.2)
+                .padding(.top, 10)
+
+            ScrollView {
+                LazyVStack(spacing: 9) {
+                    ForEach(model.mutualCandidates) { candidate in
+                        WizardReaderRow(
+                            model: model,
+                            entry: candidate.entry,
+                            subtitle: followedByText(candidate.followedBy),
+                            contactName: nil,
+                            onPeek: { peekEntry = $0 }
+                        )
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .wizardReveal(delay: 0.3)
+            .padding(.top, 16)
+
+            WizardCTAButton(title: "Continue") {
+                model.finishMutualsStep()
+            }
+            .wizardReveal(delay: 0.3)
+            .padding(.top, 12)
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 10)
+        .padding(.bottom, 24)
+        .sheet(item: $peekEntry) { entry in
+            NavigationStack {
+                ZStack {
+                    Theme.background.ignoresSafeArea()
+                    UserLibraryDetailView(userId: entry.uid)
+                }
+                .toolbarBackground(Theme.background, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { peekEntry = nil }
+                            .foregroundStyle(Theme.accent)
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Followed by Katie", "Followed by Katie and Sam", "Followed by Katie,
+    /// Sam and 2 others". First names only: the row already shows the
+    /// candidate's full name and the peers are people the user just picked.
+    private func followedByText(_ names: [String]) -> String? {
+        let firsts = names.map(Self.firstName)
+        switch firsts.count {
+        case 0: return nil
+        case 1: return "Followed by \(firsts[0])"
+        case 2: return "Followed by \(firsts[0]) and \(firsts[1])"
+        default: return "Followed by \(firsts[0]), \(firsts[1]) and \(firsts.count - 2) other\(firsts.count - 2 == 1 ? "" : "s")"
+        }
+    }
+
+    private func possessive(_ displayName: String) -> String {
+        let first = Self.firstName(displayName)
+        return first.hasSuffix("s") ? "\(first)'" : "\(first)'s"
+    }
+
+    private static func firstName(_ displayName: String) -> String {
+        displayName.split(separator: " ").first.map(String.init) ?? displayName
+    }
+}
+
+// MARK: - Shared reader row
+
+/// One reader on the roster and mutuals steps: avatar + name open a read-only
+/// peek at their tier list, the follow button is its own tap target, and the
+/// optional lines under the handle carry whatever makes this row worth a
+/// look ("In your contacts as ...", "Shares: ...", "Followed by ...").
+struct WizardReaderRow: View {
+    @ObservedObject var model: OnboardingWizardModel
+    let entry: OnboardingWizardModel.RosterEntry
+    let subtitle: String?
+    let contactName: String?
+    let onPeek: (OnboardingWizardModel.RosterEntry) -> Void
+
+    var body: some View {
         HStack(spacing: 11) {
-            // Name/avatar open a read-only peek at their tier list; the
-            // follow button stays its own tap target.
             Button {
                 WizardHaptics.selection()
-                peekEntry = entry
+                onPeek(entry)
             } label: {
                 HStack(spacing: 11) {
-                    rosterAvatar(for: entry.user)
+                    UserAvatarView(
+                        urlString: entry.user.profileImageURL,
+                        displayName: entry.user.displayName,
+                        firstName: entry.user.firstName,
+                        lastName: entry.user.lastName,
+                        size: 42
+                    )
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.user.displayName)
@@ -430,8 +660,8 @@ struct WizardRosterStep: View {
                                 .foregroundStyle(Theme.textSecondary)
                                 .lineLimit(2)
                         }
-                        if let sharedTags, !sharedTags.isEmpty {
-                            Text(sharesText(sharedTags))
+                        if let subtitle {
+                            Text(subtitle)
                                 .font(.system(size: 12))
                                 .foregroundStyle(Theme.textSecondary)
                                 .lineLimit(3)
@@ -445,7 +675,7 @@ struct WizardRosterStep: View {
 
             Spacer(minLength: 8)
 
-            followButton(for: entry)
+            followButton
         }
         .padding(11)
         .background(Theme.surfaceElevated)
@@ -456,24 +686,7 @@ struct WizardRosterStep: View {
         )
     }
 
-    private func sharesText(_ tags: [String]) -> String {
-        let shown = tags.prefix(4)
-        let extra = tags.count - shown.count
-        let list = shown.joined(separator: ", ")
-        return extra > 0 ? "Shares: \(list) +\(extra)" : "Shares: \(list)"
-    }
-
-    private func rosterAvatar(for user: User) -> some View {
-        UserAvatarView(
-            urlString: user.profileImageURL,
-            displayName: user.displayName,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            size: 42
-        )
-    }
-
-    private func followButton(for entry: OnboardingWizardModel.RosterEntry) -> some View {
+    private var followButton: some View {
         let isFollowing = model.followedUids.contains(entry.uid)
         return Button {
             WizardHaptics.selection()

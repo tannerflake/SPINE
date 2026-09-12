@@ -70,6 +70,14 @@ final class PeopleStripModel: ObservableObject {
         followingSet = Set(following).subtracting([currentUid].compactMap { $0 })
         isLoadingInitial = !hasLoadedOnce
         hasLoadedOnce = true
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-uiPreview") {
+            // No Firestore in preview runs: a demo roster so the strip and the
+            // feed's "Readers to follow" row can be verified in the simulator.
+            seedUIPreviewRoster()
+            return
+        }
+        #endif
 
         async let rosterFetch = userRepo.fetchAllReaderProfiles(
             excludingUid: currentUid, limit: Self.rosterLimit
@@ -155,6 +163,30 @@ final class PeopleStripModel: ObservableObject {
         )
     }
 
+    #if DEBUG
+    private func seedUIPreviewRoster() {
+        func reader(_ uid: String, _ name: String, books: Int, score: Int) -> Reader {
+            var u = User.demo
+            u.id = UUID()
+            u.username = name.lowercased()
+            u.displayName = name
+            u.firstName = name
+            u.totalBooksRead = books
+            return Reader(uid: uid, user: u, score: score)
+        }
+        followed = [reader("pv-june", "June", books: 42, score: 0)]
+        discoverable = [
+            reader("pv-1", "Priya Natarajan", books: 118, score: 4),
+            reader("pv-2", "Marcus Hale", books: 67, score: 3),
+            reader("pv-3", "Ana Lucía Reyes", books: 54, score: 2),
+            reader("pv-4", "Theo Brandt", books: 31, score: 1),
+            reader("pv-5", "Wren Okafor", books: 23, score: 0),
+            reader("pv-6", "Sam Idowu", books: 12, score: 0)
+        ]
+        isLoadingInitial = false
+    }
+    #endif
+
     // MARK: - Ranking
 
     /// People you follow: anyone reading a book right now first, then alphabetical.
@@ -187,23 +219,20 @@ final class PeopleStripModel: ObservableObject {
         !(readingNowByUid[uid] ?? []).isEmpty
     }
 
-    /// How connected a not-yet-followed reader is to you: people you both
-    /// follow, plus people you follow who follow them, plus one if they already
-    /// follow you. The founder is excluded from the mutual terms — he follows
-    /// and is followed by everyone, so through him every pair would count one
-    /// mutual and the score would carry no signal.
+    /// How connected a not-yet-followed reader is to you (see `PeopleSimilarity`,
+    /// shared with the Users scope of Search).
     private func similarityScore(
         candidateUid: String,
         candidateFollowing: [String],
         peers: [(uid: String, user: User)]
     ) -> Int {
-        let mutualPool = followingSet.subtracting([SpineFounder.uid])
-        var score = mutualPool.intersection(candidateFollowing).count
-        for peer in peers where peer.uid != SpineFounder.uid && peer.user.following.contains(candidateUid) {
-            score += 1
-        }
-        if let me = currentUid, candidateFollowing.contains(me) { score += 1 }
-        return score
+        PeopleSimilarity.score(
+            candidateUid: candidateUid,
+            candidateFollowing: candidateFollowing,
+            following: followingSet,
+            peers: peers.map { (uid: $0.uid, following: $0.user.following) },
+            currentUid: currentUid
+        )
     }
 }
 

@@ -22,8 +22,8 @@ final class OnboardingWizardModel: ObservableObject {
 
     enum WizardStep: Int, CaseIterable {
         case intro, name, greet, handle, photo, goal, characteristics, taste,
-             reading, phone, contacts, roster, invite, notifications, appearance,
-             stamping, card, founderNote, goodreads
+             reading, phone, contacts, roster, mutuals, invite, notifications, appearance,
+             stamping, card, founderNote, tiers, goodreads
 
         /// Book spines filled on the shelf meter while this step is showing.
         var spineCount: Int {
@@ -37,11 +37,11 @@ final class OnboardingWizardModel: ObservableObject {
             case .taste: return 6
             case .reading: return 7
             case .phone: return 8
-            case .contacts, .roster: return 9
+            case .contacts, .roster, .mutuals: return 9
             case .invite: return 10
             case .notifications: return 11
             case .appearance: return 12
-            case .stamping, .card, .founderNote, .goodreads: return 13
+            case .stamping, .card, .founderNote, .tiers, .goodreads: return 13
             }
         }
 
@@ -69,6 +69,16 @@ final class OnboardingWizardModel: ObservableObject {
         let uid: String
         let user: User
         var id: String { uid }
+    }
+
+    /// Mutuals-step row: a reader followed by someone the user just followed
+    /// on the roster step, with the names of those followers for the
+    /// "Followed by Katie and Sam" line.
+    struct MutualCandidate: Identifiable, Equatable {
+        let entry: RosterEntry
+        let followedBy: [String]
+        let score: Int
+        var id: String { entry.uid }
     }
 
     // Suppresses MainTabView's launch nudges right after the wizard hands off
@@ -108,6 +118,9 @@ final class OnboardingWizardModel: ObservableObject {
     @Published var isLoadingRoster = false
     @Published var followedUids: Set<String> = []
     @Published var followInFlight: Set<String> = []
+    /// Frozen when the roster step is left (see `finishRosterStep`), so the
+    /// mutuals list never reshuffles under a finger as follows land on it.
+    @Published var mutualCandidates: [MutualCandidate] = []
     @Published var inviteCandidates: [SyncedContact] = []
     @Published var isLoadingContacts = false
     @Published var contactsGranted = false
@@ -175,6 +188,15 @@ final class OnboardingWizardModel: ObservableObject {
         // -uiPreviewWizardContacts jumps to the contacts sync step.
         if previewMode, ProcessInfo.processInfo.arguments.contains("-uiPreviewWizardContacts") {
             step = .contacts
+        }
+        // -uiPreviewWizardTiers jumps to the "how tiers work" explainer.
+        if previewMode, ProcessInfo.processInfo.arguments.contains("-uiPreviewWizardTiers") {
+            step = .tiers
+        }
+        // -uiPreviewWizardRoster jumps to the find-a-buddy roster step (and
+        // from there the mutuals step, once a demo reader is followed).
+        if previewMode, ProcessInfo.processInfo.arguments.contains("-uiPreviewWizardRoster") {
+            step = .roster
         }
     }
 
@@ -259,7 +281,12 @@ final class OnboardingWizardModel: ObservableObject {
     @discardableResult
     func advance() -> Bool {
         guard navigationDebounced(),
-              let next = WizardStep(rawValue: step.rawValue + 1) else { return false }
+              var next = WizardStep(rawValue: step.rawValue + 1) else { return false }
+        // Conditional steps are skipped in both directions (see `isSkipped`).
+        while isSkipped(next) {
+            guard let after = WizardStep(rawValue: next.rawValue + 1) else { return false }
+            next = after
+        }
         WizardHaptics.step()
         withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
             step = next
@@ -278,6 +305,13 @@ final class OnboardingWizardModel: ObservableObject {
         advance()
     }
 
+    /// Steps that only exist when there is something to show. The mutuals
+    /// step needs at least one friend-of-a-friend; with none it would be a
+    /// blank screen between the roster and the invite step.
+    private func isSkipped(_ candidate: WizardStep) -> Bool {
+        candidate == .mutuals && mutualCandidates.isEmpty
+    }
+
     func goBack() {
         guard step.showsBack, !isCommittingProfile,
               navigationDebounced(),
@@ -287,6 +321,10 @@ final class OnboardingWizardModel: ObservableObject {
         if previous == .stamping {
             guard let beforeStamping = WizardStep(rawValue: previous.rawValue - 1) else { return }
             previous = beforeStamping
+        }
+        while isSkipped(previous) {
+            guard let before = WizardStep(rawValue: previous.rawValue - 1) else { return }
+            previous = before
         }
         WizardHaptics.step()
         withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
@@ -525,6 +563,12 @@ final class OnboardingWizardModel: ObservableObject {
         return Array(ranked.prefix(2))
     }
 
+    /// Roster fetch cap, well above the current member count (~600 as of
+    /// September 2026). The old 300 cap silently dropped half the members
+    /// from the step, and from the mutuals math, without any sign in the UI.
+    /// Matches or exceeds PeopleStrip's cap so the two rosters agree.
+    private static let rosterLimit = 1000
+
     func loadRosterIfNeeded() async {
         guard roster.isEmpty, !isLoadingRoster else { return }
         isLoadingRoster = true
@@ -534,7 +578,7 @@ final class OnboardingWizardModel: ObservableObject {
             return
         }
         guard let uid else { return }
-        let readers = await userRepo.fetchAllReaderProfiles(excludingUid: uid, limit: 300)
+        let readers = await userRepo.fetchAllReaderProfiles(excludingUid: uid, limit: Self.rosterLimit)
         roster = readers.map { RosterEntry(uid: $0.uid, user: $0.user) }
         followedUids = Set(authService?.appUser?.following ?? [])
     }
@@ -558,21 +602,77 @@ final class OnboardingWizardModel: ObservableObject {
         }
     }
 
-    /// Called when leaving the roster step: one appUser refresh covers every
-    /// follow made there (per-tap refreshes would restart feed listeners each time).
+    /// Called when leaving the roster step. Freezes the mutuals list from the
+    /// follows made here, then advances (straight past the mutuals step when
+    /// that list is empty).
     func finishRosterStep() {
         announceJoinToMatchedContacts()
-        if didFollowSomeone, !previewMode {
-            let service = authService
-            let state = appState
-            Task {
-                await service?.refreshAppUser()
-                if let state {
-                    WidgetDataService.shared.scheduleRefresh(appState: state, delay: 1.0, forceFriendRefresh: true)
-                }
+        refreshFollowGraphIfNeeded()
+        mutualCandidates = computeMutualCandidates()
+        advance()
+    }
+
+    func finishMutualsStep() {
+        refreshFollowGraphIfNeeded()
+        advance()
+    }
+
+    /// One appUser refresh per social step covers every follow made on it
+    /// (per-tap refreshes would restart feed listeners each time).
+    private func refreshFollowGraphIfNeeded() {
+        guard didFollowSomeone, !previewMode else { return }
+        let service = authService
+        let state = appState
+        Task {
+            await service?.refreshAppUser()
+            if let state {
+                WidgetDataService.shared.scheduleRefresh(appState: state, delay: 1.0, forceFriendRefresh: true)
             }
         }
-        advance()
+    }
+
+    /// Readers followed by the people the user followed on the roster step,
+    /// ranked with `PeopleSimilarity` (the same scorer as the People strip and
+    /// Search) so overlap between two friends' circles floats to the top. The
+    /// roster already carries everyone's `following`, so this costs no reads.
+    /// Capped: one heavy follower can pull in hundreds and recreate the very
+    /// scroll problem this step exists to solve.
+    private static let mutualsCap = 24
+
+    private func computeMutualCandidates() -> [MutualCandidate] {
+        let byUid = Dictionary(roster.map { ($0.uid, $0) }, uniquingKeysWith: { first, _ in first })
+        // The founder is a default follow for every new account and follows
+        // nobody, so he is neither a peer nor a candidate.
+        let peers = roster.filter { followedUids.contains($0.uid) && $0.uid != SpineFounder.uid }
+        guard !peers.isEmpty else { return [] }
+        let peerFollowing = peers.map { (uid: $0.uid, following: $0.user.following) }
+        var candidateUids = Set(peers.flatMap(\.user.following))
+        candidateUids.subtract(followedUids)
+        candidateUids.remove(SpineFounder.uid)
+        if let uid { candidateUids.remove(uid) }
+        let scored = candidateUids.compactMap { candidateUid -> MutualCandidate? in
+            guard let entry = byUid[candidateUid] else { return nil }
+            let followedBy = peers
+                .filter { $0.user.following.contains(candidateUid) }
+                .map(\.user.displayName)
+            return MutualCandidate(
+                entry: entry,
+                followedBy: followedBy,
+                score: PeopleSimilarity.score(
+                    candidateUid: candidateUid,
+                    candidateFollowing: entry.user.following,
+                    following: followedUids,
+                    peers: peerFollowing,
+                    currentUid: uid
+                )
+            )
+        }
+        let ranked = scored.sorted {
+            if $0.score != $1.score { return $0.score > $1.score }
+            if $0.followedBy.count != $1.followedBy.count { return $0.followedBy.count > $1.followedBy.count }
+            return $0.entry.user.displayName.localizedCaseInsensitiveCompare($1.entry.user.displayName) == .orderedAscending
+        }
+        return Array(ranked.prefix(Self.mutualsCap))
     }
 
     // MARK: Contacts on SPINE (roster step)
@@ -829,7 +929,7 @@ final class OnboardingWizardModel: ObservableObject {
     // MARK: Preview fixtures
 
     static let previewRoster: [RosterEntry] = {
-        func entry(_ uid: String, _ first: String, _ last: String, _ handle: String, _ books: Int, _ tags: [String]) -> RosterEntry {
+        func entry(_ uid: String, _ first: String, _ last: String, _ handle: String, _ books: Int, _ tags: [String], following: [String] = []) -> RosterEntry {
             var user = User.demo
             user.firstName = first
             user.lastName = last
@@ -838,19 +938,25 @@ final class OnboardingWizardModel: ObservableObject {
             user.totalBooksRead = books
             user.profileImageURL = nil
             user.readingInterestTags = tags
+            user.following = following
             return RosterEntry(uid: uid, user: user)
         }
+        // A small follow graph so the mutuals step has something to show in
+        // -uiPreviewOnboardingWizard: follow Maya or Sam on the roster step.
         return [
             entry("preview-1", "Maya", "Chen", "maya", 23,
-                  ["Fiction", "Fast-Paced", "Page Turner", "Mystery & Thriller", "Suspenseful", "Thought-Provoking"]),
+                  ["Fiction", "Fast-Paced", "Page Turner", "Mystery & Thriller", "Suspenseful", "Thought-Provoking"],
+                  following: ["preview-4", "preview-5", "preview-6"]),
             entry("preview-2", "Sam", "Rivera", "samreads", 11,
-                  ["Non-Fiction", "Thought-Provoking", "Psychology", "Neuroscience"]),
+                  ["Non-Fiction", "Thought-Provoking", "Psychology", "Neuroscience"],
+                  following: ["preview-3", "preview-5"]),
             entry("preview-3", "Priya", "Patel", "priya", 4,
                   ["Romance", "Cozy", "Wholesome", "Comfort Read"]),
             entry("preview-4", "Jordan", "Lee", "jlee", 17,
                   ["Fiction", "Funny", "Sci-Fi & Fantasy", "Magical World"]),
             entry("preview-5", "Emma", "Walsh", "emmareads", 44,
-                  ["Fiction", "Page Turner", "Historical", "War Story", "Emotional Rollercoaster"]),
+                  ["Fiction", "Page Turner", "Historical", "War Story", "Emotional Rollercoaster"],
+                  following: ["preview-1"]),
             entry("preview-6", "Cole", "Bennett", "cole", 8, []),
         ]
     }()
@@ -988,6 +1094,8 @@ struct OnboardingWizardView: View {
                 WizardContactsSyncStep(model: model)
             case .roster:
                 WizardRosterStep(model: model)
+            case .mutuals:
+                WizardMutualsStep(model: model)
             case .invite:
                 WizardInviteStep(model: model)
             case .notifications:
@@ -1004,6 +1112,8 @@ struct OnboardingWizardView: View {
                 WizardCardStep(model: model)
             case .founderNote:
                 WizardFounderNoteStep(model: model)
+            case .tiers:
+                WizardTierListStep(model: model)
             case .goodreads:
                 WizardGoodreadsStep(model: model)
             }

@@ -347,12 +347,181 @@ private struct QueueSectionGrid: View {
     }
 }
 
+// MARK: - Reading now (progress cards)
+
+/// Thin full-width band between Reading now cards: drops insert at `insertionIndex`.
+private struct QueueReadingNowRowDropSlot: View {
+    let insertionIndex: Int
+    let onUpdate: (UUID, QueueShelf, Int?) -> Void
+    var readOnly: Bool = false
+
+    var body: some View {
+        if readOnly {
+            Color.clear.frame(height: 4)
+        } else {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 14)
+                .contentShape(Rectangle())
+                .dropDestination(for: TierDragItem.self) { items, _ in
+                    guard let payload = items.first else { return false }
+                    onUpdate(payload.userBookId, .readingNow, insertionIndex)
+                    return true
+                } isTargeted: { targeted in
+                    if targeted { LibraryDragHaptics.dropTargetHoverEntered() }
+                }
+        }
+    }
+}
+
+/// Compact full-width dashed "Add" row under the Reading now cards.
+private struct QueueReadingNowAddRow: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Add a book you're reading")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(0.5)
+            }
+            .foregroundStyle(Theme.textTertiary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
+                    .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+                    .foregroundStyle(Theme.textTertiary.opacity(0.6))
+            )
+            .opacity(0.6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Reading now shelf: one `ReadingNowProgressCard` per book (bigger cover, live
+/// percent + page readout, bookmark scrubber). Each card is wrapped in
+/// `QueueReadingNowDragCard` so a long press lifts the whole card for reordering
+/// or moving to another shelf; bands between cards and a catch-all background
+/// take drops too. Falls back to `QueueSectionGrid` when empty so the
+/// dashed empty state stays identical.
+private struct QueueReadingNowSection: View {
+    @EnvironmentObject private var queueDragCoordinator: QueueBookDragCoordinator
+
+    let books: [UserBook]
+    let contentWidth: CGFloat
+    let onUpdateShelfAndOrder: (UUID, QueueShelf, Int?) -> Void
+    var onBookTap: ((Book) -> Void)?
+    var onAddTap: (() -> Void)? = nil
+    var readOnly: Bool = false
+    var onCommitProgress: ((UUID, Double) -> Void)? = nil
+    var onMarkFinished: ((UserBook) -> Void)? = nil
+
+    var body: some View {
+        if books.isEmpty {
+            QueueSectionGrid(
+                title: "Reading now",
+                shelf: .readingNow,
+                books: [],
+                emptyKind: .readingNow,
+                contentWidth: contentWidth,
+                onUpdateShelfAndOrder: onUpdateShelfAndOrder,
+                onBookTap: onBookTap,
+                onAddTap: onAddTap,
+                readOnly: readOnly
+            )
+        } else {
+            let w = contentWidth > 0 ? contentWidth : 280
+            let coverWidth = min(CGFloat(70), max(CGFloat(60), w * 0.18))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Reading now")
+                    .font(Theme.headline())
+                    .foregroundStyle(Theme.textSecondary)
+
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(books.enumerated()), id: \.element.id) { index, ub in
+                        QueueReadingNowRowDropSlot(insertionIndex: index, onUpdate: onUpdateShelfAndOrder, readOnly: readOnly)
+                        if let book = ub.book {
+                            let card = ReadingNowProgressCard(
+                                userBook: ub,
+                                book: book,
+                                coverWidth: coverWidth,
+                                readOnly: readOnly,
+                                onBookTap: onBookTap,
+                                onCommitProgress: onCommitProgress.map { cb in { cb(ub.id, $0) } },
+                                onMarkFinished: onMarkFinished.map { cb in { cb(ub) } },
+                                cover: {
+                                    AnyView(BookCoverView(book: book, size: coverWidth, onTap: onBookTap != nil ? { onBookTap?(book) } : nil))
+                                }
+                            )
+                            if readOnly {
+                                card
+                            } else {
+                                // Long press anywhere above the scrubber lifts the whole
+                                // card; the card is also a drop target (top half = before).
+                                QueueReadingNowDragCard(
+                                    userBookId: ub.id,
+                                    liftableHeight: 10 + coverWidth * 1.5 + 4,
+                                    onDropItem: { droppedId, insertBefore in
+                                        onUpdateShelfAndOrder(droppedId, .readingNow, insertBefore ? index : index + 1)
+                                    },
+                                    dragCoordinator: queueDragCoordinator
+                                ) {
+                                    card
+                                }
+                            }
+                        }
+                    }
+                    QueueReadingNowRowDropSlot(insertionIndex: books.count, onUpdate: onUpdateShelfAndOrder, readOnly: readOnly)
+                    if let onAddTap, !readOnly {
+                        QueueReadingNowAddRow(onTap: onAddTap)
+                            .dropDestination(for: TierDragItem.self) { items, _ in
+                                guard let payload = items.first else { return false }
+                                onUpdateShelfAndOrder(payload.userBookId, .readingNow, books.count)
+                                return true
+                            } isTargeted: { targeted in
+                                if targeted { LibraryDragHaptics.dropTargetHoverEntered() }
+                            }
+                    }
+                }
+                .padding(.horizontal, 1)
+            }
+            .background {
+                if !readOnly {
+                    Color.clear
+                        .padding(-12)
+                        .contentShape(Rectangle())
+                        .dropDestination(for: TierDragItem.self) { items, _ in
+                            guard let payload = items.first else { return false }
+                            onUpdateShelfAndOrder(payload.userBookId, .readingNow, nil)
+                            return true
+                        } isTargeted: { targeted in
+                            if targeted { LibraryDragHaptics.dropTargetHoverEntered() }
+                        }
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: books.map(\.id))
+        }
+    }
+}
+
 // MARK: - Public
 
 struct QueueLibraryView: View {
     let readingNow: [UserBook]
     let upNext: [UserBook]
     let backlog: [UserBook]
+    /// Books given up on partway through. Shown read-only below Backlog — no
+    /// drag/reorder, no "Add" tile, since DNF isn't a drop target.
+    var dnf: [UserBook] = []
     let onUpdateShelfAndOrder: (UUID, QueueShelf, Int?) -> Void
     var onBookTap: ((Book) -> Void)? = nil
     /// When set (own library), each shelf shows an "Add" tile that calls this with its shelf.
@@ -365,6 +534,10 @@ struct QueueLibraryView: View {
     var recommenderNames: [String: String] = [:]
     var onAcceptRecommendation: ((BookRecommendation) -> Void)? = nil
     var onDismissRecommendation: ((BookRecommendation) -> Void)? = nil
+    /// Reading now scrubber released: (userBook id, 0...1). Own library only.
+    var onCommitProgress: ((UUID, Double) -> Void)? = nil
+    /// Reader slid a book to 100% and tapped "Mark as finished".
+    var onMarkFinished: ((UserBook) -> Void)? = nil
 
     @EnvironmentObject private var queueDragCoordinator: QueueBookDragCoordinator
 
@@ -379,16 +552,15 @@ struct QueueLibraryView: View {
                         recommendedShelf
                     }
 
-                    QueueSectionGrid(
-                        title: "Reading now",
-                        shelf: .readingNow,
+                    QueueReadingNowSection(
                         books: readingNow,
-                        emptyKind: .readingNow,
                         contentWidth: contentWidth,
                         onUpdateShelfAndOrder: onUpdateShelfAndOrder,
                         onBookTap: onBookTap,
                         onAddTap: onAddToShelf.map { cb in { cb(.readingNow) } },
-                        readOnly: readOnly
+                        readOnly: readOnly,
+                        onCommitProgress: onCommitProgress,
+                        onMarkFinished: onMarkFinished
                     )
 
                     QueueSectionGrid(
@@ -414,6 +586,20 @@ struct QueueLibraryView: View {
                         onAddTap: onAddToShelf.map { cb in { cb(.backlog) } },
                         readOnly: readOnly
                     )
+
+                    if !dnf.isEmpty {
+                        // Read-only regardless of `readOnly`: DNF isn't a drag/drop
+                        // shelf, just a shelf-typed parameter this view happens to need.
+                        QueueSectionGrid(
+                            title: "Did not finish",
+                            shelf: .backlog,
+                            books: dnf,
+                            contentWidth: contentWidth,
+                            onUpdateShelfAndOrder: { _, _, _ in },
+                            onBookTap: onBookTap,
+                            readOnly: true
+                        )
+                    }
                 }
                 .background(alignment: .topLeading) {
                     LibraryScrollViewAnchor(dragCoordinator: queueDragCoordinator)

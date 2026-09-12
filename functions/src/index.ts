@@ -44,6 +44,51 @@ function teaser8Words(text: string): string {
   return `${head}...`;
 }
 
+/** Teaser wrapped in quotes for a push body, or "" when there is nothing to quote. */
+function quotedTeaser(text: string): string {
+  const t = teaser8Words(text);
+  return t ? `“${t}”` : "";
+}
+
+/**
+ * Leading glyph per notification type. Titles get cut to ~18 characters in the
+ * stacked Notification Center view, so the emoji carries the event type even when
+ * the words after the name are gone. Applied once in notifyUser so the push and
+ * the bell-feed row match.
+ */
+const TITLE_EMOJI: Record<string, string> = {
+  friend_review_posted: "⭐",
+  review_liked: "❤️",
+  comment_liked: "❤️",
+  review_commented: "💬",
+  thread_commented: "💬",
+  comment_replied: "↩️",
+  review_mentioned: "📣",
+  comment_mentioned: "📣",
+  new_follower: "👋",
+  contact_joined: "🎉",
+  blend_request: "🔀",
+  blend_ready: "🔀",
+  book_recommended: "📖",
+};
+
+/** Unrated finishes share a type with rated reviews but read as a "book" event. */
+const FINISHED_BOOK_EMOJI = "📚";
+/** The founder's join alert reuses new_follower but is really a "joined" event. */
+const JOINED_EMOJI = "🎉";
+
+/** "On {book}: “teaser”" with graceful fallbacks when either half is missing. */
+function bodyOnBook(book: string | null, teaser: string): string {
+  if (book && teaser) return `On ${book}: ${teaser}`;
+  if (book) return `On ${book}.`;
+  return teaser;
+}
+
+function withEmoji(type: string, title: string, override?: string): string {
+  const glyph = override ?? TITLE_EMOJI[type];
+  return glyph ? `${glyph} ${title}` : title;
+}
+
 /** "@handle" tokens in text (lowercased, deduped) — each preceded by start-of-text
  * or whitespace so email addresses don't register as mentions. */
 function mentionHandles(text: string): string[] {
@@ -212,10 +257,12 @@ async function notifyUser(
   body: string,
   data: Record<string, string>,
   actorId: string | null,
-  imageUrl?: string | null
+  imageUrl?: string | null,
+  emojiOverride?: string
 ): Promise<void> {
-  await writeNotification(uid, title, body, data, actorId, imageUrl);
-  await sendToUser(uid, title, body, data, imageUrl);
+  const fullTitle = withEmoji(data.type ?? "", title, emojiOverride);
+  await writeNotification(uid, fullTitle, body, data, actorId, imageUrl);
+  await sendToUser(uid, fullTitle, body, data, imageUrl);
 }
 
 /** Fixed post id for diagnostics-only pushes (deep link may not resolve to a real post). */
@@ -264,8 +311,8 @@ export const sendTestPushNotification = onCall(
       case "friend_review_posted":
         await sendToUser(
           uid,
-          "Alex gave Sample Book a 9.0",
-          "Smart, ambitious, provocative, and way more readable than...",
+          withEmoji("friend_review_posted", "Alex gave a 9.0"),
+          "Sample Book: “Smart, ambitious, provocative, and way more readable than...”",
           { type: "friend_review_posted", postId: TEST_PUSH_POST_ID },
           TEST_PUSH_COVER_URL
         );
@@ -273,8 +320,8 @@ export const sendTestPushNotification = onCall(
       case "review_liked":
         await sendToUser(
           uid,
-          "Alex liked your review of Sample Book",
-          "",
+          withEmoji("review_liked", "Alex liked your review"),
+          "Your review of Sample Book.",
           { type: "review_liked", postId: TEST_PUSH_POST_ID },
           TEST_PUSH_COVER_URL
         );
@@ -282,16 +329,16 @@ export const sendTestPushNotification = onCall(
       case "review_commented":
         await sendToUser(
           uid,
-          "Alex commented on your review of Sample Book",
-          "Great take on chapter three...",
+          withEmoji("review_commented", "Alex commented"),
+          "On your review of Sample Book: “Great take on chapter three...”",
           { type: "review_commented", postId: TEST_PUSH_POST_ID }
         );
         break;
       case "thread_commented":
         await sendToUser(
           uid,
-          "Alex also commented on the Sample Book review you joined",
-          "Adding my two cents here...",
+          withEmoji("thread_commented", "Alex also commented"),
+          "In the Sample Book thread you joined: “Adding my two cents here...”",
           { type: "thread_commented", postId: TEST_PUSH_POST_ID }
         );
         break;
@@ -299,7 +346,7 @@ export const sendTestPushNotification = onCall(
         // followerId is the caller so the tap deep-links to a real profile (your own).
         await sendToUser(
           uid,
-          "Alex started following you",
+          withEmoji("new_follower", "Alex followed you"),
           "See what they're reading on SPINE.",
           { type: "new_follower", followerId: uid }
         );
@@ -425,7 +472,9 @@ export const onUserCreated = onDocumentCreated(
       `${first} joined SPINE`,
       "They follow you, and you now follow them back.",
       { type: "new_follower", followerId: uid },
-      uid
+      uid,
+      null,
+      JOINED_EMOJI
     );
   }
 );
@@ -460,7 +509,7 @@ export const onUserFollowingChanged = onDocumentUpdated(
     for (const target of added.filter((t) => hiddenAccountCanNotify(followerUid, t))) {
       await notifyUser(
         target,
-        `${first} started following you`,
+        `${first} followed you`,
         "See what they're reading on SPINE.",
         { type: "new_follower", followerId: followerUid },
         followerUid
@@ -523,6 +572,8 @@ export const notifyContactsOfJoin = onCall(
     }
 
     const first = firstNameFromUser(joiner);
+    // Contact matching means the recipient knows this person by their full name.
+    const fullName = ((joiner.displayName as string | undefined)?.trim() || first);
     const photo = (joiner.profileImageURL as string | undefined) ?? null;
     let notified = 0;
 
@@ -550,8 +601,8 @@ export const notifyContactsOfJoin = onCall(
 
       await notifyUser(
         target,
-        `Your contact ${first} joined SPINE.`,
-        "Follow them!",
+        `${first} joined SPINE`,
+        `${fullName} is in your contacts. Tap to follow.`,
         { type: "contact_joined", followerId: joinerUid },
         joinerUid,
         photo
@@ -639,23 +690,28 @@ export const onFriendReviewPosted = onDocumentCreated(
     const author = (await db.collection("users").doc(authorId).get()).data();
     const first = firstNameFromUser(author);
     const { title: book, coverURL } = await bookInfo(data.bookId as string | undefined);
-    const bookPart = book ?? "a book";
     const tier = (fresh.tier as string | undefined)?.trim();
     const rating = formatRating(fresh.rating);
     const caption = (fresh.caption as string | undefined)?.trim() ?? "";
 
+    // The book title is unbounded, so it leads the body (two full lines) rather
+    // than the title (~18 visible characters in Notification Center).
     let title: string;
     let body: string;
-    if (tier) {
-      const teaser = teaser8Words(caption);
-      title = rating !== null
-        ? `${first} gave ${bookPart} a ${rating}`
-        : `${first} finished ${bookPart}`;
-      body = teaser ? teaser : "Open SPINE to read the full review.";
+    let emoji: string | undefined;
+    const teaser = quotedTeaser(caption);
+    if (tier && rating !== null) {
+      title = `${first} gave a ${rating}`;
+      body = book
+        ? (teaser ? `${book}: ${teaser}` : `${book}. Open SPINE to read the full review.`)
+        : (teaser || "Open SPINE to read the full review.");
     } else {
       // Unranked: no mention of rating/rank — just the finish and their review.
-      title = `${first} finished ${bookPart}`;
-      body = caption || "See what they're reading on SPINE.";
+      title = `${first} finished a book`;
+      body = book
+        ? (teaser ? `${book}: ${teaser}` : `${book}. See what they thought.`)
+        : (teaser || "See what they're reading on SPINE.");
+      emoji = FINISHED_BOOK_EMOJI;
     }
 
     // Rating-spree cap: past three finished books today, skip the push (the
@@ -682,9 +738,9 @@ export const onFriendReviewPosted = onDocumentCreated(
     };
     for (const uid of recipients) {
       if (pushCapped) {
-        await writeNotification(uid, title, body, payload, authorId, coverURL);
+        await writeNotification(uid, withEmoji(payload.type, title, emoji), body, payload, authorId, coverURL);
       } else {
-        await notifyUser(uid, title, body, payload, authorId, coverURL);
+        await notifyUser(uid, title, body, payload, authorId, coverURL, emoji);
       }
     }
   }
@@ -726,10 +782,10 @@ export const onPostCaptionMentions = onDocumentWritten(
     const author = (await db.collection("users").doc(authorId).get()).data();
     const first = firstNameFromUser(author);
     const { title: book, coverURL } = await bookInfo(after.bookId as string | undefined);
-    const title = book
-      ? `${first} mentioned you in their review of ${book}`
-      : `${first} mentioned you in a review`;
-    const body = teaser8Words(afterCaption);
+    const title = `${first} mentioned you`;
+    const teaser = quotedTeaser(afterCaption);
+    const where = book ? `In their review of ${book}` : "In a review";
+    const body = teaser ? `${where}: ${teaser}` : `${where}.`;
     for (const uid of newUids) {
       if (!hiddenAccountCanNotify(authorId, uid)) continue;
       await notifyUser(
@@ -769,10 +825,13 @@ export const onRecommendationCreated = onDocumentCreated(
     const sender = (await db.collection("users").doc(fromUserId).get()).data();
     const first = firstNameFromUser(sender);
     const { title: book, coverURL } = await bookInfo(data.bookId as string | undefined);
-    const bookPart = book ?? "a book";
     const note = ((data.note as string | undefined) ?? "").trim();
-    const title = `${first} recommended ${bookPart} to you`;
-    const body = note ? teaser8Words(note) : "It's waiting on the Recommended shelf of your queue.";
+    const title = `${first} sent you a book`;
+    const noteTeaser = quotedTeaser(note);
+    const shelf = "It's on the Recommended shelf of your queue.";
+    const body = book
+      ? (noteTeaser ? `${book}: ${noteTeaser}` : `${book}. ${shelf}`)
+      : (noteTeaser || shelf);
     const payload: Record<string, string> = {
       type: "book_recommended",
       recommendationId: event.params.recId as string,
@@ -839,8 +898,8 @@ export const onBookBlendWritten = onDocumentWritten(
       const requesterName = await nameOf(requesterId);
       await notifyUser(
         recipientId,
-        `${requesterName} wants to make a Book Blend with you`,
-        "Merge your libraries into one taste match. Tap to accept.",
+        `${requesterName} invited you`,
+        "Book Blend: see how your reading tastes line up. Tap to accept.",
         { type: "blend_request", blendId, otherUserId: requesterId },
         requesterId
       );
@@ -853,10 +912,10 @@ export const onBookBlendWritten = onDocumentWritten(
       const score = (after.result as { score?: number } | undefined)?.score;
       await notifyUser(
         requesterId,
-        `Your Book Blend with ${recipientName} is ready`,
+        "Your Blend is ready",
         typeof score === "number"
-          ? `You two scored ${score}%. Tap to watch it.`
-          : "Tap to watch it.",
+          ? `You and ${recipientName} scored ${score}%. Tap to watch it.`
+          : `Tap to watch it with ${recipientName}.`,
         { type: "blend_ready", blendId, otherUserId: recipientId },
         recipientId
       );
@@ -890,16 +949,14 @@ export const onPostLiked = onDocumentCreated(
     // readRecord = hidden discussion carrier for a read that was never posted
     // to the feed, so "review" would ring false.
     const likedNoun = postData.type === "readRecord" ? "read" : "review";
-    const title = book
-      ? `${first} liked your ${likedNoun} of ${book}`
-      : `${first} liked your ${likedNoun}`;
-
-    // Empty body: the push falls back to "Tap to open SPINE", while the in-app
-    // notification row shows just the title (a like needs no second line).
+    const title = `${first} liked your ${likedNoun}`;
+    // The book moved out of the title (it was the part that got truncated), so
+    // the body names it. Without a book the push falls back to "Tap to open SPINE".
+    const body = book ? `Your ${likedNoun} of ${book}.` : "";
     await notifyUser(
       authorId,
       title,
-      "",
+      body,
       { type: "review_liked", postId },
       likerId,
       coverURL
@@ -932,12 +989,10 @@ export const onCommentLiked = onDocumentCreated(
     const first = firstNameFromUser(liker);
     const postData = (await db.collection("posts").doc(postId).get()).data();
     const { title: book, coverURL } = await bookInfo(postData?.bookId as string | undefined);
-    const title = book
-      ? `${first} liked your comment on ${book}`
-      : `${first} liked your comment`;
-    // Body echoes the liked comment so the alert reads on its own; the tap
-    // deep-links to the thread scrolled to this exact comment.
-    const body = teaser8Words((commentData.text as string | undefined) ?? "");
+    const title = `${first} liked your comment`;
+    // Body names the book and echoes the liked comment so the alert reads on its
+    // own; the tap deep-links to the thread scrolled to this exact comment.
+    const body = bodyOnBook(book, quotedTeaser((commentData.text as string | undefined) ?? ""));
 
     await notifyUser(
       authorId,
@@ -985,10 +1040,8 @@ export const onCommentCreated = onDocumentCreated(
       const parentUid = parent.data()?.userId as string | undefined;
       if (parentUid && parentUid !== commenterId && hiddenAccountCanNotify(commenterId, parentUid)) {
         replyTargetUid = parentUid;
-        const replyTitle = book
-          ? `${first} replied to your comment on ${book}`
-          : `${first} replied to your comment`;
-        const replyBody = teaser8Words(commentText);
+        const replyTitle = `${first} replied to you`;
+        const replyBody = bodyOnBook(book, quotedTeaser(commentText));
         await notifyUser(
           replyTargetUid,
           replyTitle,
@@ -1004,11 +1057,10 @@ export const onCommentCreated = onDocumentCreated(
     // readRecord posts are read discussions without a review, so say "read".
     const commentNoun = postData.type === "readRecord" ? "read" : "review";
     if (commenterId !== authorId && authorId !== replyTargetUid && hiddenAccountCanNotify(commenterId, authorId)) {
-      const title = book
-        ? `${first} commented on your ${commentNoun} of ${book}`
-        : `${first} replied to your ${commentNoun}`;
-      const preview = teaser8Words(commentText);
-      const body = preview.length > 0 ? preview : "";
+      const title = `${first} commented`;
+      const where = book ? `On your ${commentNoun} of ${book}` : `On your ${commentNoun}`;
+      const preview = quotedTeaser(commentText);
+      const body = preview ? `${where}: ${preview}` : `${where}.`;
       await notifyUser(
         authorId,
         title,
@@ -1024,10 +1076,10 @@ export const onCommentCreated = onDocumentCreated(
     // so without this exclusion every reply would double-notify), and the post
     // author keeps their review_commented.
     const mentionUids = new Set((await resolveMentionUids(commentText)).values());
-    const mentionTitle = book
-      ? `${first} mentioned you in a comment on ${book}`
-      : `${first} mentioned you in a comment`;
-    const mentionBody = teaser8Words(commentText);
+    const mentionTitle = `${first} mentioned you`;
+    const mentionWhere = book ? `In a comment on ${book}` : "In a comment";
+    const mentionTeaser = quotedTeaser(commentText);
+    const mentionBody = mentionTeaser ? `${mentionWhere}: ${mentionTeaser}` : `${mentionWhere}.`;
     for (const uid of mentionUids) {
       if (uid === commenterId || uid === authorId || uid === replyTargetUid) continue;
       if (!hiddenAccountCanNotify(commenterId, uid)) continue;
@@ -1054,10 +1106,10 @@ export const onCommentCreated = onDocumentCreated(
     if (replyTargetUid) participantIds.delete(replyTargetUid);
     for (const uid of mentionUids) participantIds.delete(uid);
 
-    const threadTitle = book
-      ? `${first} also commented on the ${book} ${commentNoun} you joined`
-      : `${first} replied in a ${commentNoun} thread you joined`;
-    const threadBody = teaser8Words(commentText);
+    const threadTitle = `${first} also commented`;
+    const threadWhere = book ? `In the ${book} thread you joined` : `In a ${commentNoun} thread you joined`;
+    const threadTeaser = quotedTeaser(commentText);
+    const threadBody = threadTeaser ? `${threadWhere}: ${threadTeaser}` : `${threadWhere}.`;
 
     for (const uid of participantIds) {
       await notifyUser(

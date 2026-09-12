@@ -166,6 +166,24 @@ enum Theme {
         return coverPalette[Int(hash % UInt64(coverPalette.count))]
     }
 
+    /// Celebration confetti palette: 8 mid-tone, saturated hues drawn from the
+    /// same book-jacket family as `coverPalette`, but lifted in lightness so every
+    /// scrap stays visible against *both* the paper and ink backgrounds: every hue
+    /// is verified at >= 3:1 contrast (the WCAG bar for graphical objects) on each
+    /// ground, so it never sinks into either one. Confetti is a
+    /// one-off celebration, not chrome, so unlike the rest of the app it is allowed
+    /// color. Do not reuse these for UI surfaces or text.
+    static let confettiPalette: [Color] = [
+        Color(red: 178/255, green: 125/255, blue: 43/255),  // amber
+        Color(red: 217/255, green: 101/255, blue: 60/255),  // coral rust
+        Color(red: 214/255, green: 72/255, blue: 68/255),   // red
+        Color(red: 191/255, green: 74/255, blue: 131/255),  // plum pink
+        Color(red: 138/255, green: 96/255, blue: 206/255),  // violet
+        Color(red: 66/255, green: 118/255, blue: 206/255),  // blue
+        Color(red: 34/255, green: 149/255, blue: 151/255),  // teal
+        Color(red: 72/255, green: 151/255, blue: 81/255)    // green
+    ]
+
     // Tier list colors (S/A/B/C/D) are universal and live in TierListView.swift.
     // They are intentionally *not* re-themed here.
 

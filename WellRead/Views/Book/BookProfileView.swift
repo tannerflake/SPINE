@@ -30,6 +30,9 @@ struct BookProfileView: View {
     var isInQueue: Bool = false
     /// Removes the book from the queue; shown as REMOVE in place of QUEUE when isInQueue.
     var onRemoveFromQueue: (() -> Void)? = nil
+    /// Marks a Reading Now book as "did not finish" instead of deleting it outright.
+    /// Shown as DNF in place of REMOVE when the book is on the reading-now shelf.
+    var onMarkAsDNF: (() -> Void)? = nil
     /// When set and the entry has review text and/or a rating, shows the first card section (e.g. current user's read row).
     var readEntryForReview: UserBook? = nil
     /// Section title for that card (`"My review"` vs `"Review"` on someone else's profile).
@@ -63,10 +66,23 @@ struct BookProfileView: View {
     // Re-read flow: tapping READ on an already-read book offers to log another read
     // or to remove the book from the read shelf.
     @State private var showRereadPrompt = false
-    @State private var showRereadEditPrompt = false
+    /// The mark-as-read drawer, opened in re-read mode from "Log Another Read".
+    @State private var showRereadDrawer = false
     @State private var showRemoveFromReadConfirm = false
     @State private var showRefresher = false
     @State private var showSummaryMore = false
+    // Note-to-self composer for a queued book (pencil / "add a note" on the note card).
+    @State private var showQueueNoteComposer = false
+    /// Scrubber value while the finger is down; nil shows the saved value.
+    @State private var liveProgress: Double? = nil
+    /// Finish-line celebration for the progress window (confetti trigger + card pop).
+    /// The progress card's frame in window space, used to aim the confetti.
+    @State private var progressCardFrame: CGRect = .zero
+    @State private var progressFinishPop: Bool = false
+    /// Ribbon springs to saved values but tracks the finger directly mid-drag.
+    private var heroRibbonAnimation: Animation? {
+        liveProgress == nil ? .spring(response: 0.32, dampingFraction: 0.82) : nil
+    }
     @State private var matchScore: Int? = nil
     // "Why you might like it" — only for books scoring above 50% match.
     @State private var whyLikeText: String? = nil
@@ -110,17 +126,40 @@ struct BookProfileView: View {
     @State private var coverSourceLabel: String?
 
     private var showActionBar: Bool {
-        onNotInterested != nil || onWantToRead != nil || onStartReading != nil || onConfirmRead != nil || onRemoveFromQueue != nil || onAddToShelf != nil
+        onNotInterested != nil || onWantToRead != nil || onStartReading != nil || onConfirmRead != nil || onRemoveFromQueue != nil || onMarkAsDNF != nil || onAddToShelf != nil
     }
 
     private var showShelfAction: Bool {
         shelfActionTitle != nil && onAddToShelf != nil && !isInQueue
     }
 
+    /// The signed-in user's queued row for this book, if any. Drives the
+    /// note-to-self card (always the viewer's own note, whoever's library led here).
+    private var queuedEntry: UserBook? {
+        appState.queuedUserBook(for: book)
+    }
+
     /// True when the book is on the user's currently-reading shelf — the FINISHED
     /// button becomes "FINISHED!" since that's what tapping it means mid-read.
     private var isCurrentlyReading: Bool {
         appState.userBooks.contains { $0.bookId == book.id && $0.status == .currentlyReading }
+    }
+
+    /// True when the book sits on the user's Queue → Reading Now shelf — the
+    /// REMOVE action there means "I stopped partway through," so it's DNF instead.
+    private var isReadingNowShelf: Bool {
+        appState.userBooks.contains { $0.bookId == book.id && $0.status == .wantToRead && $0.queueShelf == .readingNow }
+    }
+
+    private var showReadingNowDNF: Bool {
+        isReadingNowShelf && onMarkAsDNF != nil
+    }
+
+    /// The signed-in reader's Reading now entry for this book (any edition of
+    /// the work), driving the progress window and the cover ribbon.
+    private var readingNowEntry: UserBook? {
+        guard let q = queuedEntry, q.queueShelf == .readingNow else { return nil }
+        return q
     }
 
     /// Refresher is only offered for books the user has finished — that's the
@@ -165,6 +204,22 @@ struct BookProfileView: View {
                 VStack(alignment: .leading, spacing: 24) {
 
                     hero
+
+                    // Mid-read: progress first. It's the one number the reader
+                    // came to move, and it feeds the ribbon on the cover above.
+                    if let reading = readingNowEntry {
+                        readingProgressWindow(ub: reading)
+                            .padding(.horizontal)
+                    }
+
+                    // Why it's in the queue — above the summary so the reader's
+                    // own reason is the first thing they see on a queued book.
+                    if let queued = queuedEntry {
+                        QueueNoteCard(note: queued.trimmedQueueNote) {
+                            showQueueNoteComposer = true
+                        }
+                        .padding(.horizontal)
+                    }
 
                     summaryWindow
                         .padding(.horizontal)
@@ -219,10 +274,39 @@ struct BookProfileView: View {
         }
         .padding(.bottom, mainTabBarOverlapExtraHeight)
         .background(Theme.background)
+        // Hosted here rather than via ToastCenter: this page can sit inside a
+        // fullScreenCover (shelf "Add" search), where the root toast host is hidden.
         .overlay {
-            MarkAsReadInlineOverlay(isPresented: $showMarkAsReadModal) { date, rating, post, thoughts, tier in
+            if showQueueNoteComposer {
+                QueueNoteComposerOverlay(
+                    request: QueueNoteRequest(book: book, initialNote: queuedEntry?.trimmedQueueNote ?? "") { note in
+                        appState.setQueueNote(for: book, note: note)
+                    },
+                    onClose: { withAnimation(.easeOut(duration: 0.2)) { showQueueNoteComposer = false } }
+                )
+                .transition(.opacity)
+            }
+        }
+        .sheet(isPresented: $showMarkAsReadModal) {
+            MarkAsReadDrawer(bookId: book.id, book: book) { date, rating, post, thoughts, tier in
                 onConfirmRead?(date, rating, post, thoughts, tier)
             }
+        }
+        // A re-read goes through the same drawer as a first finish (date, thoughts,
+        // tier, feed) instead of silently stamping today's date.
+        .sheet(isPresented: $showRereadDrawer) {
+            MarkAsReadDrawer(
+                bookId: book.id,
+                book: book,
+                onConfirm: { date, _, post, thoughts, tier in
+                    logReread(date: date, thoughts: thoughts, tier: tier, postToFeed: post)
+                },
+                isAdditionalRead: true,
+                subtitle: rereadSubtitle,
+                initialThoughts: currentUserReadEntry?.reviewText ?? "",
+                initialTier: currentUserReadEntry?.normalizedTier,
+                initialPostToFeed: true
+            )
         }
         .sheet(item: $userBookToEdit) { ub in
             EditReadReviewSheet(userBook: ub)
@@ -269,7 +353,7 @@ struct BookProfileView: View {
             }
         }
         .confirmationDialog("You've read this book", isPresented: $showRereadPrompt, titleVisibility: .visible) {
-            Button("Log Another Read") { logReread() }
+            Button("Log Another Read") { showRereadDrawer = true }
             Button("Remove from Read", role: .destructive) { showRemoveFromReadConfirm = true }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -280,12 +364,6 @@ struct BookProfileView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes the book from your read shelf and deletes your review and feed post if any.")
-        }
-        .alert("Added. Would you like to edit your review?", isPresented: $showRereadEditPrompt) {
-            Button("Yes") {
-                if let ub = currentUserReadEntry { userBookToEdit = ub }
-            }
-            Button("No", role: .cancel) {}
         }
         .alert("Can't send texts", isPresented: $cantSendTextAlert) {
             Button("OK", role: .cancel) {}
@@ -390,6 +468,8 @@ struct BookProfileView: View {
             case .upNext: return ("UP NEXT", Theme.accent)
             case .backlog, nil: return ("BACKLOG", Theme.chromeStrong)
             }
+        case .didNotFinish:
+            return ("DID NOT FINISH", Theme.textTertiary)
         }
     }
 
@@ -404,7 +484,19 @@ struct BookProfileView: View {
                 .opacity(coverFixState == .hidden ? 0 : 1)
             BookCoverView(book: book, size: 220)
                 .shadow(color: Theme.shadowInk.opacity(0.18), radius: 14, x: 0, y: 6)
-                .overlay(alignment: .topTrailing) {
+                .overlay(alignment: .topLeading) {
+                    if let reading = readingNowEntry {
+                        CoverProgressRibbon(
+                            fraction: liveProgress ?? reading.progressFraction,
+                            coverWidth: 220,
+                            coverHeight: 330
+                        )
+                        .animation(heroRibbonAnimation, value: liveProgress ?? reading.progressFraction)
+                    }
+                }
+                // Mid-read the bookmark ribbon owns the top edge, so the badge
+                // hangs off the bottom corner instead of covering the ribbon.
+                .overlay(alignment: readingNowEntry == nil ? .topTrailing : .bottomTrailing) {
                     if let badge = statusBadge {
                         if badge.label == "READ" {
                             Button {
@@ -433,9 +525,9 @@ struct BookProfileView: View {
                                 .padding(.vertical, 5)
                                 .background(Capsule().fill(badge.color))
                                 .overlay(Capsule().stroke(Theme.onChrome.opacity(0.85), lineWidth: 1.5))
-                                .rotationEffect(.degrees(6))
+                                .rotationEffect(.degrees(readingNowEntry == nil ? 6 : -6))
                                 .shadow(color: Theme.shadowInk.opacity(0.25), radius: 4, x: 0, y: 2)
-                                .offset(x: 14, y: -10)
+                                .offset(x: 14, y: readingNowEntry == nil ? -10 : 10)
                         }
                     }
                 }
@@ -783,7 +875,7 @@ struct BookProfileView: View {
         return (
             Text(dates.count > 1 ? "read \u{00D7}\(dates.count): " : "read: ")
                 .foregroundColor(Theme.chrome)
-            + Text(dates.map { Self.readDateFormatter.string(from: $0) }.joined(separator: " \u{00B7} "))
+            + Text(dates.map { ReadDate.label($0, formatter: Self.readDateFormatter) }.joined(separator: " \u{00B7} "))
                 .foregroundColor(Theme.textTertiary)
         )
         .font(.system(size: 12, weight: .medium))
@@ -796,6 +888,89 @@ struct BookProfileView: View {
         return f
     }()
 
+    // MARK: - Reading progress window
+
+    /// Big percent + page position over the bookmark scrubber. Own Reading now
+    /// books only; writes through `AppState.setReadingProgress`.
+    private func readingProgressWindow(ub: UserBook) -> some View {
+        let fraction = liveProgress ?? ub.progressFraction
+        let percent = Int((fraction * 100).rounded())
+        let pages = book.pageCount ?? ub.book?.pageCount
+        let pageLine: String? = {
+            guard let pages, pages > 0 else { return nil }
+            let page = fraction >= 0.999 ? pages : UserBook.page(forFraction: fraction, pageCount: pages)
+            return "Page \(page) of \(pages)"
+        }()
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                    Text("\(percent)")
+                        .font(.system(size: 44, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textPrimary)
+                        .contentTransition(.numericText(value: Double(percent)))
+                    Text("%")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                if let pageLine {
+                    Text(pageLine)
+                        .font(Theme.callout())
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textSecondary)
+                        .contentTransition(.numericText())
+                } else if ub.readingProgress == nil {
+                    Text("Slide the bookmark to track your progress")
+                        .font(Theme.caption())
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                Spacer(minLength: 0)
+            }
+            ReadingProgressScrubber(
+                fraction: ub.progressFraction,
+                onLiveChange: { liveProgress = $0 },
+                onCommit: { value in
+                    let previous = ub.progressFraction
+                    liveProgress = nil
+                    appState.setReadingProgress(userBookId: ub.id, progress: value)
+                    if FinishCelebration.crossedFinishLine(previous: previous, committed: value) {
+                        FinishCelebration.haptic()
+                        fireProgressConfetti()
+                        withAnimation(.snappy(duration: 0.28, extraBounce: 0.25)) { progressFinishPop = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.7)) { progressFinishPop = false }
+                        }
+                    }
+                }
+            )
+            if fraction >= 0.999, liveProgress == nil {
+                Text("Done? Tap FINISHED! below to rank it and post.")
+                    .font(Theme.caption())
+                    .foregroundStyle(Theme.textTertiary)
+            }
+        }
+        .hingeSectionCard(title: "YOUR PROGRESS")
+        .scaleEffect(progressFinishPop ? 1.02 : 1)
+        // Window-space frame so the confetti host can aim the burst at the
+        // bookmark without mounting it inside this card, where the scroll view
+        // and the card's own background would clip it.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { progressCardFrame = $0 }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: fraction >= 0.999 && liveProgress == nil)
+    }
+
+    /// Throw confetti from the bookmark's resting spot on the progress card, in
+    /// window coordinates so the full-screen host draws it unclipped.
+    private func fireProgressConfetti() {
+        guard progressCardFrame != .zero else { return }
+        FinishConfettiCenter.shared.fire(
+            from: CGPoint(
+                x: progressCardFrame.minX + progressCardFrame.width * 0.93,
+                y: progressCardFrame.minY + progressCardFrame.height * 0.72
+            )
+        )
+    }
+
     // MARK: - Re-read flow
 
     /// The current user's read row for this book (nil when it's not on their shelf).
@@ -807,15 +982,33 @@ struct BookProfileView: View {
     private var rereadLogMessage: String {
         let dates = (currentUserReadEntry?.allReadDates ?? []).sorted(by: >)
         guard !dates.isEmpty else { return "It's already on your read shelf." }
-        let list = dates.map { Self.readDateFormatter.string(from: $0) }.joined(separator: "\n")
+        let list = dates.map { ReadDate.label($0, formatter: Self.readDateFormatter) }.joined(separator: "\n")
         return "You've read it \(dates.count == 1 ? "once" : "\(dates.count) times"):\n\(list)"
     }
 
-    /// Log today as another read of this book, then offer the review editor.
-    private func logReread() {
+    /// Reads already on the shelf, shown under the header of the re-read drawer.
+    private var rereadSubtitle: String? {
+        let dates = (currentUserReadEntry?.allReadDates ?? []).sorted(by: >)
+        guard !dates.isEmpty else { return nil }
+        let list = dates.map { ReadDate.label($0, formatter: Self.readDateFormatter) }.joined(separator: ", ")
+        return "Already logged: \(list)"
+    }
+
+    /// Log the drawer's date as another read of this book, carrying the thoughts,
+    /// tier, and feed choice it collected onto the existing read entry.
+    private func logReread(date: Date, thoughts: String?, tier: String?, postToFeed: Bool) {
         Task {
-            await appState.mergeGoodreadsReReadDate(book: book, dateRead: Date())
-            showRereadEditPrompt = true
+            if let err = await appState.logAdditionalRead(
+                book: book,
+                date: date,
+                thoughts: thoughts,
+                tier: tier,
+                postToFeed: postToFeed
+            ) {
+                await MainActor.run {
+                    ToastCenter.shared.show(Toast(style: .error, status: "Failed", message: err))
+                }
+            }
         }
     }
 
@@ -1336,13 +1529,23 @@ struct BookProfileView: View {
                 }
                 .buttonStyle(.springPress)
             }
+            // On the Reading Now shelf, DNF (give up on this book) sits left of
+            // FINISHED so FINISHED stays the rightmost, thumb-side action —
+            // reading-lifecycle order (start → give up or finish) rather than
+            // the add/remove-from-queue order used everywhere else.
+            if showReadingNowDNF {
+                Button(action: { onMarkAsDNF?() }) {
+                    actionLabel("DNF", foreground: Theme.phosphorWhite, background: Theme.danger, border: .clear)
+                }
+                .buttonStyle(.springPress)
+            }
             if onConfirmRead != nil {
                 Button(action: {
                     if isOnReadList {
                         showRereadPrompt = true
                         return
                     }
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { showMarkAsReadModal = true }
+                    showMarkAsReadModal = true
                 }) {
                     actionLabel(
                         isCurrentlyReading ? "FINISHED!" : "FINISHED",
@@ -1353,7 +1556,7 @@ struct BookProfileView: View {
                 }
                 .buttonStyle(.springPress)
             }
-            if onWantToRead != nil || onRemoveFromQueue != nil {
+            if !showReadingNowDNF, onWantToRead != nil || onRemoveFromQueue != nil {
                 Group {
                     if isInQueue && onRemoveFromQueue != nil {
                         Button(action: { onRemoveFromQueue?() }) {

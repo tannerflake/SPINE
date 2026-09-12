@@ -1,5 +1,42 @@
 # Spines Push Notifications: Product Spec
 
+## Current copy set (September 2026) — supersedes the examples below
+
+The examples further down are the original spec. In practice titles were getting cut at
+roughly 18 characters in the stacked Notification Center view (title shares its line with
+the app icon and a timestamp like "Yesterday, 11:12 PM"), so the meat of every alert was
+lost. The copy now follows three rules, implemented in `functions/src/index.ts`:
+
+1. **Title = emoji + first name + short verb**, 22 characters or fewer. The emoji is
+   prefixed once in `notifyUser` (map `TITLE_EMOJI`, keyed by notification type) so the
+   push and the bell-feed row carry the same string.
+2. **Body leads with the specific object** (book title, other person, score) in its first
+   ~40 characters, then the quoted ~8-word teaser or the payoff line.
+3. **Book titles never appear in the title.** They are unbounded in length and were the
+   part that pushed everything else off the end.
+
+| Type | Title | Body |
+|---|---|---|
+| friend_review_posted (rated) | ⭐ Hannah gave a 9.2 | Sapiens: “Smart, ambitious, provocative, and way more…” |
+| friend_review_posted (unrated) | 📚 Hannah finished a book | Sapiens: “caption…” / Sapiens. See what they thought. |
+| review_liked | ❤️ Hannah liked your review | Your review of Sapiens. |
+| comment_liked | ❤️ Hannah liked your comment | On Sapiens: “comment teaser…” |
+| review_commented | 💬 Hannah commented | On your review of Sapiens: “teaser…” |
+| comment_replied | ↩️ Hannah replied to you | On Sapiens: “teaser…” |
+| thread_commented | 💬 Hannah also commented | In the Sapiens thread you joined: “teaser…” |
+| review_mentioned | 📣 Hannah mentioned you | In their review of Sapiens: “teaser…” |
+| comment_mentioned | 📣 Hannah mentioned you | In a comment on Sapiens: “teaser…” |
+| new_follower | 👋 Hannah followed you | See what they're reading on SPINE. |
+| founder join alert (new_follower) | 🎉 Hannah joined SPINE | They follow you, and you now follow them back. |
+| contact_joined | 🎉 Hannah joined SPINE | Hannah Smith is in your contacts. Tap to follow. |
+| blend_request | 🔀 Hannah invited you | Book Blend: see how your reading tastes line up. Tap to accept. |
+| blend_ready | 🔀 Your Blend is ready | You and Hannah scored 84%. Tap to watch it. |
+| book_recommended | 📖 Hannah sent you a book | Sapiens: “note teaser…” / Sapiens. It's on the Recommended shelf of your queue. |
+
+"read" replaces "review" for `readRecord` discussion carriers, as before.
+
+---
+
 ## Purpose
 
 This document defines the first set of meaningful push notifications for Spines. The goal is to drive re-engagement around social activity that already feels valuable inside the product, especially activity tied to reviews, discovery, and conversation.

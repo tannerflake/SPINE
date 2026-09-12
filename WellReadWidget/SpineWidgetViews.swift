@@ -2,6 +2,19 @@
 //  SpineWidgetViews.swift
 //  WellReadWidget
 //
+//  Layout rules for both families:
+//   • Small  — every book on your Reading now shelf, laid out as a grid of
+//     covers sized to whatever fits (1 across, 2, 3, or 2×2). Each cover wears
+//     the app's bookmark ribbon at its reading position plus a hairline bar on
+//     its bottom edge, and prints its percent underneath when it is wide enough
+//     to read. No rotation: the whole shelf is on screen at once.
+//   • Medium — the same shelf on the left, a rotating page of what people you
+//     follow are reading on the right, split by a hairline.
+//
+//  Taps: your covers open the Queue, a friend's cover opens that book's
+//  profile. `Link` only works from systemMedium up, so the small family sends
+//  the whole widget to the Queue via `widgetURL`.
+//
 
 import SwiftUI
 import WidgetKit
@@ -40,6 +53,10 @@ enum SpinePalette {
         light: UIColor(red: 237/255, green: 238/255, blue: 227/255, alpha: 1),
         dark: UIColor(red: 20/255, green: 16/255, blue: 24/255, alpha: 1)
     )
+    /// Anything drawn *on a cover* stays fixed in both appearances — covers keep
+    /// their own saturation, so a dynamic token would invert against them.
+    static let inkFixed = Color(red: 20/255, green: 16/255, blue: 24/255)
+    static let paperFixed = Color(red: 237/255, green: 238/255, blue: 227/255)
 
     /// Echo of the app's `Theme.coverPalette` + `coverPaletteColor(for:)` (see
     /// UserAvatarView.swift): 12 deep hues, white text, FNV-1a seeded by the
@@ -81,6 +98,27 @@ enum SpinePalette {
     }
 }
 
+// MARK: - Deep links
+
+/// The two destinations a widget tap can produce. Handled in the app by
+/// `WellreadDeepLink` (see PushNotificationService.swift).
+enum SpineWidgetLink {
+    static let queue = URL(string: "wellread://queue")!
+
+    /// `wellread://book/{bookId}?reader={uid}` — the reader is the friend whose
+    /// cover was tapped, so the book profile can show their read in context.
+    static func book(_ bookId: String, readerUid: String? = nil) -> URL {
+        var components = URLComponents()
+        components.scheme = "wellread"
+        components.host = "book"
+        components.path = "/" + bookId
+        if let readerUid, !readerUid.isEmpty {
+            components.queryItems = [URLQueryItem(name: "reader", value: readerUid)]
+        }
+        return components.url ?? queue
+    }
+}
+
 enum WidgetImageLoader {
     static func image(_ filename: String?) -> UIImage? {
         guard let url = WidgetSharedStore.imageURL(for: filename) else { return nil }
@@ -103,6 +141,20 @@ extension WidgetSnapshot {
     }
 }
 
+extension WidgetSnapshot.BookEntry {
+    /// Clamped progress, or nil when the reader has never set one (no bookmark,
+    /// no percent — an unread-looking cover is the honest rendering).
+    var clampedProgress: Double? {
+        guard let progress else { return nil }
+        return min(1, max(0, progress))
+    }
+
+    var percentText: String? {
+        guard let clampedProgress else { return nil }
+        return "\(Int((clampedProgress * 100).rounded()))%"
+    }
+}
+
 // MARK: - Entry view
 
 struct SpineWidgetEntryView: View {
@@ -119,7 +171,7 @@ struct SpineWidgetEntryView: View {
     }
 }
 
-// MARK: - Small: your current read
+// MARK: - Small: your whole Reading now shelf
 
 struct SmallWidgetView: View {
     let snapshot: WidgetSnapshot?
@@ -127,70 +179,73 @@ struct SmallWidgetView: View {
     var body: some View {
         Group {
             if let snapshot, snapshot.isSignedIn {
-                if let book = snapshot.myBooks.first {
-                    if let cover = WidgetImageLoader.image(book.coverFilename) {
-                        Color.clear
-                            .containerBackground(for: .widget) {
-                                Image(uiImage: cover)
-                                    .resizable()
-                                    .scaledToFill()
-                            }
-                    } else {
-                        TitleCard(book: book)
-                            .containerBackground(SpinePalette.paper, for: .widget)
-                    }
+                if snapshot.myBooks.isEmpty {
+                    MessageCard(title: "Nothing on deck", subtitle: "Start a book in SPINE")
                 } else {
-                    MessageCard(title: "Nothing on deck", subtitle: "Pick your next read in SPINE")
-                        .containerBackground(SpinePalette.paper, for: .widget)
+                    VStack(alignment: .leading, spacing: 5) {
+                        // The label costs ~11pt of cover height; a shelf of three
+                        // or four needs that space more than it needs a caption.
+                        if snapshot.myBooks.count <= 2 {
+                            SectionLabel("READING NOW")
+                        }
+                        ReadingCoverGrid(books: snapshot.myBooks)
+                    }
                 }
             } else {
                 MessageCard(title: "SPINE", subtitle: "Open the app to sign in")
-                    .containerBackground(SpinePalette.paper, for: .widget)
             }
         }
-        .widgetURL(URL(string: "wellread://queue"))
+        .containerBackground(SpinePalette.paper, for: .widget)
+        .widgetURL(SpineWidgetLink.queue)
     }
 }
 
-// MARK: - Medium: your stack + friends
+// MARK: - Medium: your shelf + who you follow
 
 struct MediumWidgetView: View {
     let snapshot: WidgetSnapshot?
     let tick: Int
 
-    /// Friend books shown per rotation page.
-    static let friendsPerPage = 3
+    /// Friend books shown per rotation page. WidgetKit refreshes pre-rendered
+    /// entries at a one-minute floor, so the page is deliberately wide: more
+    /// friends per frame is the only way to raise throughput.
+    static let friendsPerPage = 4
 
     var body: some View {
         Group {
             if let snapshot, snapshot.isSignedIn {
-                HStack(alignment: .center, spacing: 14) {
-                    myStack(snapshot)
+                HStack(spacing: 11) {
+                    myPane(snapshot)
+                        .frame(width: 118)
+                    Rectangle()
+                        .fill(SpinePalette.textSecondary.opacity(0.22))
+                        .frame(width: 1)
                     friendsPane(snapshot)
+                        .frame(maxWidth: .infinity)
                 }
-                .containerBackground(SpinePalette.paper, for: .widget)
             } else {
                 MessageCard(title: "SPINE", subtitle: "Open the app to sign in")
-                    .containerBackground(SpinePalette.paper, for: .widget)
             }
         }
-        .widgetURL(URL(string: "wellread://queue"))
+        .containerBackground(SpinePalette.paper, for: .widget)
+        .widgetURL(SpineWidgetLink.queue)
     }
 
     @ViewBuilder
-    private func myStack(_ snapshot: WidgetSnapshot) -> some View {
-        if snapshot.myBooks.isEmpty {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(SpinePalette.surface)
-                .aspectRatio(2 / 3, contentMode: .fit)
-                .overlay {
-                    Text("Nothing\non deck")
-                        .font(.system(size: 11, weight: .medium))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(SpinePalette.textSecondary)
+    private func myPane(_ snapshot: WidgetSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            SectionLabel("READING NOW")
+            if snapshot.myBooks.isEmpty {
+                Text("Nothing on deck")
+                    .font(.system(size: 11))
+                    .foregroundStyle(SpinePalette.textSecondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            } else {
+                // Whole pane is one target: any of your covers means "my queue".
+                Link(destination: SpineWidgetLink.queue) {
+                    ReadingCoverGrid(books: snapshot.myBooks)
                 }
-        } else {
-            MyBooksFan(books: snapshot.myBooks, tick: tick)
+            }
         }
     }
 
@@ -200,63 +255,108 @@ struct MediumWidgetView: View {
         let pageStart = (tick % pageCount) * Self.friendsPerPage
         let page = Array(items.dropFirst(pageStart).prefix(Self.friendsPerPage))
 
-        return VStack(alignment: .leading, spacing: 7) {
-            Text("FRIENDS READING")
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(1.1)
-                .foregroundStyle(SpinePalette.textSecondary)
+        return VStack(alignment: .leading, spacing: 4) {
+            SectionLabel("FRIENDS READING")
 
             if items.isEmpty {
                 Text("No one you follow is reading yet")
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundStyle(SpinePalette.textSecondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
-                // Fixed 3-slot row so covers keep the same size on short pages.
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(0..<Self.friendsPerPage, id: \.self) { slot in
-                        if slot < page.count {
-                            FriendCoverCell(item: page[slot])
-                        } else {
-                            Color.clear.aspectRatio(2 / 3, contentMode: .fit)
+                GeometryReader { geo in
+                    let spacing: CGFloat = 6
+                    let cellWidth = (geo.size.width - spacing * CGFloat(Self.friendsPerPage - 1))
+                        / CGFloat(Self.friendsPerPage)
+                    // Name line is 9pt of the cell; the cover takes the rest,
+                    // capped by its own 2:3 ratio so it never stretches.
+                    let coverHeight = min(geo.size.height - 11, cellWidth * 1.5)
+
+                    HStack(alignment: .top, spacing: spacing) {
+                        // Fixed slot count keeps covers the same size on a short
+                        // final page instead of letting three covers grow.
+                        ForEach(0..<Self.friendsPerPage, id: \.self) { slot in
+                            if slot < page.count {
+                                let item = page[slot]
+                                Link(destination: SpineWidgetLink.book(item.book.bookId, readerUid: item.friend.uid)) {
+                                    FriendCoverCell(item: item, coverWidth: coverHeight * 2 / 3, coverHeight: coverHeight)
+                                        .frame(width: cellWidth, alignment: .center)
+                                }
+                            } else {
+                                Color.clear.frame(width: cellWidth, height: 1)
+                            }
                         }
                     }
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
-/// All of the user's reading-now books fanned into one stack: the front cover
-/// is full size, the rest peek out behind it to the right. Each rotation tick
-/// brings the next book to the front, so every cover gets its turn.
-struct MyBooksFan: View {
-    let books: [WidgetSnapshot.BookEntry]
-    let tick: Int
+// MARK: - Cover grid
 
-    private static let peek: CGFloat = 15
-    private static let depthScale: CGFloat = 0.07
+/// Your Reading now shelf, every cover visible. The arrangement is picked from
+/// the count (the app caps the shelf the widget receives at four), then the
+/// cover size is solved against whatever space the family gave us. The percent
+/// caption is dropped when covers get too narrow to carry it, and the bottom
+/// hairline bar keeps progress readable at any size.
+struct ReadingCoverGrid: View {
+    let books: [WidgetSnapshot.BookEntry]
+
+    private var rows: [[WidgetSnapshot.BookEntry]] {
+        switch books.count {
+        case 0: return []
+        case 4...: return [Array(books.prefix(2)), Array(books.dropFirst(2).prefix(2))]
+        default: return [books]
+        }
+    }
 
     var body: some View {
-        let count = books.count
-        let front = tick % count
-        let ordered = (0..<count).map { books[(front + $0) % count] }
+        GeometryReader { geo in
+            let rows = rows
+            let rowCount = max(1, rows.count)
+            let columnCount = max(1, rows.map(\.count).max() ?? 1)
+            let hSpacing: CGFloat = columnCount > 2 ? 5 : 7
+            let vSpacing: CGFloat = 5
+            let cellWidth = (geo.size.width - hSpacing * CGFloat(columnCount - 1)) / CGFloat(columnCount)
+            let rowHeight = (geo.size.height - vSpacing * CGFloat(rowCount - 1)) / CGFloat(rowCount)
+            let captionHeight: CGFloat = 11
+            let heightWithCaption = min(rowHeight - captionHeight, cellWidth * 1.5)
+            let showsCaption = heightWithCaption * 2 / 3 >= 44
+            let coverHeight = max(12, showsCaption ? heightWithCaption : min(rowHeight, cellWidth * 1.5))
 
-        ZStack(alignment: .bottomLeading) {
-            ForEach(Array(ordered.enumerated()), id: \.element.bookId) { depth, book in
-                CoverTile(book: book, cornerRadius: 10)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(SpinePalette.textPrimary.opacity(0.14 * Double(depth)))
+            VStack(spacing: vSpacing) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: hSpacing) {
+                        ForEach(row, id: \.bookId) { book in
+                            VStack(spacing: 2) {
+                                ProgressCoverTile(
+                                    book: book,
+                                    width: coverHeight * 2 / 3,
+                                    height: coverHeight
+                                )
+                                if showsCaption {
+                                    Text(book.percentText ?? "—")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(
+                                            book.percentText == nil
+                                                ? SpinePalette.textSecondary
+                                                : SpinePalette.textPrimary
+                                        )
+                                }
+                            }
+                            .frame(width: cellWidth, alignment: .center)
+                        }
+                        if row.count < columnCount {
+                            Color.clear.frame(width: cellWidth, height: 1)
+                        }
                     }
-                    .scaleEffect(1 - Self.depthScale * CGFloat(depth), anchor: .bottomLeading)
-                    .offset(x: CGFloat(depth) * Self.peek)
-                    .zIndex(Double(count - depth))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
         }
-        .padding(.trailing, CGFloat(count - 1) * Self.peek)
     }
 }
 
@@ -265,7 +365,10 @@ struct MyBooksFan: View {
 /// Book cover at 2:3 with rounded corners; title tile when no image landed.
 struct CoverTile: View {
     let book: WidgetSnapshot.BookEntry
-    var cornerRadius: CGFloat = 8
+    var cornerRadius: CGFloat = 7
+    /// Extra top padding for the title-card fallback, so the bookmark drawn over
+    /// the cover doesn't land on the first line of the title.
+    var textTopInset: CGFloat = 0
 
     var body: some View {
         Group {
@@ -281,33 +384,135 @@ struct CoverTile: View {
                     .overlay(alignment: .topLeading) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(book.title)
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(SpinePalette.textPrimary)
                                 .lineLimit(4)
+                                .minimumScaleFactor(0.8)
                             Text(book.author)
-                                .font(.system(size: 8))
+                                .font(.system(size: 7.5))
                                 .foregroundStyle(SpinePalette.textSecondary)
                                 .lineLimit(1)
                         }
-                        .padding(6)
+                        .padding(5)
+                        .padding(.top, textTopInset)
                     }
             }
         }
-        .aspectRatio(2 / 3, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
     }
 }
 
-/// One friend-book pairing with the friend's profile pic badged on the corner.
-struct FriendCoverCell: View {
-    let item: WidgetSnapshot.FriendBookItem
+/// A cover at an explicit size wearing its reading position: the app's bookmark
+/// tab tucked into the top edge at the progress point, and a hairline fill along
+/// the bottom edge. Both are drawn in fixed ink/paper so they read against any
+/// cover art in either appearance.
+struct ProgressCoverTile: View {
+    let book: WidgetSnapshot.BookEntry
+    let width: CGFloat
+    let height: CGFloat
+
+    private var cornerRadius: CGFloat { max(3, min(8, width * 0.11)) }
+    private var bookmarkHeight: CGFloat { max(12, height * 0.17) }
 
     var body: some View {
-        CoverTile(book: item.book, cornerRadius: 6)
-            .overlay(alignment: .bottomLeading) {
-                avatarBadge
-                    .offset(x: -5, y: 5)
+        CoverTile(
+            book: book,
+            cornerRadius: cornerRadius,
+            textTopInset: book.clampedProgress == nil ? 0 : bookmarkHeight - 3
+        )
+            .frame(width: width, height: height)
+            .overlay(alignment: .topLeading) {
+                if let fraction = book.clampedProgress {
+                    bookmark(fraction: fraction)
+                }
             }
+            .overlay(alignment: .bottom) {
+                if let fraction = book.clampedProgress {
+                    progressBar(fraction: fraction)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+    }
+
+    /// Echo of the app's `CoverProgressRibbon`: flush left at 0%, flush right at
+    /// 100%. Kept inside the cover (the app's version peeks past the top edge,
+    /// which a widget would clip).
+    private func bookmark(fraction: Double) -> some View {
+        let ribbonWidth = max(5, width * 0.085)
+        let ribbonHeight = bookmarkHeight
+        let inset = max(4, width * 0.07)
+        let travel = max(0, width - inset * 2 - ribbonWidth)
+        return WidgetBookmarkShape()
+            .fill(SpinePalette.inkFixed)
+            .overlay(
+                WidgetBookmarkShape()
+                    .stroke(SpinePalette.paperFixed.opacity(0.9), lineWidth: 0.8)
+            )
+            .frame(width: ribbonWidth, height: ribbonHeight)
+            .offset(x: inset + travel * CGFloat(fraction))
+    }
+
+    /// Two opaque halves rather than a tinted track: whichever way the cover art
+    /// goes, both the read part (ink) and the rest (paper) stay visible, and the
+    /// filled side is the dark one — the way a progress bar is normally read.
+    private func progressBar(fraction: Double) -> some View {
+        let barHeight = max(3, height * 0.05)
+        return ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(SpinePalette.paperFixed)
+            Rectangle()
+                .fill(SpinePalette.inkFixed)
+                .frame(width: width * CGFloat(fraction))
+        }
+        .frame(width: width, height: barHeight)
+    }
+}
+
+/// Classic bookmark silhouette: straight top, V-notch at the bottom. Mirrors
+/// `BookmarkTabShape` in the app so the two surfaces read as one language.
+struct WidgetBookmarkShape: Shape {
+    var notch: CGFloat = 0.3
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let depth = rect.height * notch
+        p.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - depth))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// One friend-book pairing: cover, avatar badge, first name.
+struct FriendCoverCell: View {
+    let item: WidgetSnapshot.FriendBookItem
+    let coverWidth: CGFloat
+    let coverHeight: CGFloat
+
+    private var badgeSize: CGFloat { max(14, min(21, coverWidth * 0.46)) }
+
+    private var firstName: String {
+        item.friend.displayName.split(whereSeparator: { $0.isWhitespace }).first.map(String.init)
+            ?? item.friend.displayName
+    }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            CoverTile(book: item.book, cornerRadius: max(3, min(6, coverWidth * 0.11)))
+                .frame(width: coverWidth, height: coverHeight)
+                .overlay(alignment: .bottomLeading) {
+                    avatarBadge
+                        .offset(x: -4, y: 4)
+                }
+            Text(firstName)
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(SpinePalette.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
     }
 
     private var avatarBadge: some View {
@@ -320,38 +525,30 @@ struct FriendCoverCell: View {
                 SpinePalette.avatarColor(for: item.friend.displayName)
                     .overlay {
                         Text(SpinePalette.avatarInitials(for: item.friend.displayName))
-                            .font(.system(size: 7.5, weight: .bold))
+                            .font(.system(size: badgeSize * 0.4, weight: .bold))
                             .foregroundStyle(.white)
                             .minimumScaleFactor(0.7)
                     }
             }
         }
-        .frame(width: 21, height: 21)
+        .frame(width: badgeSize, height: badgeSize)
         .clipShape(Circle())
         .overlay(Circle().strokeBorder(SpinePalette.paper, lineWidth: 1.5))
     }
 }
 
-// MARK: - Fallback cards
+// MARK: - Chrome
 
-/// Small-widget fallback when the cover image is missing: big title on paper.
-struct TitleCard: View {
-    let book: WidgetSnapshot.BookEntry
+struct SectionLabel: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Spacer(minLength: 0)
-            Text(book.title)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(SpinePalette.textPrimary)
-                .lineLimit(4)
-                .minimumScaleFactor(0.7)
-            Text(book.author)
-                .font(.system(size: 11))
-                .foregroundStyle(SpinePalette.textSecondary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        Text(text)
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(1.1)
+            .foregroundStyle(SpinePalette.textSecondary)
     }
 }
 

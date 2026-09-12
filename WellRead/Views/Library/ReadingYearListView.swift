@@ -143,35 +143,43 @@ struct ReadingYearListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.background, for: .navigationBar)
         .toolbar {
-            // One item holding both controls: two separate ToolbarItems get spread
-            // apart by the navigation bar, which reads as unrelated buttons.
+            // Two independent toolbar items: sharing one HStack made them read as a
+            // single smashed-together control, and the text button swallowed taps
+            // meant for the glass.
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 16) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSearching.toggle()
+                        if !isSearching { searchText = "" }
+                    }
+                    searchFieldFocused = isSearching
+                } label: {
+                    Image(systemName: isSearching ? "xmark" : "magnifyingglass")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isSearching ? "Close search" : "Search books")
+            }
+
+            if isEditable {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            isSearching.toggle()
-                            if !isSearching { searchText = "" }
+                            isSelecting.toggle()
+                            if !isSelecting { selection.removeAll() }
                         }
-                        searchFieldFocused = isSearching
                     } label: {
-                        Image(systemName: isSearching ? "xmark" : "magnifyingglass")
-                            .font(.system(size: 15, weight: .semibold))
+                        Text(isSelecting ? "Done" : "Select")
+                            .font(Theme.callout().weight(.semibold))
                             .foregroundStyle(Theme.textPrimary)
+                            .frame(height: 30)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(isSearching ? "Close search" : "Search books")
-
-                    if isEditable {
-                        Button(isSelecting ? "Done" : "Select") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isSelecting.toggle()
-                                if !isSelecting { selection.removeAll() }
-                            }
-                        }
-                        .font(Theme.callout().weight(.semibold))
-                        .foregroundStyle(Theme.textPrimary)
-                        .buttonStyle(.plain)
-                    }
+                    .accessibilityLabel(isSelecting ? "Done selecting" : "Select books")
                 }
             }
         }
@@ -189,6 +197,7 @@ struct ReadingYearListView: View {
                 isOnReadList: appState.isBookOnReadList(bookId: book.id),
                 isInQueue: appState.isBookInQueue(bookId: book.id),
                 onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBook = nil },
+                onMarkAsDNF: { appState.markAsDNF(book: book); selectedBook = nil },
                 // Their library: the owner's review shows pinned in "Read by"
                 // rather than as a top card you could edit.
                 readEntryForReview: sourceReaderUid == nil ? appState.userReadBook(forBookId: book.id) : nil,
@@ -283,7 +292,7 @@ struct ReadingYearListView: View {
     /// list never loses its sense of place. Opaque background so rows slide under it.
     private func sectionHeader(_ section: YearSection) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(section.year.map(String.init) ?? "No year")
+            Text(section.year.map(ReadDate.yearLabel) ?? "No year")
                 .font(Theme.title())
                 .foregroundStyle(Theme.textPrimary)
             Text("\(section.books.count)")
@@ -354,7 +363,7 @@ struct ReadingYearListView: View {
     private func bookRow(ub: UserBook, book: Book, year: Int?) -> some View {
         let ref = YearBookRef(userBookId: ub.id, year: year)
         let isSelected = selection.contains(ref)
-        let dateText = readDate(for: ub, inYear: year).map { Self.readDateFormatter.string(from: $0) }
+        let dateText = readDate(for: ub, inYear: year).map { ReadDate.label($0, formatter: Self.readDateFormatter) }
         return Button {
             if isSelecting {
                 if isSelected { selection.remove(ref) } else { selection.insert(ref) }
@@ -484,7 +493,8 @@ struct ReadingYearListView: View {
 
 /// Pick where the selected books go: tap a year you've already read in, or dial
 /// in any other year. Any year is valid, which covers "add a year" for free.
-private struct MoveToYearSheet: View {
+/// Shared with the tier list's multi-select date action.
+struct MoveToYearSheet: View {
     let existingYears: [Int]
     let yearCounts: [Int: Int]
     let onMove: (Int) -> Void
@@ -523,7 +533,7 @@ private struct MoveToYearSheet: View {
                         HStack(spacing: 12) {
                             Picker("Year", selection: $customYear) {
                                 ForEach(customYearRange, id: \.self) { year in
-                                    Text(String(year)).tag(year)
+                                    Text(ReadDate.yearLabel(year)).tag(year)
                                 }
                             }
                             .pickerStyle(.wheel)
@@ -565,7 +575,7 @@ private struct MoveToYearSheet: View {
             onMove(year)
         } label: {
             HStack {
-                Text(String(year))
+                Text(ReadDate.yearLabel(year))
                     .font(Theme.headline())
                     .foregroundStyle(Theme.textPrimary)
                 Spacer(minLength: 8)

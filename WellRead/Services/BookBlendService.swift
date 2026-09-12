@@ -2,8 +2,10 @@
 //  BookBlendService.swift
 //  Spine
 //
-//  Book Blend: Firestore repo (request / decline / generate on accept) plus the
-//  engine that merges two libraries into a stored result. Scoring is a
+//  Book Blend: Firestore repo (request / decline / accept) plus the engine that
+//  merges two libraries into a stored result. Generation runs on the requester's
+//  device at request time, assuming acceptance, and parks the result on the
+//  pending doc, so accepting is a status flip instead of a wait. Scoring is a
 //  deterministic weighted blend (shared shelf, rating agreement, genre overlap —
 //  MatchScoreService style); Claude writes the archetype, insights, and rec
 //  reasons on top. Everything lands on the pair doc so rewatch is a read.
@@ -25,11 +27,11 @@ final class BookBlendService {
     /// Books that should never surface as a Book Blend rec regardless of source
     /// or path (deterministic fallback or AI). Matched by bookId first, then
     /// normalized title+author so an AI-hallucinated rec with no bookId still
-    /// gets caught. Currently: "Conscience of a Conservative" (Jeff Flake) —
-    /// keeps showing up as a rec off @tan's shelf; Tanner asked it never be
-    /// recommended off his blends.
-    private static let excludedRecBookIds: Set<String> = ["9780399592928"]
-    private static let excludedRecKeys: Set<String> = ["conscienceofaconservative|flake"]
+    /// gets caught. Currently: "Conscience of a Conservative" (Jeff Flake) and
+    /// "The Diversity Delusion" (Heather Mac Donald) — both kept showing up as
+    /// recs off @tan's shelf; Tanner asked they never be recommended off his blends.
+    private static let excludedRecBookIds: Set<String> = ["9780399592928", "UppLDwAAQBAJ"]
+    private static let excludedRecKeys: Set<String> = ["conscienceofaconservative|flake", "thediversitydelusion|donald"]
 
     private func isExcludedFromRecs(bookId: String?, title: String, author: String) -> Bool {
         if let bookId, Self.excludedRecBookIds.contains(bookId) { return true }
@@ -95,6 +97,12 @@ final class BookBlendService {
             result: nil
         )
         try await db.collection(collectionName).document(pairId).setData(blend.firestoreData)
+        // Build the blend now, on the requester's device, assuming the other
+        // reader says yes: the result is parked on the still-pending doc so
+        // their "Let's Blend" tap reveals instead of waiting on generation.
+        // Fire-and-forget: if it fails or never finishes, the accepter's device
+        // generates the way it always did.
+        Task { await self.precomputeForPendingRequest(blend, requesterUid: myUid) }
         return blend
     }
 
@@ -125,16 +133,57 @@ final class BookBlendService {
         return BookBlend.Participant(firstName: first, photoURL: user?.profileImageURL, readCount: 0)
     }
 
-    // MARK: - Generate (runs on the accepter's device)
+    // MARK: - Generate
 
-    /// Fetches both libraries, computes + writes the blend, and flips the doc to
-    /// `ready` — which triggers the "your blend is ready" push to the requester.
+    /// How long a precomputed result (written by the requester's device at
+    /// request time) stays usable. Past this the accepter regenerates so the
+    /// blend reflects books either reader shelved since the request.
+    private static let precomputedResultTTL: TimeInterval = 3 * 24 * 60 * 60
+
+    /// Accept path. A fresh precomputed result on the pending doc makes this a
+    /// single field write — the accepter never waits on generation. Otherwise it
+    /// falls back to generating here, as before.
     func generateAndSave(_ blend: BookBlend, accepterUid: String) async throws -> BookBlend {
-        let otherUid = blend.otherUserId(from: accepterUid)
+        if let ready = try await promotePrecomputed(blend) { return ready }
+        return try await generate(blend, generatorUid: accepterUid, finalStatus: .ready)
+    }
 
-        async let mineTask = userBookRepo.fetchUserBooks(userId: accepterUid)
+    /// Requester-side precompute, fired right after a request lands. Leaves the
+    /// doc `pending` (so the recipient still sees the invite, and the Cloud
+    /// Function stays quiet — it ignores writes that don't change status).
+    func precomputeForPendingRequest(_ blend: BookBlend, requesterUid: String) async {
+        _ = try? await generate(blend, generatorUid: requesterUid, finalStatus: .pending)
+    }
+
+    /// Flips a pending doc that already carries a fresh result straight to
+    /// `ready`, which fires the "your blend is ready" push to the requester.
+    /// Returns nil when there's nothing usable parked and we have to generate.
+    private func promotePrecomputed(_ blend: BookBlend) async throws -> BookBlend? {
+        guard let latest = await fetchBlend(pairId: blend.id),
+              latest.status == .pending,
+              let result = latest.result,
+              Date().timeIntervalSince(result.generatedAt) < Self.precomputedResultTTL
+        else { return nil }
+        let respondedAt = Date()
+        try await db.collection(collectionName).document(blend.id).updateData([
+            "status": BookBlendStatus.ready.rawValue,
+            "respondedAt": Timestamp(date: respondedAt),
+        ])
+        var ready = latest
+        ready.status = .ready
+        ready.respondedAt = respondedAt
+        return ready
+    }
+
+    /// Fetches both libraries and computes the blend. `finalStatus` decides the
+    /// write: `.ready` saves the whole doc and flips it (the accept path), while
+    /// `.pending` parks just the result + participants on the open request.
+    private func generate(_ blend: BookBlend, generatorUid: String, finalStatus: BookBlendStatus) async throws -> BookBlend {
+        let otherUid = blend.otherUserId(from: generatorUid)
+
+        async let mineTask = userBookRepo.fetchUserBooks(userId: generatorUid)
         async let theirsTask = userBookRepo.fetchUserBooks(userId: otherUid)
-        async let meTask = userRepo.getUser(uid: accepterUid)
+        async let meTask = userRepo.getUser(uid: generatorUid)
         async let otherTask = userRepo.getUser(uid: otherUid)
         let (mine, theirs, me, other) = await (mineTask, theirsTask, meTask, otherTask)
 
@@ -142,7 +191,7 @@ final class BookBlendService {
         let theirReads = theirs.filter { $0.status == .read }
 
         var participants = blend.participants
-        participants[accepterUid] = {
+        participants[generatorUid] = {
             var p = participant(from: me)
             p.readCount = myReads.count
             return p
@@ -153,37 +202,37 @@ final class BookBlendService {
             return p
         }()
 
-        let myName = participants[accepterUid]?.firstName ?? "Reader"
+        let myName = participants[generatorUid]?.firstName ?? "Reader"
         let otherName = participants[otherUid]?.firstName ?? "Reader"
 
         let stats = computeStats(
-            uidA: accepterUid, readsA: myReads,
+            uidA: generatorUid, readsA: myReads,
             uidB: otherUid, readsB: theirReads
         )
 
         var result = fallbackResult(
             stats: stats,
-            uidA: accepterUid, nameA: myName, readsA: myReads, queueA: mine.filter { $0.status == .wantToRead },
+            uidA: generatorUid, nameA: myName, readsA: myReads, queueA: mine.filter { $0.status == .wantToRead },
             uidB: otherUid, nameB: otherName, readsB: theirReads,
-            generatedBy: accepterUid
+            generatedBy: generatorUid
         )
 
         if let ai = await aiLayer(
             stats: stats,
-            uidA: accepterUid, nameA: myName, libraryA: mine,
+            uidA: generatorUid, nameA: myName, libraryA: mine,
             uidB: otherUid, nameB: otherName, libraryB: theirs
         ) {
             result.archetype = ai.archetype
             result.archetypeEmoji = ai.archetypeEmoji
             result.tagline = ai.tagline
             if !ai.insights.isEmpty { result.insights = ai.insights }
-            if let recsA = ai.recs[accepterUid], !recsA.isEmpty { result.recs[accepterUid] = recsA }
+            if let recsA = ai.recs[generatorUid], !recsA.isEmpty { result.recs[generatorUid] = recsA }
             if let recsB = ai.recs[otherUid], !recsB.isEmpty { result.recs[otherUid] = recsB }
             if !ai.freshPicks.isEmpty { result.freshPicks = ai.freshPicks }
         }
 
-        result.recs[accepterUid] = filterExcludedRecs(hydrate(recs: result.recs[accepterUid] ?? [], fromShelfOf: theirReads, sourceUid: otherUid))
-        result.recs[otherUid] = filterExcludedRecs(hydrate(recs: result.recs[otherUid] ?? [], fromShelfOf: myReads, sourceUid: accepterUid))
+        result.recs[generatorUid] = filterExcludedRecs(hydrate(recs: result.recs[generatorUid] ?? [], fromShelfOf: theirReads, sourceUid: otherUid))
+        result.recs[otherUid] = filterExcludedRecs(hydrate(recs: result.recs[otherUid] ?? [], fromShelfOf: myReads, sourceUid: generatorUid))
         // "Neither of you has read": drop anything on either shelf (read or in
         // progress) before and after cover resolution — the AI only sees each
         // reader's top 35 titles, so it happily picks a book from further down.
@@ -192,10 +241,24 @@ final class BookBlendService {
         result.freshPicks = Array(filterAlreadyShelved(await hydrateFreshPicks(freshCandidates), shelved: shelved).prefix(2))
 
         var saved = blend
-        saved.status = .ready
-        saved.respondedAt = Date()
         saved.participants = participants
         saved.result = result
+
+        if finalStatus == .pending {
+            // Precompute: re-check the server first so a request the recipient
+            // already accepted or declined keeps its own write, and only touch
+            // the two fields we generated.
+            guard let latest = await fetchBlend(pairId: blend.id), latest.status == .pending else { return blend }
+            let data = saved.firestoreData
+            try await db.collection(collectionName).document(blend.id).updateData([
+                "participants": data["participants"] ?? [:],
+                "result": data["result"] ?? NSNull(),
+            ])
+            return saved
+        }
+
+        saved.status = .ready
+        saved.respondedAt = Date()
         try await db.collection(collectionName).document(blend.id).setData(saved.firestoreData)
         return saved
     }
@@ -468,29 +531,67 @@ final class BookBlendService {
         )
     }
 
-    /// The other reader's highest-affinity books the target hasn't read.
+    /// The other reader's well-liked books the target hasn't read, ranked by how
+    /// well each one fits the *target's* genre profile (not just how much the
+    /// source loved it). Sorting on source affinity alone handed every blend
+    /// partner the same three books off a big shelf; weighting by the target's
+    /// own genre mix makes the fallback picks differ per pair.
     private func topShelfRecs(for target: [UserBook], from source: [UserBook], otherName: String, sourceUid: String) -> [BookBlend.Rec] {
         let targetIds = Set(target.map(\.bookId))
         let targetKeys = Set(target.compactMap { normalizedKey($0.book) })
-        return source
-            .filter { entry in
-                guard !targetIds.contains(entry.bookId) else { return false }
-                if let key = normalizedKey(entry.book), targetKeys.contains(key) { return false }
-                if isExcludedFromRecs(bookId: entry.book?.id, title: entry.book?.title ?? "", author: entry.book?.author ?? "") { return false }
-                return (affinity(rating: entry.rating, tier: entry.tier) ?? -1) > 0.4
+        let targetGenres = genreCounts(target)
+        let targetGenreTotal = Double(max(1, targetGenres.values.reduce(0, +)))
+
+        struct Candidate {
+            var entry: UserBook
+            var affinity: Double
+            var fit: Double
+            var bestGenre: String?
+        }
+
+        let candidates: [Candidate] = source.compactMap { entry in
+            guard let book = entry.book, !targetIds.contains(entry.bookId) else { return nil }
+            if let key = normalizedKey(book), targetKeys.contains(key) { return nil }
+            if isExcludedFromRecs(bookId: book.id, title: book.title, author: book.author) { return nil }
+            guard let affinity = affinity(rating: entry.rating, tier: entry.tier), affinity > 0.4 else { return nil }
+            // Share of the target's genre reading covered by this book's tokens,
+            // sqrt-damped so one dominant genre doesn't swamp everything else.
+            let tokens = genreCounts([entry]).keys
+            var covered = 0
+            var bestGenre: (token: String, count: Int)?
+            for token in tokens {
+                let count = targetGenres[token] ?? 0
+                covered += count
+                if count > (bestGenre?.count ?? 0) { bestGenre = (token, count) }
             }
-            .sorted { (affinity(rating: $0.rating, tier: $0.tier) ?? 0) > (affinity(rating: $1.rating, tier: $1.tier) ?? 0) }
+            let fit = (Double(covered) / targetGenreTotal).squareRoot()
+            return Candidate(entry: entry, affinity: affinity, fit: fit, bestGenre: bestGenre?.token)
+        }
+
+        return candidates
+            .sorted { a, b in
+                let sa = a.affinity * (0.35 + a.fit)
+                let sb = b.affinity * (0.35 + b.fit)
+                if sa != sb { return sa > sb }
+                return a.affinity > b.affinity
+            }
             .prefix(3)
-            .compactMap { entry in
-                guard let book = entry.book else { return nil }
+            .compactMap { candidate in
+                guard let book = candidate.entry.book else { return nil }
+                let reason: String
+                if let genre = candidate.bestGenre, candidate.fit > 0.2 {
+                    reason = "\(otherName) loved it, and it sits right in your \(genre) lane."
+                } else {
+                    reason = "One of \(otherName)'s top-shelf reads."
+                }
                 return BookBlend.Rec(
                     title: book.title,
                     author: book.author,
                     bookId: book.id,
                     coverURL: book.coverURL,
-                    reason: "One of \(otherName)'s top-shelf reads.",
+                    reason: reason,
                     sourceUid: sourceUid,
-                    sourceTier: entry.tier
+                    sourceTier: candidate.entry.tier
                 )
             }
     }
@@ -544,11 +645,26 @@ final class BookBlendService {
         \(doNotPickList(libraryA + libraryB))
         """
         // Time-boxed: the accepter is staring at the "Blending" screen. Past 30s
-        // the deterministic fallback content ships instead.
-        guard let text = try? await ClaudeService.shared.sendMessage(system: system, userMessage: user, maxTokens: 1600, timeout: 30, tier: .complex) else {
-            return nil
+        // the deterministic fallback content ships instead. A full reply runs
+        // ~1,100 tokens, so 2,400 leaves headroom without inviting rambling.
+        // If Sonnet's reply won't parse (truncated, prose around it), take one
+        // more swing on the fast tier — any real AI copy beats the generic
+        // "top-shelf reads" fallback, which recommends the same three books to
+        // everyone.
+        for tier in [ClaudeService.ModelTier.complex, .simple] {
+            do {
+                let text = try await ClaudeService.shared.sendMessage(system: system, userMessage: user, maxTokens: 2400, timeout: 30, tier: tier)
+                if let content = parseAIContent(text, uidA: uidA, uidB: uidB) { return content }
+                #if DEBUG
+                print("[BookBlend] AI reply on \(tier) tier did not parse (\(text.count) chars): \(text.prefix(200))")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[BookBlend] AI call on \(tier) tier failed: \(error.localizedDescription)")
+                #endif
+            }
         }
-        return parseAIContent(text, uidA: uidA, uidB: uidB)
+        return nil
     }
 
     /// Every read / in-progress title across both shelves that the best-35 shelf

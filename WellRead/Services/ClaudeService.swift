@@ -159,6 +159,12 @@ final class ClaudeService {
         throw lastError ?? NSError(domain: "ClaudeService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No AI provider configured. Add CLAUDE_API_KEY or GEMINI_API_KEY to Secrets.plist."])
     }
 
+    /// Models that reason before answering unless told not to (see `send`).
+    private static func thinksByDefault(model: String) -> Bool {
+        // (Fable-tier models can't disable thinking at all — 400 — so leave them out.)
+        model.hasPrefix("claude-sonnet-5") || model.hasPrefix("claude-opus-5")
+    }
+
     private func send(model: String, key: String, system: String?, messages: [ClaudeMessageRequest.Message], maxTokens: Int, timeout: TimeInterval? = nil) async throws -> String {
         var request = URLRequest(url: messagesURL)
         request.httpMethod = "POST"
@@ -175,6 +181,16 @@ final class ClaudeService {
         ]
         if let system = system, !system.isEmpty {
             body["system"] = system
+        }
+        // Sonnet 5 / Opus 5 run adaptive extended thinking whenever `thinking` is
+        // omitted, and that thinking is billed against `max_tokens`. Every call in
+        // this app wants a short, plain answer (usually JSON), so with the default
+        // on, the model spent the whole budget thinking and returned truncated or
+        // empty text — Book Blend silently fell back to its deterministic copy on
+        // ~60% of blends (Sep 2026). Haiku 4.5 and older models don't think unless
+        // asked, and reject this key with a budget, so only send it where needed.
+        if Self.thinksByDefault(model: model) {
+            body["thinking"] = ["type": "disabled"]
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await session.data(for: request)

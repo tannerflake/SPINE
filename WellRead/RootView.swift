@@ -18,6 +18,10 @@ struct RootView: View {
     /// after the taste step. The wizard clears the latch from `finish()`.
     @State private var onboardingWizardActive = false
 
+    /// Delays the "trouble connecting" copy in `connectingView` so a brief
+    /// stall just looks like loading.
+    @State private var showConnectingTrouble = false
+
     #if DEBUG
     /// Launch with `-uiPreviewOnboardingWizard` to walk the wizard with no
     /// signed-in session (no Firestore writes; canned roster and handle checks).
@@ -48,16 +52,16 @@ struct RootView: View {
         let now = Date()
         let uid = "ui-preview"
         appState.seedPreviewAuth(uid: uid)
-        func book(_ id: String, _ title: String, _ author: String) -> Book {
-            Book(id: id, title: title, author: author, coverURL: "", pageCount: nil, publishedDate: nil, description: nil, genres: [])
+        func book(_ id: String, _ title: String, _ author: String, pages: Int? = nil) -> Book {
+            Book(id: id, title: title, author: author, coverURL: "", pageCount: pages, publishedDate: nil, description: nil, genres: [])
         }
-        func entry(_ b: Book, status: ReadingStatus, tier: String? = nil, finishedDaysAgo: Double? = nil, shelf: QueueShelf? = nil, order: Int? = nil) -> UserBook {
-            UserBook(id: UUID(), userId: uid, bookId: b.id, book: b, status: status, rating: nil, reviewText: nil, dateStarted: nil, dateFinished: finishedDaysAgo.map { now.addingTimeInterval(-86400 * $0) }, createdAt: now, updatedAt: now, recommendedTo: [], tier: tier, tierOrder: nil, queueShelf: shelf, queueOrder: order)
+        func entry(_ b: Book, status: ReadingStatus, tier: String? = nil, finishedDaysAgo: Double? = nil, shelf: QueueShelf? = nil, order: Int? = nil, progress: Double? = nil) -> UserBook {
+            UserBook(id: UUID(), userId: uid, bookId: b.id, book: b, status: status, rating: nil, reviewText: nil, dateStarted: nil, dateFinished: finishedDaysAgo.map { now.addingTimeInterval(-86400 * $0) }, createdAt: now, updatedAt: now, recommendedTo: [], tier: tier, tierOrder: nil, queueShelf: shelf, queueOrder: order, readingProgress: progress)
         }
         appState.userBooks = [
-            entry(book("rn1", "Endurance", "Alfred Lansing"), status: .wantToRead, shelf: .readingNow, order: 0),
-            entry(book("rn2", "The Founders", "Jimmy Soni"), status: .wantToRead, shelf: .readingNow, order: 1),
-            entry(book("rn3", "Choke", "Chuck Palahniuk"), status: .wantToRead, shelf: .readingNow, order: 2),
+            entry(book("rn1", "Endurance", "Alfred Lansing", pages: 357), status: .wantToRead, shelf: .readingNow, order: 0, progress: 0.42),
+            entry(book("rn2", "The Founders", "Jimmy Soni", pages: 496), status: .wantToRead, shelf: .readingNow, order: 1),
+            entry(book("rn3", "Choke", "Chuck Palahniuk"), status: .wantToRead, shelf: .readingNow, order: 2, progress: 0.8),
             entry(book("un1", "Chip War", "Chris Miller"), status: .wantToRead, shelf: .upNext, order: 0),
             entry(book("bl1", "The Nvidia Way", "Tae Kim"), status: .wantToRead, shelf: .backlog, order: 0),
             entry(book("bl2", "Titan", "Ron Chernow"), status: .wantToRead, shelf: .backlog, order: 1),
@@ -72,6 +76,23 @@ struct RootView: View {
             entry(book("r4", "Misbelief", "Dan Ariely"), status: .read, tier: "B", finishedDaysAgo: 80),
             entry(book("r5", "Outrage Machine", "Tobias Rose-Stockwell"), status: .read, tier: "B", finishedDaysAgo: 100)
         ]
+        // `-uiPreviewBigLibrary`: pad the read shelf out to ~300 title-only books
+        // spread across every tier, to exercise the tier list's scroll behavior
+        // at the size of a heavy reader's library.
+        if ProcessInfo.processInfo.arguments.contains("-uiPreviewBigLibrary") {
+            let tiers: [String?] = ["S", "A", "A", "B", "B", "B", "C", "C", "D", "F", nil]
+            for i in 0..<300 {
+                let tier = tiers[i % tiers.count]
+                var ub = entry(
+                    book("big-\(i)", "Preview Book \(i)", "Author \(i % 40)"),
+                    status: .read,
+                    tier: tier,
+                    finishedDaysAgo: Double(i * 3)
+                )
+                ub.tierOrder = i
+                appState.userBooks.append(ub)
+            }
+        }
         // A same-day posting burst from a second demo reader (6 posts today) so
         // the day-group carousel renders in preview, plus a normal standalone post.
         var burstAuthor = User.demo
@@ -94,6 +115,15 @@ struct RootView: View {
             Post(id: UUID(), userId: uid, type: .finishedBook, bookId: "r1", book: book("r1", "Build", "Tony Fadell"), caption: "An unorthodox guide to making things worth making.", createdAt: now.addingTimeInterval(-86400 * 2), likeCount: 4, commentCount: 0, user: .demo, rating: nil, dateFinished: now, tier: "A")
         ]
         appState.isFeedLoading = false
+        // Discover pipeline stocked so the feed's "Selected for you" rows render.
+        appState.discoverCurrentSuggestion = book("d1", "The Innovators", "Walter Isaacson")
+        appState.discoverSuggestionQueue = [
+            book("d2", "Working Backwards", "Colin Bryar"),
+            book("d3", "Amp It Up", "Frank Slootman"),
+            book("d4", "The Psychology of Money", "Morgan Housel"),
+            book("d5", "Range", "David Epstein"),
+            book("d6", "Where Good Ideas Come From", "Steven Johnson")
+        ]
         if SearchRecents.queries(uid: "anon").isEmpty {
             SearchRecents.addQuery("tony fadell", uid: "anon")
             SearchRecents.addQuery("sapiens", uid: "anon")
@@ -123,6 +153,7 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.25), value: authService.isLoading)
         .animation(.easeInOut(duration: 0.25), value: authService.firebaseUser?.uid)
         .animation(.easeInOut(duration: 0.25), value: authService.appUser?.id)
+        .animation(.easeInOut(duration: 0.25), value: authService.appUserIsProvisional)
         .onAppear {
             if let data = GoodreadsShareHelper.consumePendingImport(), !data.isEmpty {
                 let parsed = GoodreadsCSVParser.parse(data: data)
@@ -171,11 +202,57 @@ struct RootView: View {
                 .onAppear { onboardingWizardActive = false }
         } else if authService.appUser == nil {
             loadingView
-        } else if let user = authService.appUser, user.needsProfileCompletion || onboardingWizardActive {
+        } else if onboardingWizardActive {
+            OnboardingWizardView(onFinished: { onboardingWizardActive = false })
+        } else if authService.appUserIsProvisional {
+            // Firestore was unreachable, so `appUser` is a placeholder whose
+            // profile fields are all defaults, including
+            // `profileSetupCompleted: false`. Routing on that is what used to
+            // throw a signed-in member back to the library-card wizard after a
+            // network stall. Members this device has already seen onboarded go
+            // straight in (Firestore's cache serves their data); anyone else
+            // waits for the real document rather than being asked to onboard
+            // over an account that already exists.
+            if OnboardingCompletionMemo.isComplete(uid: authService.firebaseUser?.uid) {
+                MainTabView()
+            } else {
+                connectingView
+            }
+        } else if let user = authService.appUser, user.needsProfileCompletion {
             OnboardingWizardView(onFinished: { onboardingWizardActive = false })
                 .onAppear { onboardingWizardActive = true }
         } else {
             MainTabView()
+        }
+    }
+
+    /// Shown while the signed-in account's Firestore document is still out of
+    /// reach and we have no local evidence they finished onboarding. Deliberately
+    /// not the wizard: we don't know yet whether they need it.
+    private var connectingView: some View {
+        ZStack {
+            Theme.background.ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView()
+                    .tint(Theme.accent)
+                if showConnectingTrouble {
+                    Text("Having trouble reaching SPINE. Check your connection.")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    Button("Try again") {
+                        Task { await authService.retryAppUserLoad() }
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                }
+            }
+        }
+        .task {
+            showConnectingTrouble = false
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            showConnectingTrouble = true
         }
     }
 

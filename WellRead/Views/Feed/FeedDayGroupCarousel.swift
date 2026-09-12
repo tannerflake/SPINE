@@ -21,20 +21,59 @@ import SwiftUI
 enum FeedItem: Identifiable {
     case single(Post)
     case group(FeedDayGroup)
+    /// A "Selected for you" / "Readers to follow" pseudo post (see
+    /// `FeedInterstitials.swift`). `slot` counts interstitials from the top of
+    /// the feed and keys which books or readers it shows.
+    case interstitial(slot: Int)
 
     var id: String {
         switch self {
         case .single(let post): return post.id.uuidString
         case .group(let group): return group.id
+        case .interstitial(let slot): return "interstitial-\(slot)"
         }
     }
 
-    /// Post ids contained in this item (one for singles, all slides for groups).
-    var postIds: [String] {
-        switch self {
-        case .single(let post): return [post.id.uuidString]
-        case .group(let group): return group.posts.map { $0.id.uuidString }
+    /// Feed items above the first pseudo post.
+    static let interstitialLeadInterval = 3
+
+    /// Feed items between the first pseudo post and the second — far enough
+    /// apart that the two rows never share a screen.
+    static let interstitialGapInterval = 6
+
+    /// Pseudo posts per feed load: one picks row and one readers row, and
+    /// that's it — they don't repeat down the feed.
+    static let interstitialCount = 2
+
+    /// Drops the two pseudo posts in, the first `interstitialLeadInterval`
+    /// items down and the second `interstitialGapInterval` items below that.
+    /// Whichever kind each slot shows is `FeedInterstitialModel`'s call (one
+    /// load in five the readers row leads). A short feed only gets them
+    /// trailing once there's nothing older to load (otherwise the next page
+    /// would shove them back into place, which reads as a jump), and an empty
+    /// feed gets both so new members still see picks and people to follow.
+    static func interleavingInterstitials(into items: [FeedItem], feedIsComplete: Bool) -> [FeedItem] {
+        guard !items.isEmpty else {
+            return feedIsComplete ? (0..<interstitialCount).map { .interstitial(slot: $0) } : []
         }
+        var out: [FeedItem] = []
+        var placed = 0
+        var nextAt = interstitialLeadInterval
+        for (i, item) in items.enumerated() {
+            out.append(item)
+            if placed < interstitialCount, i + 1 == nextAt {
+                out.append(.interstitial(slot: placed))
+                placed += 1
+                nextAt += interstitialGapInterval
+            }
+        }
+        if feedIsComplete {
+            while placed < interstitialCount {
+                out.append(.interstitial(slot: placed))
+                placed += 1
+            }
+        }
+        return out
     }
 
     /// An author's posts on one calendar day collapse once they exceed three.

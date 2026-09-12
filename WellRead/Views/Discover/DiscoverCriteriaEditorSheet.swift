@@ -3,8 +3,8 @@
 //  Spine
 //
 //  Edit the criteria driving Discover suggestions: seed books (picked from the
-//  tier list), tiers, tags, and a free-text instruction. Saving applies once —
-//  one Firestore write, one queue flush + refetch.
+//  library), tags, and a free-text instruction. Saving applies once: one
+//  Firestore write, one queue flush + refetch.
 //
 
 import SwiftUI
@@ -35,7 +35,6 @@ struct DiscoverCriteriaEditorSheet: View {
 
                     freeTextSection
                     seedBooksSection
-                    tiersSection
                     tagsSection
 
                     if !isDraftDefault {
@@ -98,9 +97,6 @@ struct DiscoverCriteriaEditorSheet: View {
 
     private var seedBooksSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Select books from your library")
-                .font(Theme.callout())
-                .foregroundStyle(Theme.textSecondary)
             if appState.readBooks.isEmpty {
                 Text("Finish and rank some books first to use them as seeds.")
                     .font(Theme.caption())
@@ -112,7 +108,7 @@ struct DiscoverCriteriaEditorSheet: View {
                     HStack(spacing: 10) {
                         Image(systemName: "books.vertical")
                             .font(.system(size: 18, weight: .semibold))
-                        Text("Choose books from your tier list")
+                        Text("Choose books from your library")
                             .font(Theme.callout())
                             .fontWeight(.semibold)
                     }
@@ -196,54 +192,6 @@ struct DiscoverCriteriaEditorSheet: View {
         .frame(width: 68)
     }
 
-    // MARK: - Tiers
-
-    private var tiersSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Use every book in the tiers you pick as inspiration.")
-                .font(Theme.callout())
-                .foregroundStyle(Theme.textSecondary)
-            HStack(spacing: 8) {
-                ForEach(spineTierLabels, id: \.self) { tier in
-                    tierToggle(tier)
-                }
-            }
-        }
-        .hingeSectionCard(title: "Whole tiers")
-    }
-
-    private func tierToggle(_ tier: String) -> some View {
-        let count = appState.readBooks.filter { $0.tier == tier }.count
-        let selected = draft.tiers.contains(tier)
-        return Button {
-            if selected {
-                draft.tiers.removeAll { $0 == tier }
-            } else {
-                draft.tiers = spineTierLabels.filter { draft.tiers.contains($0) || $0 == tier }
-            }
-        } label: {
-            VStack(spacing: 2) {
-                Text(tier)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.75))
-                Text("\(count)")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.black.opacity(0.55))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(spineTierColor(for: tier).opacity(selected ? 1.0 : 0.35))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(selected ? Theme.textPrimary : Color.clear, lineWidth: 2)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(count == 0)
-        .opacity(count == 0 ? 0.35 : 1)
-    }
-
     // MARK: - Tags
 
     private var tagsSection: some View {
@@ -264,7 +212,7 @@ struct DiscoverCriteriaEditorSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             ZStack(alignment: .topLeading) {
                 if draft.freeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("\u{201C}a dystopian novel but not one written for tweens\u{201D}")
+                    Text("ex. \u{201C}give me a dystopian novel, but not one written for tweens\u{201D}")
                         .font(Theme.body())
                         .foregroundStyle(Theme.textSecondary.opacity(0.7))
                         .padding(.horizontal, 4)
@@ -290,6 +238,6 @@ struct DiscoverCriteriaEditorSheet: View {
                     .strokeBorder(Theme.textTertiary.opacity(0.3), lineWidth: 1)
             )
         }
-        .hingeSectionCard(title: "Describe the type of book you're looking for")
+        .hingeSectionCard(title: "Describe it")
     }
 }

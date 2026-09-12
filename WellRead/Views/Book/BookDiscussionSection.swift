@@ -324,7 +324,7 @@ struct BookDiscussionSection: View {
                                 }
                             }
                             if let finished = reader.entry.dateFinished {
-                                Text("read \(Self.readDateFormatter.string(from: finished))")
+                                Text("read \(ReadDate.label(finished, formatter: Self.readDateFormatter))")
                                     .font(.system(size: 11, weight: .regular))
                                     .foregroundStyle(Theme.textTertiary)
                             }

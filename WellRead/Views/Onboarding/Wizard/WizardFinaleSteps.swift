@@ -515,7 +515,7 @@ I'm glad you're here.
     /// The teaser needs to breathe: the note slides in only after the line
     /// has sat on screen for a beat, not the instant the typing finishes.
     private func slideNoteIn() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.2 : 3.0)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.2 : 1.5)) {
             guard phase == .teaser else { return }
             WizardHaptics.step()
             withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
@@ -632,8 +632,12 @@ I'm glad you're here.
 
 /// Character-by-character reveal in a monospaced face, like the note is being
 /// typed while you watch. Deliberately slower than the word-reveal used
-/// elsewhere in the wizard; an invisible copy of the full text reserves the
-/// final layout so the letter doesn't grow line by line.
+/// elsewhere in the wizard.
+///
+/// The whole note is always laid out; only the not-yet-typed characters are
+/// drawn clear. That keeps the letter from growing line by line AND fixes the
+/// line breaks up front: revealing a prefix of a real string made a word type
+/// itself out on one row and then hop to the next the moment it no longer fit.
 private struct TypewrittenNote: View {
     let text: String
     var isActive: Bool
@@ -645,24 +649,35 @@ private struct TypewrittenNote: View {
     @State private var didFinish = false
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            noteText(text).opacity(0)
-            noteText(String(text.prefix(shownCount)))
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(text)
-        .task(id: isActive) {
-            guard isActive else { return }
-            await type()
-        }
-        .onChange(of: fastForwardTrigger) { _, _ in
-            guard isActive else { return }
-            shownCount = text.count
-            fireFinished()
-        }
+        noteText(revealed)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(text)
+            .task(id: isActive) {
+                guard isActive else { return }
+                await type()
+            }
+            .onChange(of: fastForwardTrigger) { _, _ in
+                guard isActive else { return }
+                shownCount = text.count
+                fireFinished()
+            }
     }
 
-    private func noteText(_ string: String) -> some View {
+    /// Full note, with everything past `shownCount` painted clear.
+    private var revealed: AttributedString {
+        var string = AttributedString(text)
+        string.foregroundColor = Theme.textPrimary
+        let cutoff = string.characters.index(
+            string.startIndex,
+            offsetBy: min(shownCount, text.count)
+        )
+        if cutoff < string.endIndex {
+            string[cutoff...].foregroundColor = .clear
+        }
+        return string
+    }
+
+    private func noteText(_ string: AttributedString) -> some View {
         Text(string)
             .font(.system(size: 14.5, design: .monospaced))
             .foregroundStyle(Theme.textPrimary)

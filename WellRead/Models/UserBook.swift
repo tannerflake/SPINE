@@ -11,6 +11,9 @@ enum ReadingStatus: String, Codable, CaseIterable {
     case wantToRead = "Queue"
     case currentlyReading = "Currently Reading"
     case read = "Read"
+    /// Started but abandoned — pulled off the queue's Reading Now shelf, kept
+    /// around in its own list instead of being deleted outright.
+    case didNotFinish = "Did Not Finish"
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -19,6 +22,7 @@ enum ReadingStatus: String, Codable, CaseIterable {
         case "Queue", "Want to Read": self = .wantToRead
         case "Currently Reading": self = .currentlyReading
         case "Read": self = .read
+        case "Did Not Finish": self = .didNotFinish
         default: self = .wantToRead
         }
     }
@@ -35,6 +39,47 @@ enum QueueShelf: String, Codable, CaseIterable {
     case readingNow
     case upNext
     case backlog
+}
+
+/// "A long, long time ago" reads: books someone finished years back (school,
+/// childhood) with no date they'd stand behind. Rather than leaving the read
+/// dateless, we stamp a sentinel finish date so the read still counts, still
+/// sorts to the bottom of every timeline, and reads as "Old" wherever a finish
+/// date is shown.
+enum ReadDate {
+    /// The sentinel that lands in Firestore: 1900-01-01, local midnight.
+    static let longAgo: Date = {
+        var parts = DateComponents()
+        parts.year = longAgoYear
+        parts.month = 1
+        parts.day = 1
+        return Calendar.current.date(from: parts) ?? Date(timeIntervalSince1970: -2_208_988_800)
+    }()
+
+    static let longAgoYear = 1900
+
+    /// Label shown in place of a formatted date for long-ago reads.
+    static let oldLabel = "Old"
+
+    /// Anything in 1900 or earlier counts, so timezone drift on stored rows
+    /// (and any legacy placeholder dates) still read as long-ago.
+    static func isLongAgo(_ date: Date, calendar: Calendar = .current) -> Bool {
+        calendar.component(.year, from: date) <= longAgoYear
+    }
+
+    static func isLongAgo(year: Int) -> Bool {
+        year <= longAgoYear
+    }
+
+    /// "Old" for long-ago reads, otherwise the formatted date.
+    static func label(_ date: Date, formatter: DateFormatter) -> String {
+        isLongAgo(date) ? oldLabel : formatter.string(from: date)
+    }
+
+    /// "Old" instead of "1900" in year sections and year filters.
+    static func yearLabel(_ year: Int) -> String {
+        isLongAgo(year: year) ? oldLabel : String(year)
+    }
 }
 
 struct UserBook: Identifiable, Codable, Equatable {
@@ -60,6 +105,41 @@ struct UserBook: Identifiable, Codable, Equatable {
     /// Re-read dates beyond `dateFinished` (which stays the most recent read).
     /// One library/tier entry per book; each date counts toward that year's reading goal.
     var additionalReadDates: [Date]? = nil
+    /// Private "note to self" on a queued book — why it's here, who recommended it.
+    /// Only meaningful while `status == .wantToRead`; never shown to other readers.
+    var queueNote: String? = nil
+    /// How far through the book the reader is, 0...1. Set from the Reading now
+    /// bookmark scrubber; `nil` until they first touch it. Kept when the book
+    /// moves shelves so coming back to it picks up where they left off.
+    var readingProgress: Double? = nil
+
+    /// `readingProgress` clamped to 0...1, treating unset as 0.
+    var progressFraction: Double {
+        min(1, max(0, readingProgress ?? 0))
+    }
+
+    /// Whole-number percent for display (0...100).
+    var progressPercent: Int {
+        Int((progressFraction * 100).rounded())
+    }
+
+    /// Page the reader is on, derived from the book's page count. `nil` when the
+    /// edition has no page count. Rounds so 100% always lands on the last page.
+    var currentPage: Int? {
+        guard let pages = book?.pageCount, pages > 0 else { return nil }
+        return Self.page(forFraction: progressFraction, pageCount: pages)
+    }
+
+    static func page(forFraction fraction: Double, pageCount: Int) -> Int {
+        let f = min(1, max(0, fraction))
+        return min(pageCount, max(0, Int((f * Double(pageCount)).rounded())))
+    }
+
+    /// `queueNote` with whitespace trimmed, `nil` when blank.
+    var trimmedQueueNote: String? {
+        let t = queueNote?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return t.isEmpty ? nil : t
+    }
 
     /// Every recorded finished date — primary `dateFinished` plus re-reads, newest first.
     var allReadDates: [Date] {

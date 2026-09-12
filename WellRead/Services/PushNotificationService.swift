@@ -23,6 +23,24 @@ enum WellreadDeepLink {
         return path.isEmpty ? nil : path
     }
 
+    /// `wellread://queue` — a widget tap on one of your own reading-now covers.
+    static func isQueueLink(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "wellread" && url.host?.lowercased() == "queue"
+    }
+
+    /// `wellread://book/{bookId}?reader={uid}` — a widget tap on a friend's cover.
+    /// The reader is the person whose shelf the cover came from; the book profile
+    /// uses it to show their read in context.
+    static func bookLink(from url: URL) -> (bookId: String, readerUid: String?)? {
+        guard url.scheme?.lowercased() == "wellread", url.host?.lowercased() == "book" else { return nil }
+        let bookId = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !bookId.isEmpty else { return nil }
+        let reader = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "reader" })?.value
+        return (bookId, reader?.isEmpty == false ? reader : nil)
+    }
+
     /// Reads `postId` from FCM `data` (and common alternate keys).
     static func postId(fromNotificationUserInfo userInfo: [AnyHashable: Any]) -> String? {
         for key in ["postId", "post_id"] {
@@ -93,6 +111,40 @@ enum PushNotificationService {
     static func consumePendingOpenQueueTap() -> Bool {
         defer { pendingOpenQueue = false }
         return pendingOpenQueue
+    }
+
+    /// Widget tap on a friend's cover before the UI mounted (cold start).
+    private static var pendingBookProfile: (bookId: String, readerUid: String?)?
+
+    static func consumePendingBookProfileTap() -> (bookId: String, readerUid: String?)? {
+        defer { pendingBookProfile = nil }
+        return pendingBookProfile
+    }
+
+    /// Widget tap on one of your own covers: land on Profile → Queue. Stashes
+    /// first so a cold start replays it from `MainTabView.onAppear`.
+    static func routeToQueue() {
+        // Same standing as a push tap: launch nudges must not cover where the
+        // tap is navigating to.
+        lastDeepLinkTapAt = Date()
+        pendingOpenQueue = true
+        routeAfterClearingPresentedModals {
+            NotificationCenter.default.post(name: .spineOpenQueue, object: nil)
+        }
+    }
+
+    /// Widget tap on a friend's cover: open that book's profile over whatever
+    /// tab is showing.
+    static func routeToBookProfile(bookId: String, readerUid: String?) {
+        // Stamped before the book fetch: `deepLinkBook` stays nil until the
+        // fetch lands, so this is what holds the nudges off in the meantime.
+        lastDeepLinkTapAt = Date()
+        pendingBookProfile = (bookId, readerUid)
+        routeAfterClearingPresentedModals {
+            var info: [String: Any] = ["bookId": bookId]
+            if let readerUid { info["readerUid"] = readerUid }
+            NotificationCenter.default.post(name: .spineOpenBookProfile, object: nil, userInfo: info)
+        }
     }
 
     /// Registers with APNs without showing the permission dialog (for users who already granted alerts, or after cold start).
@@ -298,11 +350,11 @@ enum PushNotificationService {
             return
         }
         /// Friend-review, review-liked, and review-mention pushes open the review's
-        /// drawer (the comment thread, whose header is the review itself). They
-        /// used to scroll the feed to the post instead, which silently did nothing
-        /// when the post was outside the feed's listener window or never on the
-        /// feed at all (a liked read with no post): the tap just landed on the
-        /// feed. The drawer fetches the post by id, so it always lands.
+        /// drawer (the comment thread, whose header is the review itself). Nothing
+        /// tries to scroll the feed to the post: that silently did nothing whenever
+        /// the post was outside the feed's listener window or never on the feed at
+        /// all (a liked read with no post). The drawer fetches the post by id, so
+        /// it always lands.
         if type == "friend_review_posted" || type == "review_liked" || type == "review_mentioned" {
             guard let postId = WellreadDeepLink.postId(fromNotificationUserInfo: userInfo) else {
                 NotificationCenter.default.post(name: .wellreadOpenFeed, object: nil)
@@ -431,14 +483,25 @@ extension View {
 extension Notification.Name {
     /// Opens the Feed tab without scrolling to a post or opening comments.
     static let wellreadOpenFeed = Notification.Name("wellreadOpenFeed")
-    /// Opens the Feed tab and the post's comment drawer (review header + thread). `userInfo["postId"]` is the post UUID string; optional `userInfo["commentId"]` scrolls the thread to that comment.
+    /// Opens the post's comment drawer (review header + thread) over the Feed tab, without repositioning the feed itself. `userInfo["postId"]` is the post UUID string; optional `userInfo["commentId"]` scrolls the thread to that comment.
     static let wellreadOpenFeedPost = Notification.Name("wellreadOpenFeedPost")
     /// After a user marks a book as read: switch to Profile tab → Read segment, scroll the tier list to Unranked, and pulse-glow the just-reviewed book until they tier it. `userInfo["bookId"]` is the `Book.id`.
     static let spineHighlightTierBook = Notification.Name("spineHighlightTierBook")
     /// After a user adds a book to their queue from the search flow: switch to Profile tab → Queue segment so they land on the queue and see it was added.
     static let spineOpenQueue = Notification.Name("spineOpenQueue")
+    /// Switch to the Discover tab (no way back to where the user came from).
+    static let spineOpenDiscover = Notification.Name("spineOpenDiscover")
+    /// "Discover more" on the feed's Selected for you row: switch to the Discover
+    /// tab and remember the feed as the way in, so Discover offers a back arrow
+    /// (and a left-edge swipe) home to the reader's exact place in the feed.
+    static let spineOpenDiscoverFromFeed = Notification.Name("spineOpenDiscoverFromFeed")
+    /// Back arrow / left-edge swipe on a Discover opened from the feed: return to
+    /// the Feed tab, restoring its scroll offset.
+    static let spineReturnToFeed = Notification.Name("spineReturnToFeed")
     /// Blend push tapped: present the Book Blend landing screen. `userInfo["blendId"]` is the pair doc id.
     static let spineOpenBookBlend = Notification.Name("spineOpenBookBlend")
+    /// Widget tap on a friend's cover: present that book's profile. `userInfo["bookId"]` is the `Book.id`; optional `userInfo["readerUid"]` is the friend whose shelf it came from.
+    static let spineOpenBookProfile = Notification.Name("spineOpenBookProfile")
     /// New-follower push tapped: present the follower's profile (tier list). `userInfo["userId"]` is their Firebase UID.
     static let spineOpenUserProfile = Notification.Name("spineOpenUserProfile")
     /// Feed tab tapped while already selected: FeedView scrolls to top if scrolled down, or refreshes if already at top.

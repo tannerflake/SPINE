@@ -72,6 +72,7 @@
 		B0010039 /* WellReadTagCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010039 /* WellReadTagCatalog.swift */; };
 		B001003A /* UserLibraryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003A /* UserLibraryDetailView.swift */; };
 		B001003B /* QueueBookDragCover.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003B /* QueueBookDragCover.swift */; };
+		B0010517 /* ReadingNowProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010517 /* ReadingNowProgressCard.swift */; };
 		B001003C /* LibraryReadQueueSegmentShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003C /* LibraryReadQueueSegmentShared.swift */; };
 		B001003D /* WelcomeSpinesGoodreadsModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003D /* WelcomeSpinesGoodreadsModal.swift */; };
 		B001003E /* GoodreadsImportTutorialEmbed.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003E /* GoodreadsImportTutorialEmbed.swift */; };
@@ -82,7 +83,7 @@
 		B0010043 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010043 /* PushNotificationService.swift */; };
 		B0010044 /* FeedCommunityWelcomeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010044 /* FeedCommunityWelcomeModal.swift */; };
 		B0010045 /* FlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010045 /* FlowLayout.swift */; };
-		B0010046 /* MarkAsReadInlineOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010046 /* MarkAsReadInlineOverlay.swift */; };
+		B0010046 /* MarkAsReadDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010046 /* MarkAsReadDrawer.swift */; };
 		B0010047 /* PushRegistrationDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010047 /* PushRegistrationDiagnostics.swift */; };
 		B0010048 /* PushDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010048 /* PushDiagnosticsView.swift */; };
 		B0010049 /* PushNotificationPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010049 /* PushNotificationPromptView.swift */; };
@@ -113,6 +114,8 @@
 		B0010207 /* FindFriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010207 /* FindFriendsView.swift */; };
 		B0010208 /* RecommendBookSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010208 /* RecommendBookSheet.swift */; };
 		B0010331 /* ProfilePhotoNudgeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010331 /* ProfilePhotoNudgeStorage.swift */; };
+		B0010911 /* AppReviewPromptStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010911 /* AppReviewPromptStorage.swift */; };
+		B0010912 /* RateSpineNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010912 /* RateSpineNudgeModal.swift */; };
 		B0010332 /* ProfilePhotoNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010332 /* ProfilePhotoNudgeModal.swift */; };
 		B0010333 /* OnboardingCurrentlyReadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010333 /* OnboardingCurrentlyReadingView.swift */; };
 		B0010731 /* SearchQueryCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010731 /* SearchQueryCompletion.swift */; };
@@ -130,6 +133,18 @@
 		B00B1E04 /* BookBlendStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E04 /* BookBlendStoryView.swift */; };
 		B00B1E05 /* OpenLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E05 /* OpenLibraryService.swift */; };
 		B00B1E06 /* BookSearchCacheService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E06 /* BookSearchCacheService.swift */; };
+		B00B1E20 /* UserDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E20 /* UserDirectory.swift */; };
+		B00B1E21 /* ReadDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E21 /* ReadDraftStore.swift */; };
+		B00D4E51 /* QueueNoteComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D4E51 /* QueueNoteComposer.swift */; };
+		B00D8E1 /* LinkImportShareHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E1 /* LinkImportShareHelper.swift */; };
+		B00D8E2 /* LinkImportSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E2 /* LinkImportSession.swift */; };
+		B00D8E3 /* LinkBookExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E3 /* LinkBookExtractionService.swift */; };
+		B00D8E4 /* LinkImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E4 /* LinkImportView.swift */; };
+		B0010E71 /* TierMultiSelect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010E71 /* TierMultiSelect.swift */; };
+		B00E9A01 /* StoryExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A01 /* StoryExporter.swift */; };
+		B00E9A02 /* ShareCoverResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A02 /* ShareCoverResolver.swift */; };
+		B00E9A03 /* ShareStoryCanvases.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A03 /* ShareStoryCanvases.swift */; };
+		B00E9A04 /* ShareHubSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A04 /* ShareHubSheet.swift */; };
 		B00B1E07 /* AIContentCacheRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E07 /* AIContentCacheRepository.swift */; };
 		B00C7A31 /* BookPopularityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C7A31 /* BookPopularityService.swift */; };
 		B00D1A01 /* TypewriterText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A01 /* TypewriterText.swift */; };
@@ -139,11 +154,13 @@
 		B00D1A05 /* WizardBookSteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A05 /* WizardBookSteps.swift */; };
 		B00D1A06 /* WizardSocialSteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A06 /* WizardSocialSteps.swift */; };
 		B00D1A07 /* WizardFinaleSteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A07 /* WizardFinaleSteps.swift */; };
+		B00D1A11 /* WizardTierListStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A11 /* WizardTierListStep.swift */; };
 		B00D2A17 /* WizardAppearanceStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A17 /* WizardAppearanceStep.swift */; };
 		B00D2A18 /* LibraryCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A18 /* LibraryCardView.swift */; };
 		B00D2A19 /* FeedDayGroupCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A19 /* FeedDayGroupCarousel.swift */; };
 		B00D2A1A /* UserProfileCardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A1A /* UserProfileCardSheet.swift */; };
 		B00D2A1B /* PeopleStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A1B /* PeopleStrip.swift */; };
+		B00E7A01 /* FeedInterstitials.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7A01 /* FeedInterstitials.swift */; };
 		B00D2A1C /* ProfileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A1C /* ProfileSettingsView.swift */; };
 		B00E7C31 /* UserAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7C31 /* UserAvatarView.swift */; };
 		B00F3A17 /* NotificationsBellButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A17 /* NotificationsBellButton.swift */; };
@@ -153,6 +170,7 @@
 		B07E4D21 /* UserFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07E4D21 /* UserFeedView.swift */; };
 		B7D91A42 /* ISBNdbService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D91A42 /* ISBNdbService.swift */; };
 		BA9E7301 /* Mentions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA9E7301 /* Mentions.swift */; };
+		BA0C0001 /* OnboardingCompletionMemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0C0001 /* OnboardingCompletionMemo.swift */; };
 		NE01000A /* WellReadNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = NE010002 /* WellReadNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		WG01000A /* WellReadWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = WG010002 /* WellReadWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		WG010010 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG010011 /* WidgetSnapshot.swift */; };
@@ -259,6 +277,7 @@
 		F0010039 /* WellReadTagCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellReadTagCatalog.swift; sourceTree = "<group>"; };
 		F001003A /* UserLibraryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserLibraryDetailView.swift; sourceTree = "<group>"; };
 		F001003B /* QueueBookDragCover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueBookDragCover.swift; sourceTree = "<group>"; };
+		F0010517 /* ReadingNowProgressCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingNowProgressCard.swift; sourceTree = "<group>"; };
 		F001003C /* LibraryReadQueueSegmentShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryReadQueueSegmentShared.swift; sourceTree = "<group>"; };
 		F001003D /* WelcomeSpinesGoodreadsModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeSpinesGoodreadsModal.swift; sourceTree = "<group>"; };
 		F001003E /* GoodreadsImportTutorialEmbed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsImportTutorialEmbed.swift; sourceTree = "<group>"; };
@@ -269,7 +288,7 @@
 		F0010043 /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
 		F0010044 /* FeedCommunityWelcomeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCommunityWelcomeModal.swift; sourceTree = "<group>"; };
 		F0010045 /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
-		F0010046 /* MarkAsReadInlineOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkAsReadInlineOverlay.swift; sourceTree = "<group>"; };
+		F0010046 /* MarkAsReadDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkAsReadDrawer.swift; sourceTree = "<group>"; };
 		F0010047 /* PushRegistrationDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushRegistrationDiagnostics.swift; sourceTree = "<group>"; };
 		F0010048 /* PushDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushDiagnosticsView.swift; sourceTree = "<group>"; };
 		F0010049 /* PushNotificationPromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationPromptView.swift; sourceTree = "<group>"; };
@@ -300,6 +319,8 @@
 		F0010207 /* FindFriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindFriendsView.swift; sourceTree = "<group>"; };
 		F0010208 /* RecommendBookSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendBookSheet.swift; sourceTree = "<group>"; };
 		F0010331 /* ProfilePhotoNudgeStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoNudgeStorage.swift; sourceTree = "<group>"; };
+		F0010911 /* AppReviewPromptStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppReviewPromptStorage.swift; sourceTree = "<group>"; };
+		F0010912 /* RateSpineNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateSpineNudgeModal.swift; sourceTree = "<group>"; };
 		F0010332 /* ProfilePhotoNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoNudgeModal.swift; sourceTree = "<group>"; };
 		F0010333 /* OnboardingCurrentlyReadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCurrentlyReadingView.swift; sourceTree = "<group>"; };
 		F0010731 /* SearchQueryCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchQueryCompletion.swift; sourceTree = "<group>"; };
@@ -317,6 +338,18 @@
 		F00B1E04 /* BookBlendStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlendStoryView.swift; sourceTree = "<group>"; };
 		F00B1E05 /* OpenLibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLibraryService.swift; sourceTree = "<group>"; };
 		F00B1E06 /* BookSearchCacheService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSearchCacheService.swift; sourceTree = "<group>"; };
+		F00B1E20 /* UserDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDirectory.swift; sourceTree = "<group>"; };
+		F00B1E21 /* ReadDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadDraftStore.swift; sourceTree = "<group>"; };
+		F00D4E51 /* QueueNoteComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueNoteComposer.swift; sourceTree = "<group>"; };
+		F00D8E1 /* LinkImportShareHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportShareHelper.swift; sourceTree = "<group>"; };
+		F00D8E2 /* LinkImportSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportSession.swift; sourceTree = "<group>"; };
+		F00D8E3 /* LinkBookExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkBookExtractionService.swift; sourceTree = "<group>"; };
+		F00D8E4 /* LinkImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportView.swift; sourceTree = "<group>"; };
+		F0010E71 /* TierMultiSelect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TierMultiSelect.swift; sourceTree = "<group>"; };
+		F00E9A01 /* StoryExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryExporter.swift; sourceTree = "<group>"; };
+		F00E9A02 /* ShareCoverResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCoverResolver.swift; sourceTree = "<group>"; };
+		F00E9A03 /* ShareStoryCanvases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareStoryCanvases.swift; sourceTree = "<group>"; };
+		F00E9A04 /* ShareHubSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareHubSheet.swift; sourceTree = "<group>"; };
 		F00B1E07 /* AIContentCacheRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIContentCacheRepository.swift; sourceTree = "<group>"; };
 		F00C7A31 /* BookPopularityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPopularityService.swift; sourceTree = "<group>"; };
 		F00D1A01 /* TypewriterText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypewriterText.swift; sourceTree = "<group>"; };
@@ -326,11 +359,13 @@
 		F00D1A05 /* WizardBookSteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardBookSteps.swift; sourceTree = "<group>"; };
 		F00D1A06 /* WizardSocialSteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardSocialSteps.swift; sourceTree = "<group>"; };
 		F00D1A07 /* WizardFinaleSteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardFinaleSteps.swift; sourceTree = "<group>"; };
+		F00D1A11 /* WizardTierListStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardTierListStep.swift; sourceTree = "<group>"; };
 		F00D2A17 /* WizardAppearanceStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardAppearanceStep.swift; sourceTree = "<group>"; };
 		F00D2A18 /* LibraryCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCardView.swift; sourceTree = "<group>"; };
 		F00D2A19 /* FeedDayGroupCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedDayGroupCarousel.swift; sourceTree = "<group>"; };
 		F00D2A1A /* UserProfileCardSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileCardSheet.swift; sourceTree = "<group>"; };
 		F00D2A1B /* PeopleStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleStrip.swift; sourceTree = "<group>"; };
+		F00E7A01 /* FeedInterstitials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInterstitials.swift; sourceTree = "<group>"; };
 		F00D2A1C /* ProfileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSettingsView.swift; sourceTree = "<group>"; };
 		F00E7C31 /* UserAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAvatarView.swift; sourceTree = "<group>"; };
 		F00F3A17 /* NotificationsBellButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsBellButton.swift; sourceTree = "<group>"; };
@@ -340,6 +375,7 @@
 		F07E4D21 /* UserFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFeedView.swift; sourceTree = "<group>"; };
 		F7D91A42 /* ISBNdbService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISBNdbService.swift; sourceTree = "<group>"; };
 		FA9E7301 /* Mentions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mentions.swift; sourceTree = "<group>"; };
+		FA0C0001 /* OnboardingCompletionMemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCompletionMemo.swift; sourceTree = "<group>"; };
 		NE010002 /* WellReadNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WellReadNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		WG010002 /* WellReadWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WellReadWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		WG010011 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
@@ -514,12 +550,15 @@
 				F00B1E02 /* BookBlendService.swift */,
 				F00B1E05 /* OpenLibraryService.swift */,
 				F00B1E06 /* BookSearchCacheService.swift */,
+				F00B1E20 /* UserDirectory.swift */,
+				F00B1E21 /* ReadDraftStore.swift */,
 				F00B1E07 /* AIContentCacheRepository.swift */,
 				F00C7A31 /* BookPopularityService.swift */,
 				F7D91A42 /* ISBNdbService.swift */,
 				F0010020 /* AuthService.swift */,
 				F0010021 /* UserRepository.swift */,
 				FA9E7301 /* Mentions.swift */,
+				FA0C0001 /* OnboardingCompletionMemo.swift */,
 				F04F3B71 /* NotificationsRepository.swift */,
 				F0010023 /* BookRepository.swift */,
 				F0010024 /* UserBookRepository.swift */,
@@ -534,7 +573,9 @@
 				F0010040 /* ProfileImageCache.swift */,
 				F0010032 /* GoodreadsCSVParser.swift */,
 				F0010033 /* GoodreadsImportService.swift */,
+				F00D8E3 /* LinkBookExtractionService.swift */,
 				F0010101 /* GoodreadsWizardSession.swift */,
+				F00D8E2 /* LinkImportSession.swift */,
 				F0010103 /* CoverResolutionStore.swift */,
 				F0017747 /* CoverRegenerationService.swift */,
 				F0010104 /* ITunesCoverService.swift */,
@@ -544,11 +585,13 @@
 				F0010204 /* RecommendationRepository.swift */,
 				F0010205 /* AppLinks.swift */,
 				F0010035 /* GoodreadsShareHelper.swift */,
+				F00D8E1 /* LinkImportShareHelper.swift */,
 				F0010043 /* PushNotificationService.swift */,
 				F0010047 /* PushRegistrationDiagnostics.swift */,
 				F0010050 /* PushNotificationNudgeStorage.swift */,
 				F0010331 /* ProfilePhotoNudgeStorage.swift */,
 				F0010901 /* PhoneNumberNudgeStorage.swift */,
+				F0010911 /* AppReviewPromptStorage.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -568,6 +611,7 @@
 				G001000E /* Profile */,
 				G0010203 /* Friends */,
 				G00B1E00 /* Blend */,
+				G00E9A00 /* Share */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -583,6 +627,7 @@
 				F0010051 /* PushNotificationNudgeModal.swift */,
 				F0010332 /* ProfilePhotoNudgeModal.swift */,
 				F0010902 /* PhoneNumberNudgeModal.swift */,
+				F0010912 /* RateSpineNudgeModal.swift */,
 				F0010333 /* OnboardingCurrentlyReadingView.swift */,
 				F0010029 /* ReviewerLoginView.swift */,
 			);
@@ -626,6 +671,7 @@
 				F0010044 /* FeedCommunityWelcomeModal.swift */,
 				F00D2A19 /* FeedDayGroupCarousel.swift */,
 				F00D2A1B /* PeopleStrip.swift */,
+				F00E7A01 /* FeedInterstitials.swift */,
 				F07E4D21 /* UserFeedView.swift */,
 				F0010030 /* CommentsView.swift */,
 			);
@@ -652,6 +698,7 @@
 				F0010013 /* GridLibraryView.swift */,
 				F0010036 /* QueueLibraryView.swift */,
 				F001003B /* QueueBookDragCover.swift */,
+				F0010517 /* ReadingNowProgressCard.swift */,
 				F001003F /* LibraryDragHaptics.swift */,
 				F001003A /* UserLibraryDetailView.swift */,
 				F0010016 /* TimelineLibraryView.swift */,
@@ -659,8 +706,21 @@
 				F0010015 /* TierListView.swift */,
 				F00100F0 /* TierBadge.swift */,
 				F0010777 /* ReadingYearListView.swift */,
+				F0010E71 /* TierMultiSelect.swift */,
+				F00D8E4 /* LinkImportView.swift */,
 			);
 			path = Library;
+			sourceTree = "<group>";
+		};
+		G00E9A00 /* Share */ = {
+			isa = PBXGroup;
+			children = (
+				F00E9A01 /* StoryExporter.swift */,
+				F00E9A02 /* ShareCoverResolver.swift */,
+				F00E9A03 /* ShareStoryCanvases.swift */,
+				F00E9A04 /* ShareHubSheet.swift */,
+			);
+			path = Share;
 			sourceTree = "<group>";
 		};
 		G001000E /* Profile */ = {
@@ -690,7 +750,8 @@
 				F0010053 /* BookRefresherView.swift */,
 				F0018D72 /* BookSummaryMoreView.swift */,
 				F0010042 /* EditReadReviewSheet.swift */,
-				F0010046 /* MarkAsReadInlineOverlay.swift */,
+				F0010046 /* MarkAsReadDrawer.swift */,
+				F00D4E51 /* QueueNoteComposer.swift */,
 			);
 			path = Book;
 			sourceTree = "<group>";
@@ -732,6 +793,7 @@
 				F00D1A05 /* WizardBookSteps.swift */,
 				F00D1A06 /* WizardSocialSteps.swift */,
 				F00D1A07 /* WizardFinaleSteps.swift */,
+				F00D1A11 /* WizardTierListStep.swift */,
 				F00D2A17 /* WizardAppearanceStep.swift */,
 			);
 			path = Wizard;
@@ -965,9 +1027,15 @@
 				B001003A /* UserLibraryDetailView.swift in Sources */,
 				B0010036 /* QueueLibraryView.swift in Sources */,
 				B001003B /* QueueBookDragCover.swift in Sources */,
+				B0010517 /* ReadingNowProgressCard.swift in Sources */,
 				B001003F /* LibraryDragHaptics.swift in Sources */,
 				B0010014 /* RatingLibraryView.swift in Sources */,
 				B0010015 /* TierListView.swift in Sources */,
+				B0010E71 /* TierMultiSelect.swift in Sources */,
+				B00E9A01 /* StoryExporter.swift in Sources */,
+				B00E9A02 /* ShareCoverResolver.swift in Sources */,
+				B00E9A03 /* ShareStoryCanvases.swift in Sources */,
+				B00E9A04 /* ShareHubSheet.swift in Sources */,
 				B00100F0 /* TierBadge.swift in Sources */,
 				B0010777 /* ReadingYearListView.swift in Sources */,
 				B0010016 /* TimelineLibraryView.swift in Sources */,
@@ -975,6 +1043,7 @@
 				B0010020 /* AuthService.swift in Sources */,
 				B0010021 /* UserRepository.swift in Sources */,
 				BA9E7301 /* Mentions.swift in Sources */,
+				BA0C0001 /* OnboardingCompletionMemo.swift in Sources */,
 				B04F3B71 /* NotificationsRepository.swift in Sources */,
 				B04F3B72 /* NotificationsView.swift in Sources */,
 				B0010022 /* RootViewController.swift in Sources */,
@@ -988,7 +1057,12 @@
 				B001002C /* BookProfileService.swift in Sources */,
 				B0010039 /* WellReadTagCatalog.swift in Sources */,
 				B001002B /* BookProfileView.swift in Sources */,
-				B0010046 /* MarkAsReadInlineOverlay.swift in Sources */,
+				B0010046 /* MarkAsReadDrawer.swift in Sources */,
+				B00D4E51 /* QueueNoteComposer.swift in Sources */,
+				B00D8E1 /* LinkImportShareHelper.swift in Sources */,
+				B00D8E2 /* LinkImportSession.swift in Sources */,
+				B00D8E3 /* LinkBookExtractionService.swift in Sources */,
+				B00D8E4 /* LinkImportView.swift in Sources */,
 				B001002D /* DismissedSuggestionsRepository.swift in Sources */,
 				B001002E /* DiscoverSuggestionsService.swift in Sources */,
 				B001002F /* ProfilePhotoService.swift in Sources */,
@@ -999,6 +1073,7 @@
 				B00D2A19 /* FeedDayGroupCarousel.swift in Sources */,
 				B00D2A1A /* UserProfileCardSheet.swift in Sources */,
 				B00D2A1B /* PeopleStrip.swift in Sources */,
+				B00E7A01 /* FeedInterstitials.swift in Sources */,
 				B07E4D21 /* UserFeedView.swift in Sources */,
 				B00D2A1C /* ProfileSettingsView.swift in Sources */,
 				B0010C47 /* CircularPhotoCropView.swift in Sources */,
@@ -1033,6 +1108,8 @@
 				B0010047 /* PushRegistrationDiagnostics.swift in Sources */,
 				B0010050 /* PushNotificationNudgeStorage.swift in Sources */,
 				B0010331 /* ProfilePhotoNudgeStorage.swift in Sources */,
+				B0010911 /* AppReviewPromptStorage.swift in Sources */,
+				B0010912 /* RateSpineNudgeModal.swift in Sources */,
 				B0010332 /* ProfilePhotoNudgeModal.swift in Sources */,
 				B0010901 /* PhoneNumberNudgeStorage.swift in Sources */,
 				B0010902 /* PhoneNumberNudgeModal.swift in Sources */,
@@ -1049,6 +1126,8 @@
 				B00B1E04 /* BookBlendStoryView.swift in Sources */,
 				B00B1E05 /* OpenLibraryService.swift in Sources */,
 				B00B1E06 /* BookSearchCacheService.swift in Sources */,
+				B00B1E20 /* UserDirectory.swift in Sources */,
+				B00B1E21 /* ReadDraftStore.swift in Sources */,
 				B00B1E07 /* AIContentCacheRepository.swift in Sources */,
 				B00C7A31 /* BookPopularityService.swift in Sources */,
 				B7D91A42 /* ISBNdbService.swift in Sources */,
@@ -1060,6 +1139,7 @@
 				B00D1A06 /* WizardSocialSteps.swift in Sources */,
 				B00D2A17 /* WizardAppearanceStep.swift in Sources */,
 				B00D1A07 /* WizardFinaleSteps.swift in Sources */,
+				B00D1A11 /* WizardTierListStep.swift in Sources */,
 				B0010053 /* BookRefresherView.swift in Sources */,
 				B0010833 /* BookDiscussionSection.swift in Sources */,
 				B0018D72 /* BookSummaryMoreView.swift in Sources */,
