@@ -124,8 +124,40 @@ final class ClaudeService {
         try await sendConversationDetailed(system: system, messages: messages, maxTokens: maxTokens, timeout: timeout, tier: tier).text
     }
 
+    // MARK: - House style
+
+    /// Appended to every system prompt. Models reach for em dashes constantly and
+    /// SPINE never shows one, so ask up front (and strip anyway, below).
+    static let houseStyleRule = """
+
+    STYLE (applies to every word you write): never use em dashes or en dashes \
+    (\u{2014} or \u{2013}). Use a period, comma, colon, or parentheses instead. This is absolute.
+    """
+
+    /// Removes em/en dashes from model output. Runs on every response because the
+    /// prompt rule alone isn't reliable: a dash between spaces becomes a comma,
+    /// one jammed between words becomes a comma plus a space, and a leading dash
+    /// (list bullets) is dropped. Safe inside JSON string values, which is what
+    /// the JSON-returning callers get back.
+    static func stripDashes(_ text: String) -> String {
+        let dashes = ["\u{2014}", "\u{2013}", "\u{2015}"]
+        guard dashes.contains(where: { text.contains($0) }) else { return text }
+        var out = text
+        for dash in dashes {
+            // Bullet at the start of a line: drop it, keep the line.
+            out = out.replacingOccurrences(of: "\n\(dash) ", with: "\n")
+            out = out.replacingOccurrences(of: " \(dash) ", with: ", ")
+            out = out.replacingOccurrences(of: "\(dash) ", with: ", ")
+            out = out.replacingOccurrences(of: " \(dash)", with: ",")
+            out = out.replacingOccurrences(of: dash, with: ", ")
+        }
+        if out.hasPrefix(", ") { out.removeFirst(2) }
+        return out
+    }
+
     /// `sendConversation` variant that also reports which model answered.
     func sendConversationDetailed(system: String? = nil, messages: [ClaudeMessageRequest.Message], maxTokens: Int = 1024, timeout: TimeInterval? = nil, tier: ModelTier = .complex) async throws -> DetailedResponse {
+        let system = (system?.isEmpty == false) ? system! + Self.houseStyleRule : Self.houseStyleRule
         var lastError: Error?
         for entry in tier.modelsToTry {
             let key: String?
@@ -139,10 +171,10 @@ final class ClaudeService {
                 switch entry.provider {
                 case .anthropic:
                     let text = try await send(model: entry.model, key: key, system: system, messages: messages, maxTokens: maxTokens, timeout: timeout)
-                    return DetailedResponse(text: text, model: entry.model)
+                    return DetailedResponse(text: Self.stripDashes(text), model: entry.model)
                 case .gemini:
                     let text = try await sendGemini(model: entry.model, key: key, system: system, messages: messages, maxTokens: maxTokens, timeout: timeout)
-                    return DetailedResponse(text: text, model: entry.model)
+                    return DetailedResponse(text: Self.stripDashes(text), model: entry.model)
                 }
             } catch {
                 lastError = error

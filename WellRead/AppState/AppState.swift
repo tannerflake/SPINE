@@ -549,7 +549,7 @@ final class AppState: ObservableObject {
         }
 
         Task {
-            try? await userBookRepo.batchUpdateUserBooks(toPersist)
+            try? await userBookRepo.batchUpdatePlacement(toPersist)
         }
 
         if movedTierBefore != tier {
@@ -607,7 +607,7 @@ final class AppState: ObservableObject {
         }
 
         Task {
-            try? await userBookRepo.batchUpdateUserBooks(toPersist)
+            try? await userBookRepo.batchUpdatePlacement(toPersist)
         }
 
         guard !rebadge.isEmpty else { return }
@@ -777,7 +777,7 @@ final class AppState: ObservableObject {
         }
 
         Task {
-            try? await userBookRepo.batchUpdateUserBooks(toPersist)
+            try? await userBookRepo.batchUpdatePlacement(toPersist)
         }
     }
 

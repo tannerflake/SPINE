@@ -22,7 +22,7 @@ func goodreadsExportURL(from string: String?) -> URL? {
 enum GoodreadsImportCopy {
     /// Shown when we received a URL from Share but couldn't download CSV (auth, expired link, or not CSV).
     static let couldNotFetchExportMessage = """
-    We couldn't download your Goodreads export from that link. Goodreads export links usually only work when you're logged in—our app can't use your Goodreads login, so the link often returns a sign-in page instead of the file.
+    We couldn't download your Goodreads export from that link. Goodreads export links usually only work when you're logged in, our app can't use your Goodreads login, so the link often returns a sign-in page instead of the file.
 
     Reliable way to import:
     1) On Goodreads (in the app or at goodreads.com/review/import), download your library CSV and save it to Files.

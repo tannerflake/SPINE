@@ -25,7 +25,7 @@ struct PushNotificationPromptView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("Get notified when people you follow post reviews, react to yours, and reply in threads—so you never miss the conversation.")
+            Text("Get notified when people you follow post reviews, react to yours, and reply in threads, so you never miss the conversation.")
                 .font(Theme.body())
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)

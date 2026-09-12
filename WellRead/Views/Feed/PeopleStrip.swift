@@ -20,6 +20,13 @@ import SwiftUI
 /// activity: reading a book now first, then most books ranked.
 @MainActor
 final class PeopleStripModel: ObservableObject {
+    /// App-wide instance. `MainTabView` rebuilds `FeedView` on every tab
+    /// switch, so a per-view `@StateObject` would refetch the whole roster
+    /// and re-show the skeleton each time the reader comes back to the feed.
+    /// Holding the model here keeps the loaded strip for the session; account
+    /// changes still reload via `loadIfNeeded`.
+    static let shared = PeopleStripModel()
+
     struct Reader: Identifiable, Equatable {
         let uid: String
         let user: User
@@ -66,9 +73,17 @@ final class PeopleStripModel: ObservableObject {
     func reload(currentUid: String?, following: [String]) async {
         generation += 1
         let token = generation
+        // A different member (sign-out / sign-in) must not see the previous
+        // member's strip while theirs loads: back to the skeleton.
+        let memberChanged = hasLoadedOnce && currentUid != self.currentUid
+        if memberChanged {
+            followed = []
+            discoverable = []
+            readingNowByUid = [:]
+        }
         self.currentUid = currentUid
         followingSet = Set(following).subtracting([currentUid].compactMap { $0 })
-        isLoadingInitial = !hasLoadedOnce
+        isLoadingInitial = !hasLoadedOnce || memberChanged
         hasLoadedOnce = true
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-uiPreview") {

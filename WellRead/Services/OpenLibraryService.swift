@@ -190,6 +190,29 @@ final class OpenLibraryService {
         }
     }
 
+    /// Work-level popularity counters for a query — the ISBNdb tier's ranking
+    /// signal. The same rows `searchMatches` returns, trimmed to four fields:
+    /// the `editions` join is most of a full search's cost, and this caller
+    /// joins by title and author (formatted as `map(doc:isbn:)` formats them)
+    /// without ever opening a book.
+    func popularitySignals(query: String, limit: Int = 20) async throws -> [PrefixMatch] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+        let docs = try await fetchDocs(
+            q: trimmed,
+            limit: limit,
+            fields: "title,author_name,ratings_count,readinglog_count"
+        )
+        return docs.compactMap { doc in
+            guard let title = doc.title, !title.isEmpty else { return nil }
+            return PrefixMatch(
+                title: title,
+                author: doc.authorName?.joined(separator: ", ") ?? "Unknown",
+                popularity: max(doc.ratingsCount ?? 0, doc.readinglogCount ?? 0)
+            )
+        }
+    }
+
     private static let solrSyntaxCharacters = CharacterSet(charactersIn: #"+-&|!(){}[]^"~*?:\/"#)
 
     /// Exact ISBN lookup (10 or 13 digits); the queried ISBN becomes the book's

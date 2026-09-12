@@ -7,8 +7,8 @@
 //  "ALL USERS" (quick-follow plus on each avatar) scrolls in and replaces
 //  it. Below, a feed of finished books, reviews, and recommendations from
 //  people you follow, with two pseudo posts folded in — "Selected for you"
-//  and "Readers to follow", three items down and six below that, in either
-//  order — see FeedInterstitials.swift. Ink/paper palette with receipt-style row separators.
+//  three items down and "Readers to follow" six below that — see
+//  FeedInterstitials.swift. Ink/paper palette with receipt-style row separators.
 //
 
 import SwiftUI
@@ -27,16 +27,16 @@ struct FeedView: View {
     /// Comment the next-presented comments sheet should scroll to (comment-targeted deep link).
     @State private var commentsScrollTargetId: String? = nil
     @State private var editReviewFromFeed: EditReadReviewSheetPayload? = nil
-    /// Paged roster behind the people strip. Owned here so pull to refresh can
-    /// reload it, rendered by `PeopleStrip`.
-    @StateObject private var peopleModel = PeopleStripModel()
+    /// Roster behind the people strip, rendered by `PeopleStrip`. App-wide
+    /// (see `PeopleStripModel.shared`) so switching tabs doesn't refetch it
+    /// and re-shimmer the row; pull to refresh reloads it from here.
+    @ObservedObject private var peopleModel = PeopleStripModel.shared
     /// Slot assignments for the "Selected for you" / "Readers to follow"
     /// pseudo posts (see `FeedInterstitials.swift`).
     @StateObject private var interstitialModel = FeedInterstitialModel()
     /// Reading-now covers for feed post authors (floating book fans on the
     /// avatars), fetched for the authors on screen rather than the whole app.
     @State private var readingNowByUid: [String: [Book]] = [:]
-    @State private var showFounderWelcome = false
     /// Own post awaiting delete confirmation (from the post's ellipsis menu).
     @State private var postPendingDelete: Post? = nil
     /// Tracks scroll position so re-tapping the Feed tab knows whether to scroll to
@@ -76,8 +76,15 @@ struct FeedView: View {
                             PeopleStrip(model: peopleModel)
                                 .overlay(alignment: .topTrailing) {
                                     NotificationsBellButton(size: .compact) { showNotifications = true }
-                                        .padding(.top, 4)
-                                        .padding(.trailing, Theme.horizontalPadding)
+                                        // Paper disc behind the bell: the
+                                        // "ALL USERS" label scrolls under this
+                                        // corner, so the bell needs its own
+                                        // ground to sit on instead of
+                                        // colliding with the letters.
+                                        .padding(3)
+                                        .background(Circle().fill(Theme.background))
+                                        .padding(.top, 1)
+                                        .padding(.trailing, Theme.horizontalPadding - 3)
                                 }
                             feedFriendsDivider
                             feedSectionLabel
@@ -122,21 +129,7 @@ struct FeedView: View {
                         }
                     }
                 }
-
-                if showFounderWelcome {
-                    Color.black.opacity(0.45)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-
-                    FeedCommunityWelcomeModal {
-                        Task {
-                            await dismissFounderWelcome()
-                        }
-                    }
-                    .transition(.opacity)
-                }
             }
-            .animation(.easeInOut(duration: 0.22), value: showFounderWelcome)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.background, for: .navigationBar)
@@ -223,9 +216,6 @@ struct FeedView: View {
             .task(id: feedAuthorUids) {
                 await loadReadingNowForFeedAuthors(reset: false)
             }
-            .task(id: authService.firebaseUser?.uid) {
-                await scheduleFounderWelcomeIfNeeded()
-            }
             .onAppear {
                 Analytics.amplitude?.track(eventType: "Viewed Home Feed", eventProperties: ["prompt_version": "BA400.4"]) // helps improve this setup flow — safe to remove once you've verified the event lands
                 openDeepLinkedPostIfNeeded()
@@ -289,9 +279,9 @@ struct FeedView: View {
 
     // MARK: - Interstitials
 
-    /// One pseudo post. The two slots draw different kinds, so a slot whose
-    /// content isn't there yet (roster still loading, Discover pool empty)
-    /// renders nothing rather than repeating the other row.
+    /// One pseudo post. The two slots draw different kinds, so a readers slot
+    /// whose roster hasn't loaded renders nothing rather than repeating the
+    /// picks row. The picks row always draws (see below).
     @ViewBuilder
     private func interstitialView(slot: Int) -> some View {
         switch interstitialModel.preferredKind(for: slot) {
@@ -306,29 +296,34 @@ struct FeedView: View {
         case .books:
             let pool = appState.discoverPoolBooks
             let books = interstitialModel.books(for: slot, pool: pool)
-            if books.isEmpty {
-                Color.clear
-                    .frame(height: 0)
-                    .onAppear { appState.ensureDiscoverPoolDepth() }
-            } else {
-                FeedBookPicksRow(
-                    books: books,
-                    onBookTap: { book in
-                        Analytics.amplitude?.track(eventType: "Tapped Feed Pick Book", eventProperties: ["book_id": book.id])
-                        bookProfileSourceUid = nil
-                        selectedBookForProfile = book
-                    },
-                    onSeeMore: {
-                        Analytics.amplitude?.track(eventType: "Tapped Feed Picks See More")
-                        NotificationCenter.default.post(name: .spineOpenDiscoverFromFeed, object: nil)
-                    }
-                )
-                .onAppear {
-                    interstitialModel.markSeen(slot: slot)
-                    if interstitialModel.slotWantsMoreBooks(slot, pool: pool) {
-                        appState.ensureDiscoverPoolDepth()
-                    }
+            // Drawn even with nothing loaded yet: the header and the "Discover
+            // more" tile hold the row's full height from the first layout, so
+            // picks landing a second later fill in beside the tile instead of
+            // making the row appear and push the feed under the reader.
+            FeedBookPicksRow(
+                books: books,
+                onBookTap: { book in
+                    Analytics.amplitude?.track(eventType: "Tapped Feed Pick Book", eventProperties: ["book_id": book.id])
+                    bookProfileSourceUid = nil
+                    selectedBookForProfile = book
+                },
+                onSeeMore: {
+                    Analytics.amplitude?.track(eventType: "Tapped Feed Picks See More")
+                    NotificationCenter.default.post(name: .spineOpenDiscoverFromFeed, object: nil)
                 }
+            )
+            .onAppear {
+                // An empty row has spent no recommendations, so it isn't marked
+                // seen: a refresh should still be able to fill it.
+                if !books.isEmpty { interstitialModel.markSeen(slot: slot) }
+                if books.isEmpty || interstitialModel.slotWantsMoreBooks(slot, pool: pool) {
+                    appState.ensureDiscoverPoolDepth()
+                }
+            }
+            // Picks that land while the row is already on screen still count as
+            // seen (onAppear has been and gone by then).
+            .onChange(of: books.isEmpty) { _, isEmpty in
+                if !isEmpty { interstitialModel.markSeen(slot: slot) }
             }
         }
     }
@@ -481,43 +476,6 @@ struct FeedView: View {
             if let p = await postRepo.fetchPost(postId: id) {
                 await MainActor.run { postForComments = p }
             }
-        }
-    }
-
-    /// After profile is available and the feed has had a moment to render, show the one-time founder welcome note.
-    private func scheduleFounderWelcomeIfNeeded() async {
-        guard authService.firebaseUser != nil else { return }
-        var attempts = 0
-        while authService.appUser == nil && attempts < 40 {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            attempts += 1
-        }
-        guard let u = authService.appUser, !u.hasSeenFounderWelcomeModal else { return }
-        try? await Task.sleep(nanoseconds: 450_000_000)
-        await MainActor.run {
-            withAnimation(.easeInOut(duration: 0.22)) {
-                showFounderWelcome = true
-            }
-        }
-    }
-
-    private func dismissFounderWelcome() async {
-        guard let uid = authService.firebaseUser?.uid else {
-            await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.22)) { showFounderWelcome = false }
-            }
-            return
-        }
-        do {
-            try await userRepo.markHasSeenFounderWelcomeModal(uid: uid)
-            await authService.refreshAppUser()
-        } catch {
-            #if DEBUG
-            print("markHasSeenFounderWelcomeModal: \(error)")
-            #endif
-        }
-        await MainActor.run {
-            withAnimation(.easeInOut(duration: 0.22)) { showFounderWelcome = false }
         }
     }
 

@@ -77,8 +77,20 @@ final class BookSearchCacheService {
     }
 
     private func fetchEntry(cacheKey: String) async -> CachedEntry? {
-        guard let snapshot = try? await db.collection(collection).document(docId(for: cacheKey)).getDocument(),
-              snapshot.exists, let data = snapshot.data() else { return nil }
+        let ref = db.collection(collection).document(docId(for: cacheKey))
+        // Firestore's persistent cache already holds every entry this device has
+        // read or written, but the default read is server-first: a ~200ms round
+        // trip even for a doc sitting on disk. Ask the local cache first (a few
+        // ms); only a miss or an expired copy pays the network read.
+        if let local = try? await ref.getDocument(source: .cache), let entry = entry(from: local) {
+            return entry
+        }
+        guard let snapshot = try? await ref.getDocument() else { return nil }
+        return entry(from: snapshot)
+    }
+
+    private func entry(from snapshot: DocumentSnapshot) -> CachedEntry? {
+        guard snapshot.exists, let data = snapshot.data() else { return nil }
         guard let updated = (data["updatedAt"] as? Timestamp)?.dateValue() else { return nil }
         let source = Source(rawValue: data["source"] as? String ?? "") ?? .openLibrary
         let ttl = source == .openLibrary ? openLibraryTTL : primaryTTL

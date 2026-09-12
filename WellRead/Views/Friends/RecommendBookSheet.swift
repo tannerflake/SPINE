@@ -52,7 +52,7 @@ struct RecommendBookSheet: View {
                                 .frame(maxWidth: .infinity)
                                 .padding()
                             } else if filteredReaders.isEmpty {
-                                Text(searchText.isEmpty ? "No other readers yet — invite a friend below." : "No readers match \u{201C}\(searchText)\u{201D}.")
+                                Text(searchText.isEmpty ? "No other readers yet. Invite a friend below." : "No readers match \u{201C}\(searchText)\u{201D}.")
                                     .font(Theme.callout())
                                     .foregroundStyle(Theme.textSecondary)
                                     .frame(maxWidth: .infinity)

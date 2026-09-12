@@ -81,7 +81,6 @@
 		B0010041 /* CachedProfileImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010041 /* CachedProfileImage.swift */; };
 		B0010042 /* EditReadReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010042 /* EditReadReviewSheet.swift */; };
 		B0010043 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010043 /* PushNotificationService.swift */; };
-		B0010044 /* FeedCommunityWelcomeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010044 /* FeedCommunityWelcomeModal.swift */; };
 		B0010045 /* FlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010045 /* FlowLayout.swift */; };
 		B0010046 /* MarkAsReadDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010046 /* MarkAsReadDrawer.swift */; };
 		B0010047 /* PushRegistrationDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010047 /* PushRegistrationDiagnostics.swift */; };
@@ -286,7 +285,6 @@
 		F0010041 /* CachedProfileImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedProfileImage.swift; sourceTree = "<group>"; };
 		F0010042 /* EditReadReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditReadReviewSheet.swift; sourceTree = "<group>"; };
 		F0010043 /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
-		F0010044 /* FeedCommunityWelcomeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCommunityWelcomeModal.swift; sourceTree = "<group>"; };
 		F0010045 /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
 		F0010046 /* MarkAsReadDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkAsReadDrawer.swift; sourceTree = "<group>"; };
 		F0010047 /* PushRegistrationDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushRegistrationDiagnostics.swift; sourceTree = "<group>"; };
@@ -668,7 +666,6 @@
 			isa = PBXGroup;
 			children = (
 				F0010010 /* FeedView.swift */,
-				F0010044 /* FeedCommunityWelcomeModal.swift */,
 				F00D2A19 /* FeedDayGroupCarousel.swift */,
 				F00D2A1B /* PeopleStrip.swift */,
 				F00E7A01 /* FeedInterstitials.swift */,
@@ -1143,7 +1140,6 @@
 				B0010053 /* BookRefresherView.swift in Sources */,
 				B0010833 /* BookDiscussionSection.swift in Sources */,
 				B0018D72 /* BookSummaryMoreView.swift in Sources */,
-				B0010044 /* FeedCommunityWelcomeModal.swift in Sources */,
 				B0010045 /* FlowLayout.swift in Sources */,
 				WG010012 /* WidgetSnapshot.swift in Sources */,
 				WG010014 /* WidgetDataService.swift in Sources */,

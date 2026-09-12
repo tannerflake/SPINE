@@ -282,7 +282,7 @@ struct WizardRosterStep: View {
                 ScrollView {
                     LazyVStack(spacing: 9) {
                         ForEach(results) { entry in
-                            rosterRow(entry, sharedTags: nil, contactName: nil)
+                            rosterRow(entry, sharedTags: nil)
                         }
                     }
                     .padding(.vertical, 2)
@@ -310,7 +310,7 @@ struct WizardRosterStep: View {
                         similarSection(similar)
                     }
                     ForEach(rest) { entry in
-                        rosterRow(entry, sharedTags: nil, contactName: nil)
+                        rosterRow(entry, sharedTags: nil)
                     }
                 }
                 .padding(.vertical, 2)
@@ -354,12 +354,7 @@ struct WizardRosterStep: View {
             ForEach(model.contactMatches) { match in
                 rosterRow(
                     OnboardingWizardModel.RosterEntry(uid: match.uid, user: match.user),
-                    sharedTags: nil,
-                    // Only when the address book calls them something else:
-                    // that mismatch is the whole "oh, that's Katie" moment.
-                    contactName: match.contact.displayName == match.user.displayName
-                        ? nil
-                        : match.contact.displayName
+                    sharedTags: nil
                 )
             }
         }
@@ -467,23 +462,21 @@ struct WizardRosterStep: View {
     /// Readers with the most taste overlap, boxed off so they read as "start
     /// here" rather than more of the same list.
     private func similarSection(_ similar: [(entry: OnboardingWizardModel.RosterEntry, sharedTags: [String])]) -> some View {
-        boxedSection(title: "MOST LIKE YOU") {
+        boxedSection(title: "SIMILAR TASTE") {
             ForEach(similar, id: \.entry.uid) { item in
-                rosterRow(item.entry, sharedTags: item.sharedTags, contactName: nil)
+                rosterRow(item.entry, sharedTags: item.sharedTags)
             }
         }
     }
 
     private func rosterRow(
         _ entry: OnboardingWizardModel.RosterEntry,
-        sharedTags: [String]?,
-        contactName: String?
+        sharedTags: [String]?
     ) -> some View {
         WizardReaderRow(
             model: model,
             entry: entry,
             subtitle: sharedTags.flatMap { $0.isEmpty ? nil : Self.sharesText($0) },
-            contactName: contactName,
             onPeek: { peekEntry = $0 }
         )
     }
@@ -557,7 +550,6 @@ struct WizardMutualsStep: View {
                             model: model,
                             entry: candidate.entry,
                             subtitle: followedByText(candidate.followedBy),
-                            contactName: nil,
                             onPeek: { peekEntry = $0 }
                         )
                     }
@@ -622,12 +614,12 @@ struct WizardMutualsStep: View {
 /// One reader on the roster and mutuals steps: avatar + name open a read-only
 /// peek at their tier list, the follow button is its own tap target, and the
 /// optional lines under the handle carry whatever makes this row worth a
-/// look ("In your contacts as ...", "Shares: ...", "Followed by ...").
+/// look ("Shares: ...", "Followed by ..."). The name, handle and avatar are
+/// enough to recognize an address-book contact, so the row never spells that out.
 struct WizardReaderRow: View {
     @ObservedObject var model: OnboardingWizardModel
     let entry: OnboardingWizardModel.RosterEntry
     let subtitle: String?
-    let contactName: String?
     let onPeek: (OnboardingWizardModel.RosterEntry) -> Void
 
     var body: some View {
@@ -654,12 +646,6 @@ struct WizardReaderRow: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(Theme.textTertiary)
                             .lineLimit(1)
-                        if let contactName {
-                            Text("In your contacts as \(contactName)")
-                                .font(.system(size: 12))
-                                .foregroundStyle(Theme.textSecondary)
-                                .lineLimit(2)
-                        }
                         if let subtitle {
                             Text(subtitle)
                                 .font(.system(size: 12))
@@ -977,7 +963,7 @@ struct WizardNotificationsStep: View {
                 centered: false
             )
 
-            Text("Only the good stuff. We promise not to blow your phone up.")
+            Text("We promise not to blow your phone up.")
                 .font(.system(size: 16))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

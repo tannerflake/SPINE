@@ -68,7 +68,7 @@ final class BookRefresherService {
             return shared
         }
         let system = """
-        You write "refresher" pages for a reading app: the reader FINISHED this book a while ago and wants their memory jogged. Full spoilers are expected and good — do not hold anything back or warn about spoilers.
+        You write "refresher" pages for a reading app: the reader FINISHED this book a while ago and wants their memory jogged. Full spoilers are expected and good. Do not hold anything back or warn about spoilers.
 
         Reply with ONLY a JSON object (no markdown fences, no commentary) using exactly these keys:
         {
@@ -83,7 +83,7 @@ final class BookRefresherService {
         - Fiction: "plot" is the plot; "characters" covers the main cast (4-7 entries).
         - Non-fiction: "plot" is the book's core argument/arc; "characters" lists key figures if any, otherwise an empty array.
         - If you don't know the book well enough to be accurate, keep entries you're unsure of out rather than inventing specifics.
-        - Plain text only inside strings — no markdown.
+        - Plain text only inside strings, no markdown.
         """
         var input = "Book: \(book.title) by \(book.author)."
         if let d = book.description, !d.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -106,7 +106,7 @@ final class BookRefresherService {
     /// Answers a follow-up question about the book, grounded in the refresher and prior Q&A turns.
     func answer(question: String, for book: Book, refresher: BookRefresher, history: [RefresherChatTurn]) async throws -> String {
         let system = """
-        You answer follow-up questions about "\(book.title)" by \(book.author) for a reader who has FINISHED the book and is refreshing their memory. Spoilers are fine. Be specific and concrete, cite what happens in the book, and keep answers to a short paragraph or two. If a question goes beyond what's in the book, say so briefly. Plain text only — no markdown.
+        You answer follow-up questions about "\(book.title)" by \(book.author) for a reader who has FINISHED the book and is refreshing their memory. Spoilers are fine. Be specific and concrete, cite what happens in the book, and keep answers to a short paragraph or two. If a question goes beyond what's in the book, say so briefly. Plain text only, no markdown.
 
         Refresher already shown to the reader:
         \(refresherContext(refresher))

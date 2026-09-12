@@ -28,7 +28,7 @@ final class BookProfileService {
             queue.sync { summaryCache[key] = shared }
             return shared
         }
-        let system = "You are a concise book summarizer. Reply with a very short summary of the book in at most two sentences. HARD LIMIT: 200 characters total, including spaces — count them, and cut a whole sentence rather than exceed it. Every sentence must be complete and end in a period. No heading, no bullets, no extra text. If given a long description, condense it. If given only title and author, write a brief summary based on common knowledge."
+        let system = "You are a concise book summarizer. Reply with a very short summary of the book in at most two sentences. HARD LIMIT: 200 characters total, including spaces. Count them, and cut a whole sentence rather than exceed it. Every sentence must be complete and end in a period. No heading, no bullets, no extra text. If given a long description, condense it. If given only title and author, write a brief summary based on common knowledge."
         let input: String
         if let d = book.description, !d.isEmpty {
             input = "Book: \(book.title) by \(book.author).\n\nDescription:\n\(d)\n\nSummarize in at most two sentences, under 200 characters."
@@ -158,10 +158,10 @@ final class BookProfileService {
 
         let system = """
         You write one short personalized blurb for a reading app explaining why this specific reader might like a book, based on their taste. Rules:
-        - THREE SENTENCES MAXIMUM. Plain text only — no markdown, no headings, no lists.
+        - THREE SENTENCES MAXIMUM. Plain text only, no markdown, no headings, no lists.
         - Speak to the reader as "you". Never mention AI, algorithms, data, or "match scores".
         - Ground it in their actual taste: connect the book's themes, style, or feel to books they loved or interests they've named. Reference at most two of their books by title.
-        - NO SPOILERS for the recommended book — premise, themes, and feel only.
+        - NO SPOILERS for the recommended book: premise, themes, and feel only.
         - If the connection is thin, keep it honest and general rather than inventing overlap.
         """
         var input = "Book to recommend: \(book.title) by \(book.author)."
@@ -204,13 +204,13 @@ final class BookProfileService {
         let enriched = await mergeWithVolumeIfNeeded(book)
         let allowed = WellReadTagCatalog.shared.allowedTagsPromptBlock()
         let system = """
-        You assign book profile tags for a reading app. Reply with ONLY a JSON array of 1 to 5 tag strings. No markdown fences, no explanation, no keys—just the array.
+        You assign book profile tags for a reading app. Reply with ONLY a JSON array of 1 to 5 tag strings. No markdown fences, no explanation, no keys, just the array.
 
         CRITICAL: Every tag string MUST be copied **exactly** from the allowed list below (same spelling, spacing, capitalization, and punctuation). Do not invent new tags or paraphrase.
 
         Rules:
         - Include exactly ONE of: "\(WellReadTagCatalog.fictionTag)" or "\(WellReadTagCatalog.nonFictionTag)" (from the Format category).
-        - Add up to four more tags from other categories that best fit the book (Genre, Story Type, Tone / Vibe, Setting / World, Character / Dynamics, Pacing / Style, Themes, Nonfiction Topics, Reading Experience—only where relevant).
+        - Add up to four more tags from other categories that best fit the book (Genre, Story Type, Tone / Vibe, Setting / World, Character / Dynamics, Pacing / Style, Themes, Nonfiction Topics, Reading Experience, only where relevant).
         - At most 5 tags total. Do not repeat tags.
         - Prefer a mix of categories when useful (e.g. Genre + Tone + one Theme), not five from the same line.
 

@@ -178,7 +178,7 @@ struct MainTabView: View {
         }) {
             ProfileCompletionView(
                 title: "Complete your profile",
-                subtitle: "Add your photo, name, handle, and reading goal—then choose what you love to read.",
+                subtitle: "Add your photo, name, handle, and reading goal, then choose what you love to read.",
                 onDismiss: {
                     showCompleteProfileSheet = false
                 }

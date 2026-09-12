@@ -257,7 +257,7 @@ struct BookRefresherView: View {
     private var chatSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             if chatTurns.isEmpty {
-                Text("Fuzzy on a detail? Ask anything — why a character did something, how a thread resolved, what a concept meant.")
+                Text("Fuzzy on a detail? Ask anything: why a character did something, how a thread resolved, what a concept meant.")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(Theme.textTertiary)
                     .lineSpacing(2)
@@ -392,7 +392,7 @@ struct BookRefresherView: View {
                     question = asked
                     isAnswering = false
                     ToastCenter.shared.show(
-                        Toast(style: .error, status: "Failed", message: "Couldn't get an answer — try again")
+                        Toast(style: .error, status: "Failed", message: "Couldn't get an answer, try again")
                     )
                 }
             }

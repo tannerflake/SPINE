@@ -203,7 +203,7 @@ struct DiscoverView: View {
                 .foregroundStyle(Theme.textPrimary)
             Text(cameUpEmpty
                  ? "Every pick came back as a book you've already read, queued, or passed on. Try again, or steer with different tiers, tags, or books."
-                 : "Every pick is tailored to the books in your library and your interests — steer it with tiers, tags, or books you loved.")
+                 : "Every pick is tailored to the books in your library and your interests. Steer it with tiers, tags, or books you loved.")
                 .font(Theme.body())
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)

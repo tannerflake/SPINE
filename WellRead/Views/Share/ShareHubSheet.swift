@@ -51,8 +51,7 @@ struct ShareHubSheet: View {
         // a programmatic scrollPosition applied after the fact (or after the
         // page list changes underneath it) is unreliable and leaves the dots
         // disagreeing with what's on screen.
-        let list = Self.pages(for: userBooks)
-        _page = State(initialValue: list.contains(initialPage) ? initialPage : list.first)
+        _page = State(initialValue: initialPage)
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -61,8 +60,9 @@ struct ShareHubSheet: View {
 
     @State private var page: SharePage?
     @State private var loadedDetails: LibraryCardDetails?
-    /// Photo behind each graphic, chosen per page.
-    @State private var photos: [SharePage: UIImage] = [:]
+    /// Photo behind the graphics. One choice covers every page: pick it on
+    /// any graphic and the others use it too.
+    @State private var photo: UIImage?
     @State private var pickerItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
     @State private var period: SharePeriod?
@@ -74,6 +74,8 @@ struct ShareHubSheet: View {
     @State private var isExporting = false
     @State private var resultLine: (text: String, isError: Bool)?
     @State private var instagramAvailable = false
+    /// Drives the "Add Background Photo" chip's breathing pulse on the card page.
+    @State private var photoChipPulse = false
 
     // MARK: - Derived
 
@@ -92,27 +94,40 @@ struct ShareHubSheet: View {
         periodBooks.filter { !hiddenBookIds.contains($0.bookId) }
     }
 
-    /// Only pages with something to print. Fixed for the life of the sheet:
-    /// the card pages show a loading canvas until their details arrive rather
-    /// than appearing later and shifting the carousel.
-    private static func pages(for userBooks: [UserBook]) -> [SharePage] {
-        var list: [SharePage] = [.card]
-        if !TierPeekStoryCanvas.rows(from: userBooks).isEmpty { list.insert(.tiers, at: 0) }
-        if !SharePeriod.available(in: userBooks).isEmpty {
-            list.append(.monthFloating)
-            list.append(.monthTiers)
-        }
-        return list
-    }
-    private var pages: [SharePage] { Self.pages(for: userBooks) }
+    /// Every graphic, always, in swipe order. Pages whose reading does not
+    /// exist yet show a zero-state canvas (a new reader should still see what
+    /// the app will make for them), and the card pages show a loading canvas
+    /// until their details arrive, so the carousel never shifts underfoot.
+    private let pages: [SharePage] = SharePage.allCases
 
-    /// The card pages can't export until the card details are in.
+    /// Whether a page has nothing to print yet (zero state, not exportable).
+    private func isEmpty(_ p: SharePage) -> Bool {
+        switch p {
+        case .card: return false
+        case .tiers: return peekRows.isEmpty
+        case .monthFloating, .monthTiers: return periods.isEmpty
+        }
+    }
+
+    /// Whether a page's real canvas is on screen (the card pages show a
+    /// loading canvas until their details arrive).
+    private func canvasIsLoaded(_ p: SharePage) -> Bool {
+        (p != .tiers && p != .card) || cardDetails != nil
+    }
+
+    /// Zero-state pages never export; the card pages wait for their details.
     private var currentPageIsReady: Bool {
-        guard let p = currentPage else { return false }
-        return (p != .tiers && p != .card) || cardDetails != nil
+        guard let p = currentPage, !isEmpty(p) else { return false }
+        return canvasIsLoaded(p)
     }
 
     private var currentPage: SharePage? { page ?? pages.first }
+
+    /// Any graphic with no photo behind it exports with a clear background.
+    /// Zero-state placeholders print on paper and never export.
+    private func exportsTransparent(_ p: SharePage) -> Bool {
+        photo == nil && !isEmpty(p)
+    }
 
     var body: some View {
         NavigationStack {
@@ -161,12 +176,12 @@ struct ShareHubSheet: View {
         .animation(.easeInOut(duration: 0.2), value: resultLine?.text)
         .onAppear(perform: start)
         .onChange(of: pickerItem) { _, item in
-            guard let item, let target = currentPage else { return }
+            guard let item else { return }
             Task {
                 let image = await PhotosPickerImageLoader.load(item)
                 await MainActor.run {
                     if let image {
-                        withAnimation(.easeInOut(duration: 0.2)) { photos[target] = image }
+                        withAnimation(.easeInOut(duration: 0.2)) { photo = image }
                     }
                     // Re-arm the picker so choosing the same photo again works.
                     pickerItem = nil
@@ -179,10 +194,6 @@ struct ShareHubSheet: View {
         }
         .onChange(of: page) { _, _ in
             resultLine = nil
-        }
-        .onChange(of: pages) { _, list in
-            // Only reachable if the library changes while the sheet is up.
-            if let current = page, !list.contains(current) { page = list.first }
         }
     }
 
@@ -242,6 +253,26 @@ struct ShareHubSheet: View {
         return canvas(for: p)
             .scaleEffect(scale)
             .frame(width: width, height: height)
+            // A transparent canvas previews over a checkerboard, the way any
+            // image editor shows "nothing here", so the clear background reads
+            // as intentional rather than missing.
+            .background {
+                if exportsTransparent(p) {
+                    TransparencyCheckerboard()
+                        .transition(.opacity)
+                }
+            }
+            // Preview-only (outside the canvas, so it never exports): on the
+            // card page the pulsing "Add Background Photo" chip sits right
+            // under the card, in the clear space it will fill.
+            .overlay(alignment: p == .card ? .top : .bottom) {
+                if exportsTransparent(p), canvasIsLoaded(p) {
+                    addPhotoChip(pulsing: true)
+                        .padding(.top, p == .card ? height * 0.71 : 0)
+                        .padding(.bottom, p == .card ? 0 : height * 0.10)
+                        .transition(.opacity)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 26))
             .overlay(
                 RoundedRectangle(cornerRadius: 26)
@@ -250,28 +281,42 @@ struct ShareHubSheet: View {
             .shadow(color: Theme.shadowInk.opacity(0.14), radius: 14, y: 8)
             .contentShape(RoundedRectangle(cornerRadius: 26))
             .onTapGesture {
-                if page == p {
-                    showPhotoPicker = true
-                } else {
+                if page != p {
                     withAnimation(.snappy(duration: 0.3, extraBounce: 0.12)) { page = p }
+                } else if !isEmpty(p) {
+                    showPhotoPicker = true
                 }
             }
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("\(p.title). \(photos[p] == nil ? "Tap to choose a background photo" : "Tap to change the background photo")")
+            .accessibilityLabel(accessibilityLabel(for: p))
+    }
+
+    private func accessibilityLabel(for p: SharePage) -> String {
+        if isEmpty(p) { return "\(p.title). Fills in as you add your reading." }
+        return "\(p.title). \(photo == nil ? "Tap to choose a background photo" : "Tap to change the background photo")"
     }
 
     @ViewBuilder
     private func canvas(for p: SharePage) -> some View {
+        if isEmpty(p) {
+            StoryEmptyCanvas(page: p, handle: handle)
+        } else {
+            filledCanvas(for: p)
+        }
+    }
+
+    @ViewBuilder
+    private func filledCanvas(for p: SharePage) -> some View {
         switch p {
         case .tiers:
             if let cardDetails {
-                TierPeekStoryCanvas(rows: peekRows, covers: coverResolver.images, details: cardDetails, background: photos[p])
+                TierPeekStoryCanvas(rows: peekRows, covers: coverResolver.images, details: cardDetails, background: photo)
             } else {
                 StoryLoadingCanvas()
             }
         case .card:
             if let cardDetails {
-                LibraryCardStoryCanvas(details: cardDetails, background: photos[p])
+                LibraryCardStoryCanvas(details: cardDetails, background: photo)
             } else {
                 StoryLoadingCanvas()
             }
@@ -284,7 +329,7 @@ struct ShareHubSheet: View {
                     coverWidth: floatingCoverWidth,
                     showsTiers: floatingShowsTiers,
                     handle: handle,
-                    background: photos[p]
+                    background: photo
                 )
             }
         case .monthTiers:
@@ -294,7 +339,7 @@ struct ShareHubSheet: View {
                     books: visiblePeriodBooks,
                     covers: coverResolver.images,
                     handle: handle,
-                    background: photos[p]
+                    background: photo
                 )
             }
         }
@@ -316,44 +361,75 @@ struct ShareHubSheet: View {
 
     /// What the current graphic lets you change. One row of chips, plus the
     /// cover-size slider for the floating shelf.
-    @ViewBuilder
+    /// Fixed height so the carousel never resizes as pages come and go, and a
+    /// cross-fade between one page's chips and the next.
+    private static let controlsHeight: CGFloat = 78
+
     private var controls: some View {
-        if let p = currentPage {
-            VStack(spacing: 10) {
-                Text(p.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        photoChip(for: p)
-                        if p.usesPeriod {
-                            periodChip
-                            booksChip
-                        }
-                        if p == .monthFloating {
-                            toggleChip(title: "Tiers", systemImage: "square.stack", isOn: $floatingShowsTiers)
-                        }
+        ZStack(alignment: .top) {
+            if let p = currentPage, !isEmpty(p) {
+                VStack(spacing: 10) {
+                    chipRow(for: p)
+                    if p == .monthFloating {
+                        coverSizeSlider
                     }
-                    .padding(.horizontal, 24)
                 }
-                .scrollIndicators(.hidden)
-                if p == .monthFloating {
-                    coverSizeSlider
-                }
+                .id(p)
+                .transition(.opacity)
             }
         }
+        .frame(height: Self.controlsHeight, alignment: .top)
+        .animation(.easeInOut(duration: 0.22), value: currentPage)
+    }
+
+    /// The chips for a page, centered when they fit and scrolling when they
+    /// don't. The "Add Background Photo" chip is not here: without a photo it
+    /// lives on the preview itself.
+    @ViewBuilder
+    private func chipRow(for p: SharePage) -> some View {
+        let row = HStack(spacing: 8) {
+            photoChip(for: p)
+            if p.usesPeriod {
+                periodChip
+                booksChip
+            }
+            if p == .monthFloating {
+                toggleChip(title: "Tiers", systemImage: "square.stack", isOn: $floatingShowsTiers)
+            }
+        }
+        .padding(.horizontal, 24)
+        ViewThatFits(in: .horizontal) {
+            row
+            ScrollView(.horizontal) { row }
+                .scrollIndicators(.hidden)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
     private func photoChip(for p: SharePage) -> some View {
-        if photos[p] == nil {
-            chip(title: "Add photo", systemImage: "photo") { showPhotoPicker = true }
-        } else {
+        if photo != nil {
             chip(title: "Change photo", systemImage: "photo") { showPhotoPicker = true }
             chip(title: "Remove", systemImage: "xmark") {
-                withAnimation(.easeInOut(duration: 0.2)) { photos[p] = nil }
+                withAnimation(.easeInOut(duration: 0.2)) { photo = nil }
             }
         }
+    }
+
+    /// "Add Background Photo", breathing when asked so the reader notices it.
+    private func addPhotoChip(pulsing: Bool) -> some View {
+        chip(title: "Add Background Photo", systemImage: "photo") { showPhotoPicker = true }
+            // Body-scoped so only the scale breathes. A value-scoped
+            // `.animation(value:)` also caught the chip's first layout inside
+            // the presenting sheet and bounced it across the screen forever;
+            // `withAnimation(.repeatForever)` in onAppear would break the
+            // sheet's drag-to-dismiss.
+            .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { content in
+                content
+                    .scaleEffect(pulsing && photoChipPulse ? 1.06 : 1)
+                    .shadow(color: Theme.shadowInk.opacity(pulsing && photoChipPulse ? 0.22 : 0), radius: 10, y: 4)
+            }
+            .onAppear { if pulsing { photoChipPulse = true } }
     }
 
     private var periodChip: some View {
@@ -379,7 +455,7 @@ struct ShareHubSheet: View {
         let total = periodBooks.count
         let shown = visiblePeriodBooks.count
         return chip(
-            title: shown == total ? "Books (\(total))" : "Books (\(shown) of \(total))",
+            title: shown == total ? "Show (\(total))" : "Show (\(shown) of \(total))",
             systemImage: "books.vertical"
         ) {
             showBookPicker = true
@@ -454,21 +530,16 @@ struct ShareHubSheet: View {
 
     // MARK: - Actions
 
-    /// Just two ways out: Instagram story, or Photos. Where Instagram isn't
-    /// installed, saving is the one primary action.
+    /// Just two ways out: Instagram story, or Photos. The Instagram button is
+    /// always there; without Instagram installed it opens Instagram's App
+    /// Store page instead of the story editor.
     private var actions: some View {
         VStack(spacing: 10) {
-            if instagramAvailable {
-                InstagramStoryShareButton {
-                    shareToInstagram()
-                }
-                WizardSecondaryButton(title: isExporting ? "Saving…" : "Save to Photos") {
-                    save()
-                }
-            } else {
-                WizardCTAButton(title: "Save to Photos", showsProgress: isExporting) {
-                    save()
-                }
+            InstagramStoryShareButton {
+                shareToInstagram()
+            }
+            WizardSecondaryButton(title: isExporting ? "Saving…" : "Save to Photos", systemImage: "square.and.arrow.down") {
+                save()
             }
         }
         .padding(.horizontal, 24)
@@ -505,13 +576,21 @@ struct ShareHubSheet: View {
 
     private func shareToInstagram() {
         guard !isExporting, let p = currentPage else { return }
+        guard instagramAvailable else {
+            if let url = URL(string: "https://apps.apple.com/app/instagram/id389801252") {
+                UIApplication.shared.open(url)
+            }
+            return
+        }
         resultLine = nil
         isExporting = true
         Task {
             let image = await exportCurrentImage()
             await MainActor.run {
                 isExporting = false
-                let ok = image.map { StoryExporter.shareToInstagramStories($0, hasPhoto: photos[p] != nil) } ?? false
+                let ok = image.map {
+                    StoryExporter.shareToInstagramStories($0, hasPhoto: photo != nil, transparent: exportsTransparent(p))
+                } ?? false
                 if ok {
                     WizardHaptics.success()
                 } else {
@@ -522,9 +601,10 @@ struct ShareHubSheet: View {
     }
 
     private func save() {
-        guard !isExporting else { return }
+        guard !isExporting, let p = currentPage else { return }
         resultLine = nil
         isExporting = true
+        let transparent = exportsTransparent(p)
         Task {
             guard let image = await exportCurrentImage() else {
                 await MainActor.run {
@@ -533,13 +613,12 @@ struct ShareHubSheet: View {
                 }
                 return
             }
-            let outcome = await StoryExporter.saveToPhotos(image)
+            let outcome = await StoryExporter.saveToPhotos(image, preservingTransparency: transparent)
             await MainActor.run {
                 isExporting = false
                 switch outcome {
                 case .saved:
                     WizardHaptics.success()
-                    resultLine = ("Saved to your Photos. Ready for your story.", false)
                 case .permissionDenied:
                     resultLine = ("SPINE needs photo access to save. Turn it on in Settings.", true)
                 case .failed:
@@ -547,6 +626,34 @@ struct ShareHubSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Transparency checkerboard
+
+/// The editor's "this part is clear" grid, in paper tones so it sits inside
+/// the monochrome palette. Drawn at screen size (not inside the scaled
+/// canvas) so the squares stay the same size on every device.
+private struct TransparencyCheckerboard: View {
+    private let square: CGFloat = 12
+    private let light = Theme.paperFixed
+    /// Barely there: enough to read as "clear", not enough to fight the ink.
+    private let dark = Color(red: 226/255, green: 227/255, blue: 216/255)
+
+    var body: some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(light))
+            let cols = Int(ceil(size.width / square))
+            let rows = Int(ceil(size.height / square))
+            var path = Path()
+            for row in 0..<rows {
+                for col in 0..<cols where (row + col).isMultiple(of: 2) {
+                    path.addRect(CGRect(x: CGFloat(col) * square, y: CGFloat(row) * square, width: square, height: square))
+                }
+            }
+            context.fill(path, with: .color(dark))
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -665,13 +772,16 @@ struct InstagramStoryShareButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image("InstagramLogo")
+                // The outline glyph, white: always legible on the fixed brand
+                // gradient regardless of the app's light or dark mode.
+                Image("InstagramGlyph")
                     .resizable()
+                    .renderingMode(.template)
                     .scaledToFit()
-                    .frame(width: 26, height: 26)
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                    .shadow(color: Color.black.opacity(0.3), radius: 3, y: 1)
-                Text("Share to Instagram Story")
+                    .frame(width: 22, height: 22)
+                    .foregroundStyle(.white)
+                    .shadow(color: Color.black.opacity(0.18), radius: 2, y: 1)
+                Text("Share to Story")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
                     .shadow(color: Color.black.opacity(0.18), radius: 2, y: 1)

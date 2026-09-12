@@ -619,7 +619,7 @@ struct BookBlendStoryView: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(Theme.paperFixed.opacity(0.9))
             }
-            Text("Saved for both of you — rewatch it anytime from \(otherName)'s profile.")
+            Text("Saved for both of you. Rewatch it anytime from \(otherName)'s profile.")
                 .font(Theme.callout())
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.paperFixed.opacity(0.7))
@@ -876,22 +876,22 @@ extension BookBlend {
                 sharedGenres: ["Science Fiction", "Memoir", "Psychology"],
                 distinctGenres: [me: ["History", "Economics"], them: ["Literary Fiction", "Horror"]],
                 insights: [
-                    Insight(title: "Weir believers", body: "Andy Weir is your load-bearing author — you both rated him a 9 or better, twice."),
+                    Insight(title: "Weir believers", body: "Andy Weir is your load-bearing author. You both rated him a 9 or better, twice."),
                     Insight(title: "Rating twins", body: "When you both read a book, your scores land within half a point. Suspiciously in sync."),
                 ],
                 recs: [
                     me: [
-                        Rec(title: "The Secret History", author: "Donna Tartt", bookId: nil, coverURL: nil, reason: "Alex's highest-rated fiction — dark academia you'd devour.", sourceUid: them, sourceTier: "S"),
+                        Rec(title: "The Secret History", author: "Donna Tartt", bookId: nil, coverURL: nil, reason: "Alex's highest-rated fiction: dark academia you'd devour.", sourceUid: them, sourceTier: "S"),
                         Rec(title: "Mexican Gothic", author: "Silvia Moreno-Garcia", bookId: nil, coverURL: nil, reason: "The horror gateway Alex swears by.", sourceUid: them, sourceTier: "A"),
                     ],
                     them: [
-                        Rec(title: "Basic Economics", author: "Thomas Sowell", bookId: nil, coverURL: nil, reason: "Tanner's A-tier — the nonfiction spine of his shelf.", sourceUid: me, sourceTier: "A"),
+                        Rec(title: "Basic Economics", author: "Thomas Sowell", bookId: nil, coverURL: nil, reason: "Tanner's A-tier: the nonfiction spine of his shelf.", sourceUid: me, sourceTier: "A"),
                         Rec(title: "Endurance", author: "Alfred Lansing", bookId: nil, coverURL: nil, reason: "Survival stakes with none of the fiction.", sourceUid: me, sourceTier: "B"),
                     ],
                 ],
                 freshPicks: [
                     Rec(title: "Piranesi", author: "Susanna Clarke", bookId: nil, coverURL: nil, reason: "A puzzle-box world for two plot twisters.", sourceUid: nil),
-                    Rec(title: "Recursion", author: "Blake Crouch", bookId: nil, coverURL: nil, reason: "Sci-fi that rewrites itself — buddy-read bait.", sourceUid: nil),
+                    Rec(title: "Recursion", author: "Blake Crouch", bookId: nil, coverURL: nil, reason: "Sci-fi that rewrites itself: buddy-read bait.", sourceUid: nil),
                 ],
                 generatedAt: Date(),
                 generatedBy: me

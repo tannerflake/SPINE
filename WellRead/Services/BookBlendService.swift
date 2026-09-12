@@ -489,13 +489,13 @@ final class BookBlendService {
         if let top = stats.sharedBooks.first {
             insights.append(.init(
                 title: "Common ground",
-                body: "You've both read \(top.title) — and \(stats.sharedBooks.count == 1 ? "that's where the overlap starts" : "\(stats.sharedBooks.count - 1) more besides")."
+                body: "You've both read \(top.title), and \(stats.sharedBooks.count == 1 ? "that's where the overlap starts" : "\(stats.sharedBooks.count - 1) more besides")."
             ))
         }
         if let firstShared = stats.sharedGenres.first {
             insights.append(.init(
                 title: "Shared wavelength",
-                body: "\(firstShared) is the backbone of this blend — it shows up all over both shelves."
+                body: "\(firstShared) is the backbone of this blend. It shows up all over both shelves."
             ))
         }
         if let bringA = stats.distinctGenres[uidA]?.first, let bringB = stats.distinctGenres[uidB]?.first {
@@ -507,7 +507,7 @@ final class BookBlendService {
         if insights.isEmpty {
             insights.append(.init(
                 title: "Blank page",
-                body: "Not much overlap yet — which means everything's a recommendation waiting to happen."
+                body: "Not much overlap yet, which means everything's a recommendation waiting to happen."
             ))
         }
 
@@ -614,7 +614,7 @@ final class BookBlendService {
     ) async -> AIContent? {
         let system = """
         You are the voice of Book Blend inside Spine, a social reading app. Two readers just merged their libraries. \
-        Write punchy, specific, warm copy — Spotify-Wrapped energy, never generic, never cheesy. \
+        Write punchy, specific, warm copy, Spotify-Wrapped energy, never generic, never cheesy. \
         Reference actual titles and tastes from the data. Keep every string under 140 characters. \
         Respond with ONLY a JSON object, no markdown fences, matching exactly:
         {
@@ -622,14 +622,14 @@ final class BookBlendService {
           "archetypeEmoji": "one emoji",
           "tagline": "one-line subtitle for the archetype",
           "insights": [{"title": "2-4 word punchy header", "body": "one specific sentence about their combined taste"}, x3],
-          "recsForA": [{"title": "...", "author": "...", "reason": "one punchy line on why A should steal this from B's shelf"}, x3 — MUST be books from B's list that A has not read],
+          "recsForA": [{"title": "...", "author": "...", "reason": "one punchy line on why A should steal this from B's shelf"}, x3, MUST be books from B's list that A has not read],
           "recsForB": [same, from A's shelf, x3],
-          "freshPicks": [{"title": "...", "author": "...", "reason": "why this fits both"}, x4 — real books NEITHER has read, to read together. Never pick anything from either shelf or the do-not-pick list; the first two that pass are shown]
+          "freshPicks": [{"title": "...", "author": "...", "reason": "why this fits both"}, x4, real books NEITHER has read, to read together. Never pick anything from either shelf or the do-not-pick list; the first two that pass are shown]
         }
         """
         let user = """
         Reader A is \(nameA). Reader B is \(nameB).
-        Compatibility score (already computed): \(stats.score)% — verdict "\(stats.verdict)".
+        Compatibility score (already computed): \(stats.score)%, verdict "\(stats.verdict)".
         Books BOTH have read: \(stats.sharedBooks.prefix(10).map(\.title).joined(separator: "; ")).
         Shared genres: \(stats.sharedGenres.joined(separator: ", ")).
         \(nameA) uniquely reads: \((stats.distinctGenres[uidA] ?? []).joined(separator: ", ")).
@@ -700,7 +700,7 @@ final class BookBlendService {
             .prefix(35)
             .compactMap { entry -> String? in
                 guard let book = entry.book else { return nil }
-                var line = "\(book.title) — \(book.author)"
+                var line = "\(book.title) by \(book.author)"
                 if let r = entry.rating { line += " (\(Theme.formatRatingOutOfTen(r))/10)" }
                 else if let t = entry.tier { line += " (\(t)-tier)" }
                 return line

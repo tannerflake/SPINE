@@ -92,21 +92,21 @@ struct WizardTierListStep: View {
 
     private var headline: String {
         switch scene {
-        case .assemble: return "Your books get a tier list."
+        case .assemble: return "Your profile is a tier list."
         case .meetS: return "S is the top."
-        case .ladder: return "Then it walks the alphabet."
+        case .ladder: return "Then it walks down the alphabet."
         }
     }
 
-    /// nil = headline only (the ladder scene lets the shelves do the talking).
+    /// nil = headline only.
     private var subline: String? {
         switch scene {
         case .assemble:
-            return "Every book you finish lands on one of these shelves."
+            return "Every time you finish a book, you'll rank it on one of these tiers."
         case .meetS:
-            return "The tier list is a Japanese rating system, and S stands for Superior. Your all-time favorites go here."
+            return "S stands for Superior.\nYour all-time favorites go here."
         case .ladder:
-            return nil
+            return "The lower the tier, the less you liked it."
         }
     }
 

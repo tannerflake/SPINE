@@ -13,6 +13,7 @@
 import SwiftUI
 import Photos
 import UIKit
+import UniformTypeIdentifiers
 
 enum StoryExporter {
 
@@ -34,16 +35,28 @@ enum StoryExporter {
     }
 
     /// Saves to the photo library, asking for add-only access first.
-    static func saveToPhotos(_ image: UIImage) async -> SaveOutcome {
+    /// `preservingTransparency` writes the PNG bytes directly so a canvas with
+    /// a clear background stays clear (the plain image path re-encodes as
+    /// JPEG and would fill it black).
+    static func saveToPhotos(_ image: UIImage, preservingTransparency: Bool = false) async -> SaveOutcome {
         let status = await withCheckedContinuation { continuation in
             PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
                 continuation.resume(returning: status)
             }
         }
         guard status == .authorized || status == .limited else { return .permissionDenied }
+        let pngData: Data? = preservingTransparency ? image.pngData() : nil
+        if preservingTransparency && pngData == nil { return .failed }
         do {
             try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
+                if let pngData {
+                    let request = PHAssetCreationRequest.forAsset()
+                    let options = PHAssetResourceCreationOptions()
+                    options.uniformTypeIdentifier = UTType.png.identifier
+                    request.addResource(with: .photo, data: pngData, options: options)
+                } else {
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }
             }
             return .saved
         } catch {
@@ -67,13 +80,17 @@ enum StoryExporter {
     /// keys and the instagram-stories:// scheme drops the reader straight into
     /// the story editor with the image preloaded as the background.
     /// `hasPhoto` picks JPEG (photo backgrounds compress far better) over PNG
-    /// (flat paper tones and thin rules stay crisp).
+    /// (flat paper tones and thin rules stay crisp). A `transparent` canvas
+    /// is flattened onto the paper tone first: Instagram paints transparent
+    /// background images black, and sending it as a sticker instead shrinks
+    /// it to a fraction of the frame. Save to Photos keeps the real alpha.
     @MainActor
     @discardableResult
-    static func shareToInstagramStories(_ image: UIImage, hasPhoto: Bool) -> Bool {
+    static func shareToInstagramStories(_ image: UIImage, hasPhoto: Bool, transparent: Bool = false) -> Bool {
+        let flattened = transparent ? flattenOntoPaper(image) : image
         let imageData: Data? = hasPhoto
-            ? image.jpegData(compressionQuality: 0.92)
-            : image.pngData()
+            ? flattened.jpegData(compressionQuality: 0.92)
+            : flattened.pngData()
         guard let imageData else { return false }
 
         let appID = ApiKeys.metaAppID ?? Bundle.main.bundleIdentifier ?? "com.wellread.app"
@@ -89,5 +106,17 @@ enum StoryExporter {
         )
         UIApplication.shared.open(url)
         return true
+    }
+
+    /// The canvas over an opaque paper fill, same pixel size and scale.
+    private static func flattenOntoPaper(_ image: UIImage) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { ctx in
+            UIColor(Theme.paperFixed).setFill()
+            ctx.fill(CGRect(origin: .zero, size: image.size))
+            image.draw(at: .zero)
+        }
     }
 }

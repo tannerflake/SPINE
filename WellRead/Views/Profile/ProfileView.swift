@@ -82,7 +82,7 @@ struct ProfileView: View {
             }
             HStack(spacing: 24) {
                 VStack {
-                    Text(followerCount.map { String($0) } ?? "—")
+                    Text(followerCount.map { String($0) } ?? "-")
                         .font(Theme.headline())
                         .foregroundStyle(Theme.textPrimary)
                     Text("Followers")

@@ -324,6 +324,10 @@ struct SearchView: View {
         .onAppear {
             refreshRecents()
             Task { await loadFollowedReadsIfNeeded() }
+            // The community-popularity key set is fetched on the first search of
+            // the session otherwise (a ~1s Firestore query serialized in front
+            // of the first results); warm it while the field is still empty.
+            Task { _ = await BookPopularityService.shared.popularKeys() }
             // Warmed on appear, not on the flip to Users: by the time the segment
             // is tapped the roster is already there.
             warmDirectory()
@@ -343,7 +347,11 @@ struct SearchView: View {
     @ViewBuilder
     private var booksResults: some View {
         Group {
-            if isSearching {
+            // The full-size spinner only when there is nothing to show yet. Once
+            // results exist they stay put, dimmed, while the next query runs —
+            // a spinner block above the list shoved every row down on each
+            // keystroke and read as a blank page mid-typing.
+            if isSearching && results.isEmpty {
                 VStack(spacing: 14) {
                     SpinningSpineLogo(size: 72)
                     Text("Searching…").font(Theme.callout()).foregroundStyle(Theme.textSecondary)
@@ -386,6 +394,15 @@ struct SearchView: View {
                         .padding(.bottom, mainTabBarOverlapExtraHeight + 12)
                 } else {
                     LazyVStack(spacing: 12) {
+                        if isSearching && !results.isEmpty {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Searching…")
+                            }
+                            .font(Theme.caption())
+                            .foregroundStyle(Theme.textSecondary)
+                            .frame(maxWidth: .infinity)
+                        }
                         if let completed = completedQuery, !isSearching {
                             completionBanner(completed)
                         }
@@ -394,6 +411,8 @@ struct SearchView: View {
                                 openBookProfile(book)
                             }
                         }
+                        .opacity(isSearching ? 0.5 : 1)
+                        .animation(.easeInOut(duration: 0.15), value: isSearching)
                         if hasSearched && !isSearching && !results.isEmpty && !showingAllEditions {
                             VStack(spacing: 4) {
                                 Text("Can't find what you're looking for?")

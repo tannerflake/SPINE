@@ -258,7 +258,7 @@ final class LinkImportModel: ObservableObject {
         undoStack.removeAll { $0.candidateId == candidate.id }
         canUndo = !undoStack.isEmpty
         persist()
-        importError = "Couldn't add “\(book.title)” — check your connection and try again."
+        importError = "Couldn't add “\(book.title)” . Check your connection and try again."
         if step == .done || step == .bulkAdding { step = .wizard }
     }
 
@@ -341,8 +341,8 @@ final class LinkImportModel: ObservableObject {
             }
             if failures > 0 {
                 self.importError = failures == 1
-                    ? "1 book couldn't be added — check your connection and try again."
-                    : "\(failures) books couldn't be added — check your connection and try again."
+                    ? "1 book couldn't be added . Check your connection and try again."
+                    : "\(failures) books couldn't be added . Check your connection and try again."
                 self.step = .wizard
                 self.prefetchMatches()
             } else {

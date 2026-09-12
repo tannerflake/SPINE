@@ -27,7 +27,7 @@ struct LinkBookCandidate: Identifiable, Equatable, Codable {
     }
 
     var displayLine: String {
-        author.isEmpty ? title : "\(title) — \(author)"
+        author.isEmpty ? title : "\(title) · \(author)"
     }
 }
 

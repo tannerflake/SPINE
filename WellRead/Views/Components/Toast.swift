@@ -193,8 +193,8 @@ extension Toast {
             style: .info,
             status: "Already in library",
             message: readDateSaved
-                ? "“\(short(bookTitle))” is on your shelf — added its read date"
-                : "“\(short(bookTitle))” is already in your library — skipped",
+                ? "“\(short(bookTitle))” is on your shelf, added its read date"
+                : "“\(short(bookTitle))” is already in your library, skipped",
             duration: 3.2
         )
     }

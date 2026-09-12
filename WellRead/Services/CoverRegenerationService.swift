@@ -217,7 +217,7 @@ final class CoverRegenerationService {
                     "coverEditedAt": FieldValue.serverTimestamp(),
                 ])
             } catch {
-                print("CoverRegeneration: book update failed — \(error)")
+                print("CoverRegeneration: book update failed: \(error)")
             }
             await writeLog(
                 bookId: book.id, bookTitle: book.title, userId: userId,
@@ -257,7 +257,7 @@ final class CoverRegenerationService {
             do {
                 try await db.collection("books").document(book.id).updateData(fields)
             } catch {
-                print("CoverRegeneration: undo update failed — \(error)")
+                print("CoverRegeneration: undo update failed: \(error)")
             }
             await writeLog(
                 bookId: book.id, bookTitle: book.title, userId: userId,
@@ -301,7 +301,7 @@ final class CoverRegenerationService {
                 logDocIds[bookId] = ref.documentID
             }
         } catch {
-            print("CoverRegeneration: log write failed — \(error)")
+            print("CoverRegeneration: log write failed: \(error)")
         }
     }
 

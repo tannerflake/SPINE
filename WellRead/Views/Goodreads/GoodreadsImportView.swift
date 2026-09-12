@@ -346,7 +346,7 @@ final class GoodreadsWizardModel: ObservableObject {
         session = s
         persist()
         enterStep(for: s.phase)
-        importError = "\"\(book.title)\" didn't save — check your connection, then tap Add again."
+        importError = "\"\(book.title)\" didn't save. Check your connection, then tap Add again."
     }
 
     func skipCurrent() {
@@ -603,7 +603,7 @@ final class GoodreadsWizardModel: ObservableObject {
             if failedCount > 0 {
                 // Problem rows are still pending — drop back into the wizard,
                 // where each gets a search-to-match card. Never silently lost.
-                self.importError = "\(failedCount) book\(failedCount == 1 ? "" : "s") couldn't be imported automatically — match \(failedCount == 1 ? "it" : "them") by hand below, or skip."
+                self.importError = "\(failedCount) book\(failedCount == 1 ? "" : "s") couldn't be imported automatically. Match \(failedCount == 1 ? "it" : "them") by hand below, or skip."
                 self.enterStep(for: phase)
             } else {
                 self.transitionIfPhaseFinished()
@@ -752,13 +752,13 @@ struct GoodreadsImportView: View {
                 Button("Delete progress", role: .destructive) { model.startOver() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Starting over deletes your place in this import and every book still waiting for review — you'd begin again from a fresh CSV. Books you've already imported stay in your library.")
+                Text("Starting over deletes your place in this import and every book still waiting for review. You'd begin again from a fresh CSV. Books you've already imported stay in your library.")
             }
             .alert("Import all remaining?", isPresented: $showImportAllConfirm) {
                 Button("Import all anyway") { model.importAllRemaining() }
                 Button("Keep reviewing", role: .cancel) {}
             } message: {
-                Text("Importing everything at once can occasionally mismatch books, so going book by book is recommended. Your progress is always saved — you can close this and pick up right where you left off anytime.")
+                Text("Importing everything at once can occasionally mismatch books, so going book by book is recommended. Your progress is always saved. You can close this and pick up right where you left off anytime.")
             }
         }
     }
@@ -789,10 +789,10 @@ struct GoodreadsImportView: View {
             cardDateNote = nil
         } else if let dateAdded = row.dateAdded {
             cardDateRead = dateAdded
-            cardDateNote = "No read date in your Goodreads export — this is the date you added it. Adjust if needed."
+            cardDateNote = "No read date in your Goodreads export. This is the date you added it. Adjust if needed."
         } else {
             cardDateRead = Date()
-            cardDateNote = "No date in your Goodreads export — pick when you finished it."
+            cardDateNote = "No date in your Goodreads export. Pick when you finished it."
         }
     }
 
@@ -828,7 +828,7 @@ struct GoodreadsImportView: View {
                         GridRow {
                             stepNumberBadge(1, done: goodreadsLoginDone, active: !goodreadsLoginDone)
                             stepBody(
-                                "Log in to Goodreads — tap the button below and sign in. Once you’re in, tap “I’m logged in”.",
+                                "Log in to Goodreads. Tap the button below and sign in. Once you’re in, tap “I’m logged in”.",
                                 dimmed: goodreadsLoginDone
                             )
                         }
@@ -1386,7 +1386,7 @@ struct GoodreadsImportView: View {
             Text("Importing… \(model.bulkDone) of \(model.bulkTotal)")
                 .font(Theme.callout())
                 .foregroundStyle(Theme.textSecondary)
-            Text("Keep the app open — this can take a bit for a large library.")
+            Text("Keep the app open. This can take a bit for a large library.")
                 .font(Theme.caption())
                 .foregroundStyle(Theme.textTertiary)
                 .multilineTextAlignment(.center)
@@ -1606,7 +1606,7 @@ struct ManualBookMatchCard: View {
                 Text("Couldn't match this book automatically")
                     .font(Theme.headline())
                     .foregroundStyle(Theme.textPrimary)
-                Text(author.isEmpty ? title : "\(title) — \(author)")
+                Text(author.isEmpty ? title : "\(title) · \(author)")
                     .font(Theme.callout())
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1662,7 +1662,7 @@ struct ManualBookMatchCard: View {
                     .foregroundStyle(Theme.danger)
                     .fixedSize(horizontal: false, vertical: true)
             } else if results.isEmpty, !query.trimmingCharacters(in: .whitespaces).isEmpty {
-                Text("No results — try fewer words or a different spelling.")
+                Text("No results. Try fewer words or a different spelling.")
                     .font(Theme.caption())
                     .foregroundStyle(Theme.textTertiary)
             } else {
@@ -1755,7 +1755,7 @@ struct ManualBookMatchCard: View {
             } catch {
                 guard !Task.isCancelled else { return }
                 results = []
-                searchError = "Search didn't go through — check your connection and try again."
+                searchError = "Search didn't go through. Check your connection and try again."
             }
             isSearching = false
         }

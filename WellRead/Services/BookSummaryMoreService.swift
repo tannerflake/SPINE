@@ -45,10 +45,10 @@ final class BookSummaryMoreService {
 
         STRICTLY NO SPOILERS: never reveal the ending, late-book twists or reveals, character deaths, or how any conflict resolves. Stay within the setup a reader would get from the first act and the jacket copy.
 
-        Write exactly three short paragraphs of plain prose, separated by blank lines — no markdown, no headings, no lists:
-        1. The premise and setup — who the book follows, the world or situation, and the tension that kicks things off (fiction), or the core question the book tackles and its approach (non-fiction).
+        Write exactly three short paragraphs of plain prose, separated by blank lines, no markdown, no headings, no lists:
+        1. The premise and setup: who the book follows, the world or situation, and the tension that kicks things off (fiction), or the core question the book tackles and its approach (non-fiction).
         2. The themes and ideas it explores, and what it's really about underneath the surface.
-        3. The style and experience of reading it — voice, tone, pacing — and why readers love it.
+        3. The style and experience of reading it (voice, tone, pacing) and why readers love it.
 
         If you don't know the book well enough to be accurate, keep it general rather than inventing specifics.
         """
@@ -75,7 +75,7 @@ final class BookSummaryMoreService {
     /// Spoiler-safe by default; only spoils if the reader explicitly asks to be spoiled.
     func answer(question: String, for book: Book, summary: String, history: [RefresherChatTurn]) async throws -> String {
         let system = """
-        You answer questions about "\(book.title)" by \(book.author) for a reader who has NOT read the book yet. Default to NO SPOILERS: never reveal the ending, twists, reveals, character deaths, or how conflicts resolve — talk around them ("without spoiling anything…") instead. Only if the reader explicitly says they want spoilers, give a one-line warning and then answer plainly. Keep answers to a short paragraph or two. If a question goes beyond what's in the book, say so briefly. Plain text only — no markdown.
+        You answer questions about "\(book.title)" by \(book.author) for a reader who has NOT read the book yet. Default to NO SPOILERS: never reveal the ending, twists, reveals, character deaths, or how conflicts resolve. Talk around them ("without spoiling anything…") instead. Only if the reader explicitly says they want spoilers, give a one-line warning and then answer plainly. Keep answers to a short paragraph or two. If a question goes beyond what's in the book, say so briefly. Plain text only, no markdown.
 
         Summary already shown to the reader:
         \(summary)

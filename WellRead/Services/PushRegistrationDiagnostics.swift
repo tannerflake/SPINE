@@ -16,15 +16,15 @@ import FirebaseMessaging
 final class PushRegistrationDiagnostics: ObservableObject {
     static let shared = PushRegistrationDiagnostics()
 
-    @Published var authorizationSummary: String = "—"
+    @Published var authorizationSummary: String = "-"
     @Published var apnsDeviceTokenHex: String?
     @Published var apnsRegistrationError: String?
     @Published var fcmRegistrationToken: String?
-    @Published var lastFirestoreWriteSummary: String = "—"
+    @Published var lastFirestoreWriteSummary: String = "-"
     @Published var lastFirestoreWriteAt: Date?
     @Published var lastFirestoreReadSummary: String = "Tap “Verify Firestore read-back”"
     @Published var isVerifyingFirestore: Bool = false
-    @Published var lastTestPushMessage: String = "—"
+    @Published var lastTestPushMessage: String = "-"
     @Published var sendingTestPushKind: PushTestNotificationKind? = nil
 
     private let userRepo = UserRepository()
@@ -51,7 +51,7 @@ final class PushRegistrationDiagnostics: ObservableObject {
         @unknown default: name = "unknown(\(a.rawValue))"
         }
         let alert = settings.alertSetting == .enabled ? "alerts on" : "alerts off"
-        authorizationSummary = "\(name) — \(alert)"
+        authorizationSummary = "\(name), \(alert)"
     }
 
     func refreshFCMTokenFromMessaging() async {
@@ -109,7 +109,7 @@ final class PushRegistrationDiagnostics: ObservableObject {
             return
         }
         guard let token = fcmRegistrationToken, !token.isEmpty else {
-            lastFirestoreReadSummary = "No FCM token yet — wait for registration or tap Refresh"
+            lastFirestoreReadSummary = "No FCM token yet. Wait for registration or tap Refresh"
             return
         }
         isVerifyingFirestore = true
@@ -117,7 +117,7 @@ final class PushRegistrationDiagnostics: ObservableObject {
         do {
             let exists = try await userRepo.fcmTokenDocumentExists(uid: uid, token: token)
             lastFirestoreReadSummary = exists
-                ? "Read-back OK — users/\(uid.prefix(6))…/fcmTokens/{hash} exists"
+                ? "Read-back OK: users/\(uid.prefix(6))…/fcmTokens/{hash} exists"
                 : "Document missing (path may differ or write not committed yet)"
         } catch {
             lastFirestoreReadSummary = "Read failed: \(error.localizedDescription)"

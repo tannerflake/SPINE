@@ -159,7 +159,12 @@ struct BookBlend: Identifiable, Equatable {
         var result: Result?
         if let map = data["result"] as? [String: Any],
            let json = try? JSONSerialization.data(withJSONObject: map),
-           let decoded = try? jsonDecoder().decode(Result.self, from: json) {
+           // Blends generated before the no-dash house rule still hold em dashes
+           // in their AI copy; clean them on read rather than regenerating.
+           let decoded = try? jsonDecoder().decode(
+               Result.self,
+               from: Data(ClaudeService.stripDashes(String(decoding: json, as: UTF8.self)).utf8)
+           ) {
             result = decoded
         }
 

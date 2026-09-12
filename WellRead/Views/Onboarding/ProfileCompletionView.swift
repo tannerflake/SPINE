@@ -287,7 +287,7 @@ struct ProfileCompletionView: View {
                     Text("What do you love to read?")
                         .font(Theme.largeTitle())
                         .foregroundStyle(Theme.textPrimary)
-                    Text("Pick at least two topics—we use them to personalize your experience.\nYou'll be able to change these later in your settings.")
+                    Text("Pick at least two topics. We use them to personalize your experience.\nYou'll be able to change these later in your settings.")
                         .font(Theme.body())
                         .foregroundStyle(Theme.textSecondary)
                 }
@@ -336,7 +336,7 @@ struct ProfileCompletionView: View {
                 Text("Reading tastes")
                     .font(Theme.caption())
                     .foregroundStyle(Theme.textSecondary)
-                Text("Tap to select or remove topics—we use them to personalize Discover.")
+                Text("Tap to select or remove topics. We use them to personalize Discover.")
                     .font(Theme.body())
                     .foregroundStyle(Theme.textSecondary)
             }

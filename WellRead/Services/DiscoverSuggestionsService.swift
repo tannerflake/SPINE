@@ -74,7 +74,7 @@ enum DiscoverSuggestionsService {
                 criteriaLine = ""
             } else {
                 let listed = readingInterestTags.prefix(16).joined(separator: ", ")
-                criteriaLine = "The user’s reading interests (prioritize books that match these topics, genres, or vibes—use them as the main guide): \(listed). "
+                criteriaLine = "The user’s reading interests (prioritize books that match these topics, genres, or vibes, use them as the main guide): \(listed). "
             }
         } else {
             criteriaLine = criteriaPromptSections(criteria: criteria, readBooks: readBooks).joined(separator: " ") + " "
@@ -166,7 +166,7 @@ enum DiscoverSuggestionsService {
         }
 
         if !criteria.trimmedFreeText.isEmpty {
-            sections.append("The user gave this specific instruction — follow it closely: \"\(criteria.trimmedFreeText.prefix(300))\".")
+            sections.append("The user gave this specific instruction, follow it closely: \"\(criteria.trimmedFreeText.prefix(300))\".")
         }
 
         return sections

@@ -84,7 +84,7 @@ struct FindFriendsView: View {
         default:
             explainer(
                 title: "Find friends from your contacts",
-                message: "SPINE checks which of your contacts are already members — matched by phone number — and lets you text an invite to anyone who isn't yet. Contacts stay on your device.",
+                message: "SPINE checks which of your contacts are already members, matched by phone number, and lets you text an invite to anyone who isn't yet. Contacts stay on your device.",
                 buttonTitle: "Sync Contacts",
                 action: { Task { await requestAndSync() } }
             )

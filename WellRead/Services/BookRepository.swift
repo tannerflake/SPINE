@@ -221,6 +221,54 @@ final class BookRepository {
 
     /// Follows a tombstone's `mergedInto` chain (bounded) to the canonical book.
     /// Nil when the chain dead-ends — the caller falls back to the doc it has.
+    /// Community docs whose `field` is one of `values`, keyed by that value —
+    /// the metadata-richest doc per value, id as the deterministic tie-break
+    /// among pre-backfill duplicates. One `in` query per 30 values; merge
+    /// pointers (each its own document read) resolve concurrently.
+    private func canonicalDocs(field: String, values: [String]) async -> [String: Book] {
+        let unique = Array(Set(values))
+        guard !unique.isEmpty else { return [:] }
+        var hits: [(value: String, data: [String: Any], id: String)] = []
+        for start in stride(from: 0, to: unique.count, by: 30) {
+            let chunk = Array(unique[start..<min(start + 30, unique.count)])
+            guard let snapshot = try? await db.collection(books)
+                .whereField(field, in: chunk)
+                .getDocuments() else { continue }
+            for doc in snapshot.documents {
+                let data = doc.data()
+                guard let value = data[field] as? String else { continue }
+                hits.append((value, data, doc.documentID))
+            }
+        }
+        let resolved: [(value: String, book: Book)] = await withTaskGroup(of: (String, Book)?.self) { group in
+            for hit in hits {
+                group.addTask {
+                    let book: Book? = hit.data["mergedInto"] is String
+                        ? await self.resolveMergePointer(in: hit.data)
+                        : self.book(from: hit.data, id: hit.id)
+                    return book.map { (hit.value, $0) }
+                }
+            }
+            var out: [(String, Book)] = []
+            for await item in group {
+                if let item { out.append(item) }
+            }
+            return out
+        }
+        var best: [String: (book: Book, score: Int)] = [:]
+        for (value, b) in resolved {
+            let score = Self.metadataScore(b)
+            if let current = best[value] {
+                if score > current.score || (score == current.score && b.id < current.book.id) {
+                    best[value] = (b, score)
+                }
+            } else {
+                best[value] = (b, score)
+            }
+        }
+        return best.mapValues(\.book)
+    }
+
     private func resolveMergePointer(in data: [String: Any]) async -> Book? {
         var target = data["mergedInto"] as? String
         var hops = 0
@@ -300,52 +348,17 @@ final class BookRepository {
     func canonicalizeSearchResults(_ results: [Book]) async -> [Book] {
         guard !results.isEmpty else { return results }
 
-        var canonicalByISBN: [String: Book] = [:]
-        var canonicalByKey: [String: Book] = [:]
-
-        func collect(field: String, values: [String], into map: inout [String: Book]) async {
-            var best: [String: (book: Book, score: Int)] = [:]
-            let unique = Array(Set(values))
-            for start in stride(from: 0, to: unique.count, by: 30) {
-                let chunk = Array(unique[start..<min(start + 30, unique.count)])
-                guard let snapshot = try? await db.collection(books)
-                    .whereField(field, in: chunk)
-                    .getDocuments() else { continue }
-                for doc in snapshot.documents {
-                    let data = doc.data()
-                    guard let value = data[field] as? String else { continue }
-                    let resolved: Book?
-                    if data["mergedInto"] is String {
-                        resolved = await resolveMergePointer(in: data)
-                    } else {
-                        resolved = book(from: data, id: doc.documentID)
-                    }
-                    guard let b = resolved else { continue }
-                    let score = Self.metadataScore(b)
-                    if let current = best[value] {
-                        // Deterministic winner among pre-backfill duplicates.
-                        if score > current.score || (score == current.score && b.id < current.book.id) {
-                            best[value] = (b, score)
-                        }
-                    } else {
-                        best[value] = (b, score)
-                    }
-                }
-            }
-            map = best.mapValues(\.book)
-        }
-
         let isbn13s = results.compactMap { Book.canonicalISBN13(from: $0.isbn) }
-        if !isbn13s.isEmpty {
-            await collect(field: "isbn13", values: isbn13s, into: &canonicalByISBN)
-        }
-        let unmatchedKeys = results
-            .filter { r in Book.canonicalISBN13(from: r.isbn).flatMap { canonicalByISBN[$0] } == nil }
+        let workKeys = results
             .map { BookSearchRanker.workKey(title: $0.title, author: $0.author) }
             .filter { !$0.isEmpty }
-        if !unmatchedKeys.isEmpty {
-            await collect(field: "workKey", values: unmatchedKeys, into: &canonicalByKey)
-        }
+        // Both identity lookups at once. They used to run in sequence (workKeys
+        // only for the ISBN misses), which put two Firestore round trips between
+        // the ranker finishing and the first paint; asking workKeys for every
+        // result costs a handful of extra document reads and halves the wait.
+        async let byISBN = canonicalDocs(field: "isbn13", values: isbn13s)
+        async let byKey = canonicalDocs(field: "workKey", values: workKeys)
+        let (canonicalByISBN, canonicalByKey) = await (byISBN, byKey)
         guard !canonicalByISBN.isEmpty || !canonicalByKey.isEmpty else { return results }
 
         var seenIds = Set<String>()

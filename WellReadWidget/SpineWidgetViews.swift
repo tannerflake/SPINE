@@ -337,7 +337,7 @@ struct ReadingCoverGrid: View {
                                     height: coverHeight
                                 )
                                 if showsCaption {
-                                    Text(book.percentText ?? "—")
+                                    Text(book.percentText ?? "-")
                                         .font(.system(size: 9, weight: .semibold))
                                         .foregroundStyle(
                                             book.percentText == nil

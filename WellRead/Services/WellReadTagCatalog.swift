@@ -53,7 +53,7 @@ final class WellReadTagCatalog {
            let text = try? String(contentsOf: url, encoding: .utf8) {
             return parse(csv: text)
         }
-        assertionFailure("Tags.csv missing from app bundle — add Tags.csv to the WellRead target.")
+        assertionFailure("Tags.csv missing from app bundle. Add Tags.csv to the WellRead target.")
         return (tags: [Self.fictionTag, Self.nonFictionTag], byCategory: ["Format": [Self.fictionTag, Self.nonFictionTag]])
     }
 

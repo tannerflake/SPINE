@@ -360,10 +360,13 @@ final class UserBookRepository {
         try await ref.updateData(Self.updateFields(for: userBook))
     }
 
-    /// Persists many userBook updates atomically (chunked to stay under Firestore's 500-op batch limit).
+    /// Persists many placement changes atomically (chunked to stay under Firestore's 500-op batch limit).
     /// Drag-reorders renumber whole tiers/shelves; committing them as one batch means the snapshot
     /// listener sees a single consistent state instead of one partial state per document.
-    func batchUpdateUserBooks(_ books: [UserBook]) async throws {
+    /// Writes ONLY tier, tierOrder, queueShelf, queueOrder and updatedAt: a reorder must never
+    /// re-send read dates, ratings or reviews from the in-memory copy, which can be stale
+    /// (edited on another device, or before the listener echoed) and would resurrect old values.
+    func batchUpdatePlacement(_ books: [UserBook]) async throws {
         guard !books.isEmpty else { return }
         let chunkSize = 450
         for start in stride(from: 0, to: books.count, by: chunkSize) {
@@ -371,10 +374,20 @@ final class UserBookRepository {
             let batch = db.batch()
             for ub in chunk {
                 let ref = db.collection(userBooks).document(ub.id.uuidString)
-                batch.updateData(Self.updateFields(for: ub), forDocument: ref)
+                batch.updateData(Self.placementFields(for: ub), forDocument: ref)
             }
             try await batch.commit()
         }
+    }
+
+    private static func placementFields(for userBook: UserBook) -> [String: Any] {
+        [
+            "tier": userBook.tier as Any,
+            "tierOrder": userBook.tierOrder as Any,
+            "queueShelf": userBook.queueShelf.map { $0.rawValue as Any } ?? NSNull(),
+            "queueOrder": userBook.queueOrder.map { $0 as Any } ?? NSNull(),
+            "updatedAt": Timestamp(date: userBook.updatedAt),
+        ]
     }
 
     private static func updateFields(for userBook: UserBook) -> [String: Any] {

@@ -274,11 +274,12 @@ struct LibraryCardFace: View {
 /// What actually gets saved to Photos: a full 9:16 story canvas (360x640
 /// points, rendered at 3x for exactly 1080x1920 pixels, Instagram's story
 /// size) so posting it needs no cropping. The card sits centered on either
-/// the reader's chosen photo or the plain paper tone, with the App Store
-/// line under it so a shared story tells people where to get SPINE.
+/// the reader's chosen photo or nothing at all (a transparent canvas, so the
+/// saved PNG drops onto any story background), with the App Store line under
+/// it so a shared story tells people where to get SPINE.
 struct LibraryCardStoryCanvas: View {
     let details: LibraryCardDetails
-    /// Photo behind the card. Nil prints the plain paper background.
+    /// Photo behind the card. Nil leaves the canvas transparent.
     var background: UIImage?
 
     /// Canvas in points. Rendered at 3x this is 1080x1920 pixels.
@@ -286,44 +287,19 @@ struct LibraryCardStoryCanvas: View {
 
     var body: some View {
         ZStack {
+            // No corner glyph here: the card face already carries the brand.
             backgroundLayer
 
+            // Dead center of the story frame.
             LibraryCardFace(details: details, palette: .fixedLight)
                 .frame(width: 306)
                 .shadow(
                     color: Color.black.opacity(background == nil ? 0.16 : 0.38),
                     radius: 16, y: 10
                 )
-
-            // The pitch hugs the bottom edge (27px at 3x). Instagram's reply
-            // bar no longer overlaps story images.
-            ctaBlock
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, 9)
         }
         .frame(width: Self.size.width, height: Self.size.height)
         .clipped()
-    }
-
-    private var ctaBlock: some View {
-        HStack(spacing: 8) {
-            Text("Track your reading with SPINE")
-                .font(.system(size: 12.5, weight: .semibold))
-                .tracking(0.3)
-                .foregroundStyle(captionColor)
-                .lineLimit(1)
-                .fixedSize()
-            Image("AppStoreBadge")
-                .resizable()
-                .scaledToFit()
-                .frame(height: 22)
-                .foregroundStyle(captionColor)
-        }
-        .shadow(color: Color.black.opacity(background == nil ? 0 : 0.45), radius: 5, y: 1)
-    }
-
-    private var captionColor: Color {
-        background == nil ? Theme.inkFixed.opacity(0.8) : Color.white.opacity(0.95)
     }
 
     @ViewBuilder
@@ -337,7 +313,9 @@ struct LibraryCardStoryCanvas: View {
                 // Thin scrim so the card and caption read on any photo.
                 .overlay(Color.black.opacity(0.15))
         } else {
-            Theme.paperFixed
+            // Transparent on purpose: the share sheet previews this over a
+            // checkerboard and exports it as a PNG with alpha.
+            Color.clear
         }
     }
 }
@@ -370,25 +348,50 @@ struct LibraryCardDownloadButton: View {
     let details: LibraryCardDetails
     /// Ghost styling for the wizard (where Next is the primary action).
     var prominent: Bool = true
+    /// The wizard says "Save my card" (the card is new and the reader has not
+    /// kept it anywhere yet); the profile sheet, where the card already lives,
+    /// just says "Share".
+    var title: String = "Share"
+    /// Breathing pulse until tapped, for the wizard, where the reader has not
+    /// yet seen that the share sheet exists.
+    var pulses: Bool = false
 
     @EnvironmentObject private var appState: AppState
     @State private var showShareHub = false
+    @State private var pulse = false
+    @State private var wasOpened = false
+
+    private var isPulsing: Bool { pulses && !wasOpened && pulse }
 
     var body: some View {
         Group {
             if prominent {
-                WizardCTAButton(title: "View my card", systemImage: "square.and.arrow.up") {
-                    showShareHub = true
+                WizardCTAButton(title: title, systemImage: "square.and.arrow.up") {
+                    open()
                 }
             } else {
-                WizardSecondaryButton(title: "View my card", systemImage: "square.and.arrow.up") {
-                    showShareHub = true
+                WizardSecondaryButton(title: title, systemImage: "square.and.arrow.up") {
+                    open()
                 }
             }
         }
+        // Body-scoped so only the scale breathes, never the button's layout
+        // position; `withAnimation(.repeatForever)` in onAppear would leak into
+        // an enclosing sheet's transaction and break its drag-to-dismiss.
+        .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { content in
+            content
+                .scaleEffect(isPulsing ? 1.03 : 1)
+                .shadow(color: Theme.shadowInk.opacity(isPulsing ? 0.2 : 0), radius: 12, y: 5)
+        }
+        .onAppear { if pulses { pulse = true } }
         .sheet(isPresented: $showShareHub) {
             ShareHubSheet(details: details, userBooks: appState.userBooks, initialPage: .card)
                 .environmentObject(appState)
         }
+    }
+
+    private func open() {
+        wasOpened = true
+        showShareHub = true
     }
 }

@@ -12,6 +12,16 @@ Genre,Business
 Genre,Psychology
 Genre,Science
 Genre,Horror
+Genre,Literary Fiction
+Genre,Young Adult
+Genre,Classics
+Genre,Graphic Novels & Comics
+Genre,Poetry
+Genre,Humor
+Genre,Politics & Society
+Genre,Technology & Future
+Genre,Travel & Adventure
+Genre,Sports
 
 Subgenre,Cozy Mystery
 Subgenre,Psychological Thriller
@@ -35,6 +45,9 @@ Subgenre,Small Town Romance
 Subgenre,Gothic
 Subgenre,Psychological Horror
 Subgenre,Ghost Story
+Subgenre,Manga
+Subgenre,Superhero
+Subgenre,Satire
 
 Story Type,Coming of Age
 Story Type,Survival
@@ -113,6 +126,7 @@ Themes,Mental Health
 Themes,Society
 Themes,Technology
 Themes,Human Nature
+Themes,Grief
 
 Nonfiction Topics,Productivity
 Nonfiction Topics,Leadership

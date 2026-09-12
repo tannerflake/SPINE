@@ -1052,7 +1052,7 @@ struct BookProfileView: View {
     /// Read-books-only card: one tap opens the AI refresher sheet (recap + Q&A).
     private var refresherWindow: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Read it a while ago? Get a recap of the plot, characters, and takeaways — then ask follow-up questions.")
+            Text("Read it a while ago? Get a recap of the plot, characters, and takeaways, then ask follow-up questions.")
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(Theme.textSecondary)
                 .lineSpacing(2)

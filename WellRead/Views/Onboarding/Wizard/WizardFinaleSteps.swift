@@ -23,8 +23,11 @@ struct WizardCardStep: View {
     @State private var isLive = true
     /// Camera-flash overlay opacity (spikes right after the card thunks down).
     @State private var flashOpacity: Double = 0
-    /// Card № ticker; counts up to the real member number.
-    @State private var displayedCardNumber = 1
+    /// Card № ticker; counts up to the real member number. Kept as a Double so
+    /// SwiftUI interpolates it every frame (CardNumberLabel rounds for display).
+    /// Stepping it with a chain of asyncAfter timers instead capped the tick
+    /// rate at the step count and jittered on dispatch, which read as choppy.
+    @State private var countUpValue: Double = 1
 
     /// Number ticker is mid-count; the card № gets visual emphasis while live.
     @State private var isCounting = false
@@ -69,7 +72,7 @@ struct WizardCardStep: View {
 
                 // Secondary here: Next is the way forward, downloading is the
                 // optional keepsake.
-                LibraryCardDownloadButton(details: exportDetails, prominent: false)
+                LibraryCardDownloadButton(details: exportDetails, prominent: false, title: "Save my card", pulses: true)
                     .padding(.top, 18)
                     .wizardReveal(delay: captionBeat + 0.15)
 
@@ -166,12 +169,30 @@ struct WizardCardStep: View {
                 .tracking(4)
                 .foregroundStyle(Theme.textPrimary)
             Spacer()
-            Text("CARD № \(displayedCardNumber)")
+            CardNumberLabel(value: countUpValue)
+                .foregroundStyle(isCounting ? Theme.textPrimary : Theme.textTertiary)
+                .scaleEffect(isCounting ? 1.35 : 1, anchor: .trailing)
+        }
+    }
+
+    /// Rounds a continuously animated Double for display. Conforming to
+    /// Animatable is what makes the count-up run at the display refresh rate:
+    /// SwiftUI drives animatableData every frame, so the digits advance
+    /// smoothly instead of in however many discrete jumps a timer managed.
+    /// monospacedDigit keeps the glyphs from reflowing as the value climbs.
+    private struct CardNumberLabel: View, Animatable {
+        var value: Double
+
+        var animatableData: Double {
+            get { value }
+            set { value = newValue }
+        }
+
+        var body: some View {
+            Text("CARD № \(max(1, Int(value.rounded())))")
                 .font(.system(size: 10.5, weight: .bold))
                 .monospacedDigit()
                 .tracking(1.4)
-                .foregroundStyle(isCounting ? Theme.textPrimary : Theme.textTertiary)
-                .scaleEffect(isCounting ? 1.35 : 1, anchor: .trailing)
         }
     }
 
@@ -326,7 +347,7 @@ struct WizardCardStep: View {
         if reduceMotion {
             dealt = true
             appearedStamps = isOGEligible ? Set(0...ogStampIndex) : Set(0..<ogStampIndex)
-            displayedCardNumber = model.cardNumber
+            countUpValue = Double(model.cardNumber)
             return
         }
 
@@ -379,13 +400,12 @@ struct WizardCardStep: View {
                 isCounting = true
             }
         }
-        let steps = max(1, min(60, target))
-        for step in 1...steps {
-            let progress = Double(step) / Double(steps)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay + duration * progress) {
-                guard isLive else { return }
-                let eased = 1 - pow(1 - progress, 3)
-                displayedCardNumber = max(1, Int((Double(target) * eased).rounded()))
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard isLive else { return }
+            // Cubic ease-out, matching the old hand-rolled curve: quick out of
+            // the gate, long settle onto the final number.
+            withAnimation(.timingCurve(0.215, 0.61, 0.355, 1, duration: duration)) {
+                countUpValue = Double(target)
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay + duration + 0.25) {
@@ -499,7 +519,7 @@ I'm glad you're here.
                 onFinished: { teaserHeadlineDone = true }
             )
             TypewriterText(
-                text: "I have a note for you.",
+                text: "There's a note for you.",
                 font: .system(size: 16),
                 textColor: Theme.textSecondary,
                 centered: true,

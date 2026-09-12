@@ -15,7 +15,7 @@ enum AppLinks {
     /// invite starts from a recommendation.
     static func inviteMessage(bookTitle: String? = nil) -> String {
         if let title = bookTitle, !title.isEmpty {
-            return "I want to suggest a book to you — \u{201C}\(title)\u{201D}. Get SPINE so I can send it over: \(appStore)"
+            return "I want to suggest a book to you: \u{201C}\(title)\u{201D}. Get SPINE so I can send it over: \(appStore)"
         }
         return "I want to suggest a book to you. Get SPINE and I'll send it over: \(appStore)"
     }

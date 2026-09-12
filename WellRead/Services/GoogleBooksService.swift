@@ -72,7 +72,16 @@ final class GoogleBooksService {
     static let shared = GoogleBooksService()
     private let baseURL = "https://www.googleapis.com/books/v1/volumes"
     private let session: URLSession
-    private let cacheMaxQueries = 10
+    /// Per-process memo of ranked results by cache key. Sixty queries × 30 books
+    /// is a few hundred KB; it makes every re-search this session instant.
+    private let cacheMaxQueries = 60
+    /// How long the ISBNdb tier waits for Open Library's popularity counts once
+    /// its own results are in hand. OL answers in about a second when healthy
+    /// but routinely takes 3–15s under load (measured 2026-09-12), and it was
+    /// awaited unconditionally — the single biggest cost of an uncached search.
+    /// Past the grace, results rank without the counts and the counts finish
+    /// the ranking in the caches afterwards (`finishRankingLater`).
+    private static let popularitySignalGrace: UInt64 = 700_000_000
     /// Curated searches serve at most this many ranked results — matches what
     /// BookSearchCacheService stores per entry.
     private static let rankedResultCap = 30
@@ -208,6 +217,12 @@ final class GoogleBooksService {
         if let cached = cacheQueue.sync(execute: { searchCache[cacheKey] }) {
             return cached
         }
+        // Works 2+ SPINE members have shelved get a large ranking boost. Cached
+        // hourly; kicked off here so a cold fetch overlaps the cache lookup
+        // instead of following it, and capped so it never delays results.
+        let popularKeysTask: Task<Set<String>, Never>? = isISBNQuery
+            ? nil
+            : Task { await BookPopularityService.shared.popularKeys() }
         // Shared cross-user Firestore cache: a query any user has run before resolves
         // without touching any API. (Entries keep the ranking of whoever populated
         // them — the libraryAuthors personalization boost isn't re-applied.) Entries
@@ -240,7 +255,7 @@ final class GoogleBooksService {
                 var served = cleaned
                 if shared.schemaVersion < BookSearchCacheService.currentSchemaVersion,
                    !includeAllEditions, !isISBNQuery {
-                    let popularKeys = await BookPopularityService.shared.popularKeys()
+                    let popularKeys = await popularKeysTask?.value ?? []
                     let candidates = cleaned.map {
                         BookSearchRanker.Candidate(
                             book: $0,
@@ -264,14 +279,12 @@ final class GoogleBooksService {
                 return served
             }
         }
-        // Works 2+ SPINE members have shelved get a large ranking boost.
-        // Cached hourly; a cold/slow fetch returns empty rather than delaying search.
-        let popularKeys = isISBNQuery ? [] : await BookPopularityService.shared.popularKeys()
+        let popularKeys = await popularKeysTask?.value ?? []
         // Tier 1: ISBNdb (paid, dedicated quota). Google runs only when ISBNdb
         // errors, is rate-limited, or has nothing for the query.
         if ISBNdbService.shared.isConfigured {
             do {
-                let books = try await searchISBNdb(
+                let tier = try await searchISBNdb(
                     query: query,
                     isISBNQuery: isISBNQuery,
                     includeAllEditions: includeAllEditions,
@@ -280,10 +293,13 @@ final class GoogleBooksService {
                     popularKeys: popularKeys,
                     searchAuthors: searchAuthors
                 )
-                if !books.isEmpty {
-                    let canonical = await canonicalized(books, includeAllEditions: includeAllEditions, isISBNQuery: isISBNQuery)
+                if !tier.books.isEmpty {
+                    let canonical = await canonicalized(tier.books, includeAllEditions: includeAllEditions, isISBNQuery: isISBNQuery)
                     storeInMemory(cacheKey: cacheKey, books: canonical)
                     BookSearchCacheService.shared.store(cacheKey: cacheKey, books: canonical, source: .isbndb)
+                    if let late = tier.lateRerank {
+                        finishRankingLater(late, cacheKey: cacheKey, includeAllEditions: includeAllEditions, isISBNQuery: isISBNQuery)
+                    }
                     return canonical
                 }
             } catch is CancellationError {
@@ -394,6 +410,28 @@ final class GoogleBooksService {
         return await BookRepository.shared.canonicalizeSearchResults(Array(books.prefix(Self.rankedResultCap)))
     }
 
+    /// What the ISBNdb tier hands back: the ranked books, plus — when Open
+    /// Library's popularity counts missed the grace window — a task that yields
+    /// the fully ranked list once they land (nil result if nothing changed or
+    /// OL never answered).
+    private struct ISBNdbTierResult {
+        let books: [Book]
+        let lateRerank: Task<[Book]?, Never>?
+    }
+
+    /// The popularity counts arrived after the results were painted: fold them
+    /// into this device's memo and the shared cache without touching the
+    /// screen. The next search of this query, by anyone, gets the full ranking.
+    /// Unstructured on purpose — typing on cancels the search, not this repair.
+    private func finishRankingLater(_ late: Task<[Book]?, Never>, cacheKey: String, includeAllEditions: Bool, isISBNQuery: Bool) {
+        Task {
+            guard let reranked = await late.value else { return }
+            let canonical = await canonicalized(reranked, includeAllEditions: includeAllEditions, isISBNQuery: isISBNQuery)
+            storeInMemory(cacheKey: cacheKey, books: canonical)
+            BookSearchCacheService.shared.store(cacheKey: cacheKey, books: canonical, source: .isbndb)
+        }
+    }
+
     /// ISBNdb tier of the search chain, shaped to match the Google path:
     /// same junk-edition filter, same ranker, same language restriction
     /// (applied client-side — ISBNdb has no langRestrict parameter; records
@@ -406,11 +444,13 @@ final class GoogleBooksService {
         languageRestriction: String?,
         popularKeys: Set<String>,
         searchAuthors: Bool
-    ) async throws -> [Book] {
+    ) async throws -> ISBNdbTierResult {
         if isISBNQuery {
             let digits = query.trimmingCharacters(in: .whitespaces).dropFirst(5).filter(\.isNumber)
-            guard let book = try await ISBNdbService.shared.lookupISBN(String(digits)) else { return [] }
-            return [book]
+            guard let book = try await ISBNdbService.shared.lookupISBN(String(digits)) else {
+                return ISBNdbTierResult(books: [], lateRerank: nil)
+            }
+            return ISBNdbTierResult(books: [book], lateRerank: nil)
         }
         // Author-shaped queries (a few words, no digits — how names look) also
         // hit ISBNdb's /author endpoint, concurrently with the title request
@@ -425,16 +465,15 @@ final class GoogleBooksService {
         // ISBNdb records carry no ratings data, so nothing separates the canonical
         // work from tie-in merch that also matches the query. Open Library's free
         // search API does (readinglog shelvings) — harvest counts concurrently
-        // (OL answers within ISBNdb's own paced latency) and join them onto
-        // ISBNdb records by work identity. Best-effort: an OL failure just means
-        // no popularity signal, which is where this path already was.
+        // and join them onto ISBNdb records by work identity. Best-effort: an OL
+        // failure just means no popularity signal, which is where this path
+        // already was. Never awaited past `popularitySignalGrace` (see below).
         let olSignalsTask: Task<[String: Int], Never> = Task {
-            guard let olMatches = try? await OpenLibraryService.shared.searchMatches(query: query, limit: 20) else { return [:] }
+            guard let olMatches = try? await OpenLibraryService.shared.popularitySignals(query: query, limit: 20) else { return [:] }
             var counts: [String: Int] = [:]
             for olMatch in olMatches {
-                let key = BookSearchRanker.collapseKey(title: olMatch.book.title, author: olMatch.book.author).full
-                let count = olMatch.popularityCount ?? 0
-                if count > 0 { counts[key] = max(counts[key] ?? 0, count) }
+                let key = BookSearchRanker.collapseKey(title: olMatch.title, author: olMatch.author).full
+                if olMatch.popularity > 0 { counts[key] = max(counts[key] ?? 0, olMatch.popularity) }
             }
             return counts
         }
@@ -470,22 +509,54 @@ final class GoogleBooksService {
             }
         }
         let applyJunkFilter = !includeAllEditions
-        let olCounts = await olSignalsTask.value
-        let candidates: [BookSearchRanker.Candidate] = matches.compactMap { match in
-            if applyJunkFilter, BookSearchRanker.isJunkListing(title: match.book.title, query: query, author: match.book.author) { return nil }
-            let popularity = olCounts[BookSearchRanker.collapseKey(title: match.book.title, author: match.book.author).full]
-            return BookSearchRanker.Candidate(
-                book: match.book,
-                signals: BookSearchSignals(ratingsCount: popularity, averageRating: nil, language: match.languageCode)
+        let kept = matches.filter { match in
+            !(applyJunkFilter && BookSearchRanker.isJunkListing(title: match.book.title, query: query, author: match.book.author))
+        }
+        let rank: ([String: Int]) -> [Book] = { olCounts in
+            let candidates = kept.map { match in
+                BookSearchRanker.Candidate(
+                    book: match.book,
+                    signals: BookSearchSignals(
+                        ratingsCount: olCounts[BookSearchRanker.collapseKey(title: match.book.title, author: match.book.author).full],
+                        averageRating: nil,
+                        language: match.languageCode
+                    )
+                )
+            }
+            return BookSearchRanker.rank(
+                candidates,
+                query: query,
+                deduplicate: !includeAllEditions,
+                libraryAuthors: libraryAuthors,
+                popularKeys: popularKeys
             )
         }
-        return BookSearchRanker.rank(
-            candidates,
-            query: query,
-            deduplicate: !includeAllEditions,
-            libraryAuthors: libraryAuthors,
-            popularKeys: popularKeys
-        )
+        // ISBNdb is back; give Open Library a short grace to land its counts.
+        // Title tiers, the junk filter, and community popularity carry the
+        // ranking without them — OL mostly breaks ties among same-work editions
+        // and orders an author's catalog — so past the grace the results go out
+        // as they are and the counts finish the job in the caches.
+        let olCounts: [String: Int]? = await withTaskGroup(of: [String: Int]?.self) { group in
+            group.addTask { await olSignalsTask.value }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: Self.popularitySignalGrace)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        if let olCounts {
+            return ISBNdbTierResult(books: rank(olCounts), lateRerank: nil)
+        }
+        let books = rank([:])
+        let late = Task<[Book]?, Never> {
+            let counts = await olSignalsTask.value
+            guard !counts.isEmpty else { return nil }
+            let reranked = rank(counts)
+            return reranked.map(\.id) == books.map(\.id) ? nil : reranked
+        }
+        return ISBNdbTierResult(books: books, lateRerank: late)
     }
 
     private func storeInMemory(cacheKey: String, books: [Book]) {

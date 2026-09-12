@@ -26,7 +26,7 @@ enum Analytics {
 
     static let amplitude: Amplitude? = {
         guard let key = ApiKeys.amplitude else {
-            print("Amplitude API key missing — analytics disabled")
+            print("Amplitude API key missing, analytics disabled")
             return nil
         }
         let client = Amplitude(configuration: Configuration(

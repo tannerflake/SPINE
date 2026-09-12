@@ -139,7 +139,7 @@ struct BookSummaryMoreView: View {
                     .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(Theme.textTertiary)
             }
-            Text("A fuller picture of the book — premise, themes, and what it's like to read. No spoilers.")
+            Text("A fuller picture of the book: premise, themes, and what it's like to read. No spoilers.")
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(Theme.textTertiary)
                 .multilineTextAlignment(.center)
@@ -202,7 +202,7 @@ struct BookSummaryMoreView: View {
     private var chatSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             if chatTurns.isEmpty {
-                Text("Curious about something? Ask about the world, the themes, the author, or whether it's for you — answers stay spoiler-free.")
+                Text("Curious about something? Ask about the world, the themes, the author, or whether it's for you. Answers stay spoiler-free.")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(Theme.textTertiary)
                     .lineSpacing(2)
@@ -337,7 +337,7 @@ struct BookSummaryMoreView: View {
                     question = asked
                     isAnswering = false
                     ToastCenter.shared.show(
-                        Toast(style: .error, status: "Failed", message: "Couldn't get an answer — try again")
+                        Toast(style: .error, status: "Failed", message: "Couldn't get an answer, try again")
                     )
                 }
             }

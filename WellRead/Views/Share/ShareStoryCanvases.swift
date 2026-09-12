@@ -130,11 +130,15 @@ struct StoryPalette {
     var textShadow: Color { hasPhoto ? Color.black.opacity(0.45) : .clear }
 }
 
-/// Photo behind the canvas with a scrim, or the plain paper tone.
+/// Photo behind the canvas with a scrim, or nothing: without a photo every
+/// graphic is transparent (previewed over a checkerboard, exported as a PNG
+/// with alpha) so it drops onto any story background. `paper` forces the
+/// paper tone, for the zero-state placeholders that never export.
 struct StoryBackgroundLayer: View {
     var photo: UIImage?
     /// Heavier than the card canvas's scrim: these graphics put type directly on the photo.
     var scrim: Double = 0.32
+    var paper: Bool = false
 
     var body: some View {
         if let photo {
@@ -144,34 +148,59 @@ struct StoryBackgroundLayer: View {
                 .frame(width: StoryExporter.canvasSize.width, height: StoryExporter.canvasSize.height)
                 .clipped()
                 .overlay(Color.black.opacity(scrim))
-        } else {
+        } else if paper {
             Theme.paperFixed
+        } else {
+            Color.clear
         }
     }
 }
 
-/// "Track your reading with SPINE" plus the App Store badge, hugging the
-/// bottom edge where Instagram's reply bar no longer overlaps story images.
+/// "Track your reading with SPINE" plus the App Store badge, sitting just off
+/// the bottom edge (19pt, 57px at 3x) so it clears the rounded preview
+/// corners and Instagram's reply bar.
 struct StoryCTABlock: View {
     let palette: StoryPalette
+    /// The reader's handle: "Follow me @handle". Empty falls back to the
+    /// app pitch.
+    var handle: String = ""
 
     private var color: Color { palette.hasPhoto ? Color.white.opacity(0.95) : Theme.inkFixed.opacity(0.8) }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text("Track your reading with SPINE")
-                .font(.system(size: 12.5, weight: .semibold))
-                .tracking(0.3)
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .fixedSize()
-            Image("AppStoreBadge")
-                .resizable()
-                .scaledToFit()
-                .frame(height: 22)
-                .foregroundStyle(color)
-        }
-        .shadow(color: palette.hasPhoto ? Color.black.opacity(0.45) : .clear, radius: 5, y: 1)
+        Text(handle.isEmpty ? "Follow me on SPINE" : "Follow me @\(handle)")
+            .font(.system(size: 13, weight: .semibold))
+            .tracking(0.3)
+            .foregroundStyle(color)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .frame(maxWidth: 306)
+            .shadow(color: palette.hasPhoto ? Color.black.opacity(0.45) : .clear, radius: 5, y: 1)
+    }
+}
+
+/// The brand moment: the SPINE reader glyph, big and faint, peeking in from
+/// the right edge behind the wordmark, the way the watermark does on the
+/// card face. The canvas clips whatever hangs past the edge.
+struct StoryBrandCorner: View {
+    let palette: StoryPalette
+
+    var body: some View {
+        Image("SpineLogo")
+            .resizable()
+            .renderingMode(.template)
+            .scaledToFit()
+            .frame(width: 130)
+            .foregroundStyle(palette.hasPhoto ? Color.white.opacity(0.3) : Theme.inkFixed.opacity(0.14))
+            .rotationEffect(.degrees(-10))
+            // Centered on the wordmark's line (header starts 56pt down).
+            .offset(x: 34, y: -13)
+            .frame(
+                width: StoryExporter.canvasSize.width,
+                height: StoryExporter.canvasSize.height,
+                alignment: .topTrailing
+            )
+            .allowsHitTesting(false)
     }
 }
 
@@ -322,19 +351,20 @@ struct TierPeekStoryCanvas: View {
     var body: some View {
         ZStack {
             StoryBackgroundLayer(photo: background)
+            StoryBrandCorner(palette: palette)
 
             VStack(spacing: 0) {
                 header
                 Spacer(minLength: 16)
                 tierStack
-                Spacer(minLength: 18)
+                Color.clear.frame(height: 22)
                 smallCard
-                Spacer(minLength: 12)
-                StoryCTABlock(palette: palette)
+                Spacer(minLength: 16)
             }
             .padding(.horizontal, (StoryExporter.canvasSize.width - Self.contentWidth) / 2)
-            .padding(.top, 34)
-            .padding(.bottom, 9)
+            // A small gap under Instagram's "Your story" row. No bottom padding: the
+            // body centers between the header and the bottom edge of the image.
+            .padding(.top, 56)
         }
         .frame(width: StoryExporter.canvasSize.width, height: StoryExporter.canvasSize.height)
         .clipped()
@@ -348,9 +378,9 @@ struct TierPeekStoryCanvas: View {
                     .tracking(2.2)
                     .foregroundStyle(palette.ink)
                 Text("@\(details.handle)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .bold))
+                    .tracking(1.4)
                     .foregroundStyle(palette.secondary)
-                    .lineLimit(1)
             }
             Spacer(minLength: 0)
             StoryWordmark(palette: palette)
@@ -440,17 +470,18 @@ struct MonthFloatingStoryCanvas: View {
     var body: some View {
         ZStack {
             StoryBackgroundLayer(photo: background)
+            StoryBrandCorner(palette: palette)
 
             VStack(spacing: 0) {
                 header
-                Spacer(minLength: 10)
+                Spacer(minLength: 16)
                 collage
-                Spacer(minLength: 10)
-                StoryCTABlock(palette: palette)
+                Spacer(minLength: 16)
             }
             .padding(.horizontal, (StoryExporter.canvasSize.width - Self.contentWidth) / 2)
-            .padding(.top, 34)
-            .padding(.bottom, 9)
+            // A small gap under Instagram's "Your story" row. No bottom padding: the
+            // body centers between the header and the bottom edge of the image.
+            .padding(.top, 56)
         }
         .frame(width: StoryExporter.canvasSize.width, height: StoryExporter.canvasSize.height)
         .clipped()
@@ -465,14 +496,10 @@ struct MonthFloatingStoryCanvas: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .foregroundStyle(palette.ink)
-                Text("\(period.subline)  ·  \(books.count == 1 ? "1 BOOK" : "\(books.count) BOOKS")")
+                Text("\(period.subline)  ·  @\(handle)")
                     .font(.system(size: 11.5, weight: .bold))
                     .tracking(1.4)
                     .foregroundStyle(palette.secondary)
-                Text("@\(handle)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(palette.tertiary)
-                    .lineLimit(1)
             }
             Spacer(minLength: 0)
             StoryWordmark(palette: palette)
@@ -597,17 +624,18 @@ struct MonthTierStoryCanvas: View {
     var body: some View {
         ZStack {
             StoryBackgroundLayer(photo: background)
+            StoryBrandCorner(palette: palette)
 
             VStack(spacing: 0) {
                 header
-                Spacer(minLength: 12)
+                Spacer(minLength: 16)
                 tierStack
-                Spacer(minLength: 12)
-                StoryCTABlock(palette: palette)
+                Spacer(minLength: 16)
             }
             .padding(.horizontal, (StoryExporter.canvasSize.width - Self.contentWidth) / 2)
-            .padding(.top, 34)
-            .padding(.bottom, 9)
+            // A small gap under Instagram's "Your story" row. No bottom padding: the
+            // body centers between the header and the bottom edge of the image.
+            .padding(.top, 56)
         }
         .frame(width: StoryExporter.canvasSize.width, height: StoryExporter.canvasSize.height)
         .clipped()
@@ -622,14 +650,10 @@ struct MonthTierStoryCanvas: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .foregroundStyle(palette.ink)
-                Text("\(period.subline)  ·  \(books.count == 1 ? "1 BOOK" : "\(books.count) BOOKS")")
+                Text("\(period.subline)  ·  @\(handle)")
                     .font(.system(size: 11.5, weight: .bold))
                     .tracking(1.4)
                     .foregroundStyle(palette.secondary)
-                Text("@\(handle)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(palette.tertiary)
-                    .lineLimit(1)
             }
             Spacer(minLength: 0)
             StoryWordmark(palette: palette)
@@ -659,5 +683,166 @@ struct MonthTierStoryCanvas: View {
         .frame(width: Self.contentWidth)
         .scaleEffect(scale, anchor: .top)
         .frame(width: Self.contentWidth, height: height * scale, alignment: .top)
+    }
+}
+
+// MARK: - Zero state
+
+/// A graphic before the reading exists to fill it: the same header and paper,
+/// ghost cover slots where the books will go, and one line saying what fills
+/// it in. Preview only, it never exports.
+struct StoryEmptyCanvas: View {
+    let page: SharePage
+    let handle: String
+
+    private let palette = StoryPalette(hasPhoto: false)
+    private static let contentWidth: CGFloat = 306
+    private static let slotsPerRow = 4
+    private static var slotWidth: CGFloat {
+        (contentWidth - 38 - 16 - 8 * CGFloat(slotsPerRow - 1)) / CGFloat(slotsPerRow)
+    }
+    /// Ghost ink: faint enough to read as "not yet".
+    private static let ghost = Theme.inkFixed.opacity(0.18)
+    private static let ghostFill = Theme.inkFixed.opacity(0.05)
+
+    private var period: SharePeriod {
+        let c = Calendar.current.dateComponents([.year, .month], from: Date())
+        return .month(year: c.year ?? 2026, month: c.month ?? 1)
+    }
+
+    private var caption: String {
+        switch page {
+        case .tiers: return "Rank a book to unlock!"
+        case .card: return ""
+        case .monthFloating, .monthTiers: return "Finish a book to unlock!"
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            StoryBackgroundLayer(photo: nil, paper: true)
+            StoryBrandCorner(palette: palette)
+
+            VStack(spacing: 0) {
+                header
+                Spacer(minLength: 16)
+                ghosts
+                    .overlay(captionPill)
+                Spacer(minLength: 16)
+            }
+            .padding(.horizontal, (StoryExporter.canvasSize.width - Self.contentWidth) / 2)
+            // A small gap under Instagram's "Your story" row. No bottom padding: the
+            // body centers between the header and the bottom edge of the image.
+            .padding(.top, 56)
+        }
+        .frame(width: StoryExporter.canvasSize.width, height: StoryExporter.canvasSize.height)
+        .clipped()
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                if page == .tiers {
+                    Text("MY TIER LIST")
+                        .font(.system(size: 21, weight: .heavy))
+                        .tracking(2.2)
+                        .foregroundStyle(palette.ink)
+                    Text("@\(handle)")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .tracking(1.4)
+                        .foregroundStyle(palette.secondary)
+                } else {
+                    Text(period.headline)
+                        .font(.system(size: 30, weight: .heavy))
+                        .tracking(2.5)
+                        .foregroundStyle(palette.ink)
+                    Text("\(period.subline)  ·  @\(handle)")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .tracking(1.4)
+                        .foregroundStyle(palette.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+            StoryWordmark(palette: palette)
+        }
+    }
+
+    @ViewBuilder
+    private var ghosts: some View {
+        if page == .monthFloating {
+            floatingGhosts
+        } else {
+            VStack(spacing: 8) {
+                ForEach(Array(spineTierLabels.prefix(3)), id: \.self) { tier in
+                    ghostRow(tier: tier)
+                }
+            }
+        }
+    }
+
+    private func ghostRow(tier: String) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ZStack {
+                Self.ghostFill
+                VStack(spacing: 0) {
+                    Text(tier)
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Tier")
+                        .font(.system(size: 8, weight: .medium))
+                        .opacity(0.7)
+                }
+                .foregroundStyle(Self.ghost)
+            }
+            .frame(width: 38)
+            .frame(maxHeight: .infinity)
+            HStack(spacing: 8) {
+                ForEach(0..<Self.slotsPerRow, id: \.self) { _ in
+                    ghostSlot(width: Self.slotWidth)
+                }
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(palette.rowSurface.opacity(0.55))
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius))
+    }
+
+    private var floatingGhosts: some View {
+        let w: CGFloat = 88
+        let gap: CGFloat = 18
+        return VStack(spacing: gap) {
+            ForEach(0..<2, id: \.self) { row in
+                HStack(spacing: gap) {
+                    ForEach(0..<3, id: \.self) { col in
+                        ghostSlot(width: w)
+                            .rotationEffect(.degrees(Double((row * 3 + col) % 2 == 0 ? -4 : 4)))
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func ghostSlot(width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 3)
+            .strokeBorder(Self.ghost, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+            .background(RoundedRectangle(cornerRadius: 3).fill(Self.ghostFill))
+            .frame(width: width, height: width * 1.5)
+    }
+
+    private var captionPill: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 11, weight: .bold))
+            Text(caption)
+                .font(.system(size: 13, weight: .semibold))
+        }
+            .foregroundStyle(Theme.inkFixed)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(Capsule().fill(Theme.paperFixed))
+            .overlay(Capsule().strokeBorder(Theme.inkFixed.opacity(0.2), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
     }
 }

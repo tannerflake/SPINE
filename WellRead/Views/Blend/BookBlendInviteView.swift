@@ -390,7 +390,7 @@ struct BookBlendLandingView: View {
             } catch {
                 await MainActor.run {
                     phase = .invite
-                    acceptError = "Couldn't build the blend — check your connection and try again."
+                    acceptError = "Couldn't build the blend. Check your connection and try again."
                 }
             }
         }

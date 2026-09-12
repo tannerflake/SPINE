@@ -895,12 +895,12 @@ final class OnboardingWizardModel: ObservableObject {
     static let characteristicTags: [String] = [
         "Fiction", "Non-Fiction",
         "Fast-Paced", "Page Turner", "Binge-Worthy",
-        "Easy Read", "Challenging Read",
+        "Easy Read", "Challenging Read", "Dense / Complex",
         "Thought-Provoking", "Mind-Bending",
         "Character-Driven", "Plot-Driven",
-        "Comfort Read", "Cozy", "Wholesome",
+        "Comfort Read", "Relaxing Read", "Cozy", "Wholesome",
         "Emotional Rollercoaster", "Tearjerker",
-        "Funny", "Dark",
+        "Funny", "Lighthearted", "Hopeful", "Dark",
     ]
 
     static let characteristicTagSet = Set(characteristicTags)
@@ -916,11 +916,21 @@ final class OnboardingWizardModel: ObservableObject {
         ("Romance", ["Romantasy", "Contemporary Romance", "Historical Romance", "Dark Romance", "Romantic Comedy", "Sports Romance", "Paranormal Romance", "Small Town Romance", "Enemies to Lovers", "Friends to Lovers", "Fake Dating", "Grumpy / Sunshine", "Forced Proximity", "Second Chance", "Forbidden Love", "Love Triangle", "Slow Burn", "Love Story", "Emotional"]),
         ("Horror", ["Psychological Horror", "Gothic", "Ghost Story", "Supernatural", "Suspenseful", "Gritty", "Intense", "Post-Apocalyptic"]),
         ("Historical", ["World War II", "Regency Era", "Ancient World", "Wild West", "War Story", "Medieval", "Political", "Alternate History", "Survival", "Tragedy"]),
+        ("Literary Fiction", ["Coming of Age", "Identity", "Morality", "Society", "Contemporary", "Tragedy", "Redemption"]),
+        ("Young Adult", ["School / Academy", "Coming of Age", "Found Family", "Strong Female Lead", "Love Triangle", "Dystopian", "Magical World"]),
+        ("Classics", ["Tragedy", "Ancient World", "Medieval", "Regency Era", "Morality", "Society", "War Story"]),
+        ("Graphic Novels & Comics", ["Manga", "Superhero", "Coming of Age", "Supernatural", "Dystopian"]),
+        ("Poetry", ["Love", "Death", "Identity", "Freedom", "Emotional", "Grief"]),
+        ("Humor", ["Satire", "Romantic Comedy", "Ensemble Cast", "Small Town", "Contemporary"]),
         ("Biography & Memoir", ["Inspiring", "History", "Leadership", "Philosophy", "Creativity", "Survival"]),
         ("Self-Improvement", ["Habits", "Productivity", "Health & Fitness", "Relationships", "Mental Health", "Spirituality"]),
         ("Business", ["Startups", "Leadership", "Finance", "Productivity", "Creativity"]),
         ("Psychology", ["Neuroscience", "Mental Health", "Human Nature", "Relationships", "Philosophy"]),
         ("Science", ["Neuroscience", "Technology", "Space", "History", "Informative"]),
+        ("Politics & Society", ["Political", "Justice", "Power", "Freedom", "Society", "War Story", "Dystopian"]),
+        ("Technology & Future", ["Technology", "Futuristic", "Space", "Startups", "Dystopian"]),
+        ("Travel & Adventure", ["Survival", "Quest / Journey", "Wild West", "Ancient World", "Solo Protagonist"]),
+        ("Sports", ["Sports Romance", "Rivalry", "Inspiring", "Mentor / Student", "Solo Protagonist"]),
     ]
 
     static let tasteTreeTagSet: Set<String> =
@@ -1373,7 +1383,11 @@ struct WizardGhostButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.textSecondary)
+                // Every wizard skip is deliberately quiet: it has to be present
+                // (App Store 5.1.1(v) for the phone and contacts steps) but must
+                // not compete with the real CTA above it. Dimming the label only,
+                // never the tap target, keeps the 44pt hit area intact.
+                .foregroundStyle(Theme.textSecondary.opacity(0.6))
                 .frame(maxWidth: .infinity)
                 // 13 keeps the target at the 44pt minimum (18pt of text).
                 .padding(.vertical, 13)

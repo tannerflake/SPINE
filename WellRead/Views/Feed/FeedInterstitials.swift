@@ -2,12 +2,14 @@
 //  FeedInterstitials.swift
 //  Spine
 //
-//  Two pseudo posts per feed load, three items down and six below that
-//  (one time in five they trade places). "Selected for you" is three covers
+//  Two pseudo posts per feed load, three items down and six below that:
+//  "Selected for you" always leads. "Selected for you" is three covers
 //  lifted straight out of the Discover pipeline (the card plus its prefetched
 //  queue), plus a "Discover more" tile into Discover.
 //  Showing a book here never consumes or dismisses it, so a pick scrolled past
-//  by accident is still waiting on the Discover card. "Readers to follow" is
+//  by accident is still waiting on the Discover card. The row draws at its full
+//  height from the start, tile and all, even before any picks have loaded, so
+//  late-arriving books never shove the feed mid-scroll. "Readers to follow" is
 //  the not-yet-followed roster in the people strip's mutual-connection order,
 //  with a quick Follow and an X that hides that reader from suggestions for
 //  good. Both rows hold their content until the feed is refreshed, and even
@@ -25,10 +27,11 @@ final class FeedInterstitialModel: ObservableObject {
     enum Kind {
         case books, people
 
-        /// The two rows in draw order. Readers lead one load in five.
-        static func randomOrder() -> [Kind] {
-            Double.random(in: 0..<1) < 0.2 ? [.people, .books] : [.books, .people]
-        }
+        /// The two rows in draw order. Picks always lead: they're the row that
+        /// can draw immediately (tile plus shimmering covers) whatever has
+        /// loaded, so putting readers first risks an empty roster leaving the
+        /// lead slot blank and pushing picks six items further down the feed.
+        static func defaultOrder() -> [Kind] { [.books, .people] }
     }
 
     static let itemsPerSlot = 3
@@ -41,9 +44,8 @@ final class FeedInterstitialModel: ObservableObject {
     /// Bumped when a reload re-picks the rows, so the feed rebuilds them.
     @Published private(set) var generation = 0
 
-    /// Which pseudo post leads this load. The picks row goes first four times
-    /// in five. Re-rolled on reload, never mid-scroll.
-    private var kindOrder: [Kind] = Kind.randomOrder()
+    /// Which pseudo post leads this load: picks first, readers below.
+    private var kindOrder: [Kind] = Kind.defaultOrder()
     /// Slot → book ids / reader uids. Plain storage on purpose: assignments
     /// are derived during layout, and publishing them from there would
     /// re-enter the view update.
@@ -75,7 +77,7 @@ final class FeedInterstitialModel: ObservableObject {
     }
 
     /// Pull to refresh (or any feed reload): fresh picks for the rows the
-    /// reader has already seen, and a fresh coin flip on the order. A refresh
+    /// reader has already seen. A refresh
     /// from above the rows leaves them exactly as they were, so recommendations
     /// the reader never laid eyes on aren't spent.
     func handleFeedReload() {
@@ -85,7 +87,7 @@ final class FeedInterstitialModel: ObservableObject {
             peopleSlots[slot] = nil
         }
         seenSlots = []
-        kindOrder = Kind.randomOrder()
+        kindOrder = Kind.defaultOrder()
         // Layout reads `kindOrder` and the slot maps directly, so nudge the
         // feed to rebuild the rows with them.
         generation += 1
@@ -162,7 +164,7 @@ final class FeedInterstitialModel: ObservableObject {
         bookSlots = [:]
         peopleSlots = [:]
         seenSlots = []
-        kindOrder = Kind.randomOrder()
+        kindOrder = Kind.defaultOrder()
         generation += 1
     }
 }
@@ -181,12 +183,20 @@ struct FeedBookPicksRow: View {
 
     /// Covers stretch to fill the row so the gutter after the "Discover more" tile
     /// matches the leading margin instead of leaving a wide gap on the right.
+    /// Sized for a full row (three picks plus the tile) whatever is actually
+    /// loaded, so picks arriving late don't resize the row and shove the feed
+    /// under the reader's thumb.
     private var coverWidth: CGFloat {
-        let cells = CGFloat(max(books.count + 1, 1))
+        let cells = CGFloat(FeedInterstitialModel.itemsPerSlot + 1)
         let available = UIScreen.main.bounds.width
             - Theme.horizontalPadding * 2
             - Self.cellSpacing * (cells - 1)
         return min((available / cells).rounded(.down), Self.maxCoverWidth)
+    }
+
+    /// Cells the picks haven't filled yet.
+    private var placeholderCount: Int {
+        max(FeedInterstitialModel.itemsPerSlot - books.count, 0)
     }
 
     var body: some View {
@@ -195,6 +205,13 @@ struct FeedBookPicksRow: View {
             HStack(alignment: .top, spacing: Self.cellSpacing) {
                 ForEach(books) { book in
                     bookCell(book)
+                }
+                // Cover-shaped shimmer for picks still on their way, so the
+                // row reads as loading rather than as a lone tile.
+                // Array, not a bare range: the count changes as picks land and
+                // ForEach over a non-constant Range misbehaves.
+                ForEach(Array(0..<placeholderCount), id: \.self) { _ in
+                    FeedPickPlaceholderCover(width: coverWidth)
                 }
                 seeMoreCell
             }
@@ -249,9 +266,42 @@ struct FeedBookPicksRow: View {
     }
 }
 
+/// A pick that hasn't arrived yet: a cover-shaped shimmer holding the cell.
+/// The sweep gives up after `shimmerDeadlineSeconds` and settles into a plain
+/// paper rectangle, so a member whose pool never fills (tiny library, offline)
+/// isn't left watching something pulse forever.
+private struct FeedPickPlaceholderCover: View {
+    let width: CGFloat
+
+    private static let shimmerDeadlineSeconds: UInt64 = 8
+
+    @State private var isLoading = true
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 6) }
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ShimmerShape(shape: shape)
+            } else {
+                shape.fill(Theme.surface.opacity(0.7))
+            }
+        }
+        .frame(width: width, height: width * 1.5)
+        .overlay(
+            shape.strokeBorder(Theme.chrome.opacity(0.35), lineWidth: 0.75)
+        )
+        .task {
+            try? await Task.sleep(nanoseconds: Self.shimmerDeadlineSeconds * 1_000_000_000)
+            isLoading = false
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Readers to follow
 
-/// Three not-yet-followed readers as cards: avatar, name, book count, Follow.
+/// Three not-yet-followed readers as cards: avatar, name, Follow.
 /// The X top-right hides that reader from future suggestions.
 struct FeedPeoplePicksRow: View {
     let readers: [PeopleStripModel.Reader]
@@ -285,7 +335,6 @@ struct FeedPeoplePicksRow: View {
 
     private func readerCard(_ reader: PeopleStripModel.Reader) -> some View {
         let readingNow = readingNowByUid[reader.uid] ?? []
-        let booksRead = reader.user.totalBooksRead
         return VStack(spacing: 8) {
             NavigationLink(value: reader.uid) {
                 VStack(spacing: 8) {
@@ -303,16 +352,11 @@ struct FeedPeoplePicksRow: View {
                                 .offset(x: -8, y: 7)
                         }
                     }
-                    VStack(spacing: 2) {
-                        Text(reader.user.displayName)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Theme.textPrimary)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                        Text(booksRead == 1 ? "1 book" : "\(booksRead) books")
-                            .font(.system(size: 10, weight: .regular))
-                            .foregroundStyle(Theme.textTertiary)
-                    }
+                    Text(reader.user.displayName)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())

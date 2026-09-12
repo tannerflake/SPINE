@@ -155,14 +155,20 @@ actor AIContentCacheRepository {
 
     private static func decodeRefresher(_ map: [String: Any]) -> BookRefresher? {
         guard JSONSerialization.isValidJSONObject(map),
-              let data = try? JSONSerialization.data(withJSONObject: map),
-              let refresher = try? JSONDecoder().decode(BookRefresher.self, from: data) else { return nil }
+              var data = try? JSONSerialization.data(withJSONObject: map) else { return nil }
+        // Docs cached before the no-dash house rule still hold em dashes; clean
+        // them on the way out so old cache entries don't leak one into the UI.
+        if let json = String(data: data, encoding: .utf8) {
+            data = Data(ClaudeService.stripDashes(json).utf8)
+        }
+        guard let refresher = try? JSONDecoder().decode(BookRefresher.self, from: data) else { return nil }
         return refresher.plot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : refresher
     }
 
     private static func nonEmptyString(_ value: Any?) -> String? {
         guard let s = value as? String else { return nil }
-        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        // stripDashes: pre-house-rule cache entries can still carry em dashes.
+        let trimmed = ClaudeService.stripDashes(s).trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 }
