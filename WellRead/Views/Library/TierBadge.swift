@@ -2,8 +2,9 @@
 //  TierBadge.swift
 //  Spine
 //
-//  Shared tier color palette + the `S TIER` badge used wherever a
-//  review's tier is displayed (book profile, feed posts).
+//  Shared tier color palette, the `S TIER` badge used wherever a review's tier
+//  is displayed (book profile), and the colored tier-row pillar shared by the
+//  tier list's rows and the feed's posts.
 //
 
 import SwiftUI
@@ -131,5 +132,97 @@ struct TierBadge: View {
             .padding(.vertical, verticalPadding)
             .background(spineTierColor(for: tier))
             .clipShape(Capsule())
+    }
+}
+
+// MARK: - Tier row pillar
+
+/// Geometry shared by every tier-row pillar (tier list rows and feed posts), so a
+/// post in the feed is the same piece of furniture as a row in the tier list.
+enum TierPillarMetrics {
+    /// Width of the colored label column.
+    static let width: CGFloat = 38
+    /// Natural height of the "A / Tier" letter block that pins inside the column.
+    /// Deliberately much shorter than a tier row's 96pt minimum so even an empty
+    /// row has slack to slide the letter down into instead of clipping it.
+    static let letterHeight: CGFloat = 34
+    /// Where the letter rests in a tier-list row before any scrolling pins it:
+    /// centered within the row's 96pt minimum height.
+    static let tierRowLetterRestingY: CGFloat = (96 - letterHeight) / 2
+    /// Gap the pinned letter keeps above its own row's bottom edge, so it never
+    /// slides out through the row's rounded corner clip.
+    static let letterBottomGap: CGFloat = 8
+}
+
+/// The colored label column on the left edge of a tier row: the tier letter over a
+/// small "Tier" caption on the tier's color, or a rotated word (Unranked by default)
+/// on the neutral surface when there's no tier. Fills whatever height its row has.
+///
+/// Pass `stickyScrollSpace` (the name of the enclosing ScrollView's coordinate
+/// space) to pin the letter to the top of the viewport while a tall row scrolls
+/// under it, stopping at the row's own bottom edge. Without it the letter simply
+/// rests at `letterRestingY`.
+struct TierRowPillar: View {
+    let tier: String?
+    /// Rotated label drawn when `tier` is nil.
+    var untieredLabel: String = "Unranked"
+    /// Distance from the row's top edge to the letter block at rest.
+    var letterRestingY: CGFloat = TierPillarMetrics.tierRowLetterRestingY
+    var stickyScrollSpace: String? = nil
+    /// Breathing room the pinned letter keeps below the viewport's top edge.
+    var stickyTopInset: CGFloat = 0
+
+    var body: some View {
+        ZStack {
+            spineTierColor(for: tier)
+            if let tier {
+                if let space = stickyScrollSpace {
+                    GeometryReader { geo in
+                        let frame = geo.frame(in: .named(space))
+                        // Where the viewport's top edge falls inside this row,
+                        // plus the inset the letter holds below it.
+                        let wanted = -frame.minY + stickyTopInset
+                        // Never past the row's own bottom edge, and never above
+                        // the resting position (an unscrolled row is untouched).
+                        let lowest = max(
+                            letterRestingY,
+                            frame.height - TierPillarMetrics.letterHeight - TierPillarMetrics.letterBottomGap
+                        )
+                        letterBlock(tier)
+                            .offset(y: min(max(letterRestingY, wanted), lowest))
+                    }
+                } else {
+                    VStack(spacing: 0) {
+                        letterBlock(tier)
+                            .padding(.top, letterRestingY)
+                        Spacer(minLength: 0)
+                    }
+                }
+            } else {
+                Text(untieredLabel)
+                    .font(Theme.headline())
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundStyle(Theme.textSecondary)
+                    .rotationEffect(.degrees(-90))
+            }
+        }
+        .frame(width: TierPillarMetrics.width)
+        .frame(maxHeight: .infinity)
+    }
+
+    /// "A" over a tiny "Tier" — dark ink on the tier color in both appearances,
+    /// since the tier fills stay saturated in dark mode.
+    private func letterBlock(_ tier: String) -> some View {
+        VStack(spacing: 0) {
+            Text(tier)
+                .font(Theme.headline())
+                .lineLimit(1)
+            Text("Tier")
+                .font(.system(size: 8, weight: .medium))
+                .opacity(0.7)
+        }
+        .foregroundStyle(Color.black.opacity(0.75))
+        .frame(width: TierPillarMetrics.width, height: TierPillarMetrics.letterHeight)
     }
 }

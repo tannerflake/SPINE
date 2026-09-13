@@ -68,14 +68,17 @@ struct UserFeedView: View {
                 emptyState
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: feedRowSpacing) {
                         ForEach(posts) { post in
                             postRow(post)
+                                .padding(.horizontal, feedRowInset)
                         }
                         footer
                     }
+                    .padding(.top, feedRowSpacing)
                     .padding(.bottom, mainTabBarOverlapExtraHeight + 40)
                 }
+                .coordinateSpace(name: feedTierScrollSpace)
             }
         }
         .navigationTitle(navTitle)

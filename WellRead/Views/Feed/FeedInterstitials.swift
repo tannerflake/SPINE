@@ -216,9 +216,11 @@ struct FeedBookPicksRow: View {
                 seeMoreCell
             }
             .padding(.horizontal, Theme.horizontalPadding)
-            FeedInterstitialDivider()
         }
+        // Bare on the page between tinted post chunks, so the row carries its
+        // own breathing room instead of a hairline.
         .padding(.top, 14)
+        .padding(.bottom, 10)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: books.map(\.id))
     }
 
@@ -327,9 +329,9 @@ struct FeedPeoplePicksRow: View {
                 }
             }
             .padding(.horizontal, Theme.horizontalPadding)
-            FeedInterstitialDivider()
         }
         .padding(.top, 14)
+        .padding(.bottom, 10)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: readers.map(\.uid))
     }
 
@@ -442,16 +444,5 @@ struct FeedInterstitialHeader: View {
         }
         .padding(.horizontal, Theme.horizontalPadding)
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// Same receipt hairline the posts draw under themselves.
-struct FeedInterstitialDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Theme.chrome.opacity(0.25))
-            .frame(height: Theme.chromeHairline)
-            .padding(.horizontal, Theme.horizontalPadding)
-            .padding(.top, 4)
     }
 }

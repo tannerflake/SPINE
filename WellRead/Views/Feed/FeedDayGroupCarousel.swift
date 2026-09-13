@@ -8,8 +8,9 @@
 //  author has more than three posts on the same day, all of that day's posts
 //  collapse into a single carousel at the position of their newest post.
 //  Slides run newest → oldest, the next card peeks in from the right, and a
-//  "1/7" counter tracks the swipe. Each slide keeps its own like/comment
-//  controls — the carousel itself is just a container with no engagement row.
+//  "1/7" counter tracks the swipe. Each slide is a full tier-row post chunk
+//  (pillar colored by that book's tier) with its own like/comment controls —
+//  the carousel itself is just a header over the strip, with no chrome of its own.
 //
 
 import SwiftUI
@@ -189,14 +190,10 @@ struct FeedDayGroupCarousel: View {
                 .padding(.horizontal, Theme.horizontalPadding)
 
             slideStrip
-
-            // Receipt-style hairline between feed items (matches FeedPostRow).
-            Rectangle()
-                .fill(Theme.chrome.opacity(0.25))
-                .frame(height: Theme.chromeHairline)
-                .padding(.horizontal, Theme.horizontalPadding)
         }
-        .padding(.top, 14)
+        // The header is bare text on the page (no chunk of its own), so it
+        // needs a little more air after the previous chunk than the row gap.
+        .padding(.top, 6)
         .avatarZoom(
             isPresented: $showAvatarZoom,
             urlString: group.user?.profileImageURL,
@@ -249,22 +246,23 @@ struct FeedDayGroupCarousel: View {
         return idx
     }
 
-    /// Paged horizontal strip — cards are narrower than the container so the
-    /// next slide peeks in from the trailing edge.
+    /// Paged horizontal strip — chunks are narrower than the container so the
+    /// next slide peeks in from the trailing edge. Leading margin matches the
+    /// standalone posts' inset so the pillars line up down the feed.
     private var slideStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: Self.cardSpacing) {
                 ForEach(group.posts) { post in
                     slideCard(post)
                         .containerRelativeFrame(.horizontal) { length, _ in
-                            max(0, length - Theme.horizontalPadding - Self.nextCardPeek)
+                            max(0, length - feedRowInset - Self.nextCardPeek)
                         }
                         .id(post.id.uuidString)
                 }
             }
             .scrollTargetLayout()
         }
-        .contentMargins(.horizontal, Theme.horizontalPadding, for: .scrollContent)
+        .contentMargins(.horizontal, feedRowInset, for: .scrollContent)
         .scrollTargetBehavior(.viewAligned)
         .scrollPosition(id: $currentSlideId)
     }
@@ -282,18 +280,8 @@ struct FeedDayGroupCarousel: View {
             onDeleteTap: { onDeleteTap?(post) },
             displayTier: displayTier(post),
             readingNowBooks: readingNowBooks,
-            showsBottomDivider: false
+            isCarouselSlide: true
         )
-        .padding(.bottom, 2)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Theme.surface.opacity(0.45))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Theme.chrome.opacity(0.3), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private var groupAvatar: some View {

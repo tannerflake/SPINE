@@ -8,10 +8,22 @@
 //  it. Below, a feed of finished books, reviews, and recommendations from
 //  people you follow, with two pseudo posts folded in — "Selected for you"
 //  three items down and "Readers to follow" six below that — see
-//  FeedInterstitials.swift. Ink/paper palette with receipt-style row separators.
+//  FeedInterstitials.swift. Ink/paper palette; every post is a tier-row chunk
+//  (colored tier pillar + surface-tinted body), 8pt apart with no hairlines.
 //
 
 import SwiftUI
+
+/// Coordinate space of the feed ScrollViews (home feed and a member's own feed),
+/// used to pin each post's tier letter to the top of the viewport while a tall
+/// review scrolls by, exactly like a tier-list row.
+let feedTierScrollSpace = "feedTierScroll"
+/// Horizontal inset of each tier-row post from the screen edge. Tighter than
+/// `Theme.horizontalPadding` so the colored pillar sits out in the margin the way
+/// tier-list rows do, and the text column keeps its width.
+let feedRowInset: CGFloat = 12
+/// Vertical gap between feed items, same as the gap between tier-list rows.
+let feedRowSpacing: CGFloat = 8
 
 struct FeedView: View {
     @EnvironmentObject var appState: AppState
@@ -91,7 +103,7 @@ struct FeedView: View {
                             if appState.isFeedLoading {
                                 feedBodyLoadingView
                             } else {
-                                LazyVStack(spacing: 0) {
+                                LazyVStack(spacing: feedRowSpacing) {
                                     ForEach(feedItems) { item in
                                         feedItemView(item)
                                             .id(item.id)
@@ -103,6 +115,7 @@ struct FeedView: View {
                         }
                         .id(Self.feedTopAnchorId)
                     }
+                    .coordinateSpace(name: feedTierScrollSpace)
                     .modifier(FeedScrollTopTracking(isAtTop: $isScrolledToFeedTop))
                     .modifier(FeedScrollOffsetTracking { appState.feedScrollOffsetY = $0 })
                     .modifier(FeedScrollOffsetRestore(offset: appState.feedScrollRestoreOffsetY) {
@@ -258,6 +271,7 @@ struct FeedView: View {
                 displayTier: effectiveTier(for: post),
                 readingNowBooks: readingNowFanBooks(for: post)
             )
+            .padding(.horizontal, feedRowInset)
         case .group(let group):
             FeedDayGroupCarousel(
                 group: group,
@@ -587,9 +601,24 @@ struct FeedPostRow: View {
     /// The author's reading-now covers, fanned beside their avatar (same treatment
     /// as the Following row and the profile header).
     var readingNowBooks: [Book] = []
-    /// Hidden when the row renders inside a day-group carousel card, which draws
-    /// its own border instead of the receipt hairline.
-    var showsBottomDivider: Bool = true
+    /// True inside a day-group carousel: the group header above the strip already
+    /// names the author and the day, so the slide drops its own author header and
+    /// clamps the review to a glance (`carouselReviewCharacterLimit`), read-more
+    /// still expanding it in place. Own posts keep the options menu, tucked into
+    /// the book row's corner.
+    var isCarouselSlide: Bool = false
+
+    /// Collapsed length of a review inside a carousel slide.
+    static let carouselReviewCharacterLimit = 70
+
+    /// Inner horizontal padding of the text column, right of the tier pillar.
+    private static let contentInset: CGFloat = 14
+    /// The tier letter rests level with the author avatar (40pt under 14pt of top
+    /// padding) instead of at a tier-list row's centered-in-96pt position.
+    private static let letterRestingY: CGFloat = 14 + 20 - TierPillarMetrics.letterHeight / 2
+    /// Room the pinned letter keeps below the top of the feed while a tall review
+    /// scrolls under it.
+    private static let stickyTopInset: CGFloat = 12
 
     /// Latest comments shown inline under the post (Instagram-style, max 2).
     @State private var previewComments: [Comment] = []
@@ -604,10 +633,65 @@ struct FeedPostRow: View {
     /// Invalidates in-flight burst timers when a new double-tap lands.
     @State private var likeBurstToken = 0
 
+    /// The post is a tier row: the book's tier colors the pillar on the left and
+    /// the post body sits on the row's surface tint, clipped together into one
+    /// rounded chunk. Untiered posts get the neutral pillar the tier list uses for
+    /// Unranked.
     var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            TierRowPillar(
+                tier: displayTier,
+                untieredLabel: untieredPillarLabel,
+                letterRestingY: Self.letterRestingY,
+                stickyScrollSpace: feedTierScrollSpace,
+                stickyTopInset: Self.stickyTopInset
+            )
+            postBody
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.surface.opacity(0.6))
+        }
+        // Size to the body, not to whatever height the container proposes: in
+        // the day-group carousel the strip proposes its tallest slide's height,
+        // and the pillar would otherwise run on past the post.
+        .fixedSize(horizontal: false, vertical: true)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius))
+        .onTapGesture(count: 2) { handleDoubleTapLike() }
+        .overlay(likeBurstOverlay)
+        .avatarZoom(
+            isPresented: $showAvatarZoom,
+            urlString: post.user?.profileImageURL,
+            displayName: post.user?.displayName,
+            firstName: post.user?.firstName,
+            lastName: post.user?.lastName,
+            caption: post.user?.displayName
+        )
+        .task(id: "\(post.id.uuidString)-\(post.commentCount)") {
+            guard post.commentCount > 0 else {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { previewComments = [] }
+                return
+            }
+            let all = await CommentRepository().fetchComments(postId: post.id.uuidString)
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                previewComments = Array(all.suffix(2))
+            }
+        }
+    }
+
+    /// Word in the pillar when the post has no tier. A recommendation was never
+    /// ranked at all; a finished book without a tier is Unranked, exactly as it
+    /// sits in the author's tier list.
+    private var untieredPillarLabel: String {
+        post.type == .recommendation ? "Recommended" : "Unranked"
+    }
+
+    /// Everything right of the pillar: author, book, review, engagement, comments.
+    private var postBody: some View {
         VStack(alignment: .leading, spacing: 12) {
-            feedAuthorHeader
-                .padding(.horizontal)
+            if !isCarouselSlide {
+                feedAuthorHeader
+                    .padding(.horizontal, Self.contentInset)
+            }
 
             if let book = post.book {
                 HStack(alignment: .top, spacing: 14) {
@@ -629,13 +713,16 @@ struct FeedPostRow: View {
                                 .foregroundStyle(Theme.textSecondary.opacity(0.38))
                                 .lineLimit(1)
                         }
-                        if let t = displayTier {
-                            TierBadge(tier: t)
-                        }
                     }
                     Spacer()
+                    if isCarouselSlide, showPostMenu {
+                        postMenu
+                            // Pull the glyph up into the row's corner so it
+                            // sits where the header's menu would have been.
+                            .offset(y: -6)
+                    }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, Self.contentInset)
                 // Cover and title open the book on a single tap, but a double
                 // tap belongs to the review body's like gesture.
                 .contentShape(Rectangle())
@@ -644,8 +731,12 @@ struct FeedPostRow: View {
             }
 
             if let caption = post.caption, !caption.isEmpty {
-                ExpandableReviewText(text: caption, onDoubleTap: { handleDoubleTapLike() })
-                    .padding(.horizontal)
+                ExpandableReviewText(
+                    text: caption,
+                    collapsedCharacterLimit: isCarouselSlide ? Self.carouselReviewCharacterLimit : nil,
+                    onDoubleTap: { handleDoubleTapLike() }
+                )
+                .padding(.horizontal, Self.contentInset)
             }
 
             HStack(spacing: 12) {
@@ -679,41 +770,12 @@ struct FeedPostRow: View {
                 .sensoryFeedback(.impact(weight: .light), trigger: commentTapPulse)
                 Spacer()
             }
-            .padding(.horizontal)
+            .padding(.horizontal, Self.contentInset)
             .padding(.bottom, previewComments.isEmpty ? 14 : 4)
 
             commentPreviewSection
-
-            // Receipt-style hairline between posts
-            if showsBottomDivider {
-                Rectangle()
-                    .fill(Theme.chrome.opacity(0.25))
-                    .frame(height: Theme.chromeHairline)
-                    .padding(.horizontal, Theme.horizontalPadding)
-            }
         }
         .padding(.top, 14)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) { handleDoubleTapLike() }
-        .overlay(likeBurstOverlay)
-        .avatarZoom(
-            isPresented: $showAvatarZoom,
-            urlString: post.user?.profileImageURL,
-            displayName: post.user?.displayName,
-            firstName: post.user?.firstName,
-            lastName: post.user?.lastName,
-            caption: post.user?.displayName
-        )
-        .task(id: "\(post.id.uuidString)-\(post.commentCount)") {
-            guard post.commentCount > 0 else {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { previewComments = [] }
-                return
-            }
-            let all = await CommentRepository().fetchComments(postId: post.id.uuidString)
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                previewComments = Array(all.suffix(2))
-            }
-        }
     }
 
     /// Lightweight "Finished: Mar. 12, 2011" line under the tier badge. Abbreviated
@@ -843,13 +905,14 @@ struct FeedPostRow: View {
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
+                    // Paper-on-paper so the card still lifts off the row's surface tint.
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Theme.surface.opacity(0.6))
+                        .fill(Theme.surfaceElevated.opacity(0.7))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 12))
             }
             .buttonStyle(.springPress)
-            .padding(.horizontal)
+            .padding(.horizontal, Self.contentInset)
             .padding(.bottom, 14)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
@@ -906,32 +969,37 @@ struct FeedPostRow: View {
             .buttonStyle(.plain)
             Spacer(minLength: 8)
             if showPostMenu {
-                Menu {
-                    if showEditReviewButton {
-                        Button {
-                            onEditReviewTap?()
-                        } label: {
-                            Label("Edit review", systemImage: "pencil")
-                        }
-                    }
-                    if isOwnPost, onDeleteTap != nil {
-                        Button(role: .destructive) {
-                            onDeleteTap?()
-                        } label: {
-                            Label("Delete post", systemImage: "trash")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Post options")
+                postMenu
             }
         }
+    }
+
+    /// Ellipsis menu with edit review / delete post, shown on own posts only.
+    private var postMenu: some View {
+        Menu {
+            if showEditReviewButton {
+                Button {
+                    onEditReviewTap?()
+                } label: {
+                    Label("Edit review", systemImage: "pencil")
+                }
+            }
+            if isOwnPost, onDeleteTap != nil {
+                Button(role: .destructive) {
+                    onDeleteTap?()
+                } label: {
+                    Label("Delete post", systemImage: "trash")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Post options")
     }
 
     private var feedAvatar: some View {
@@ -955,6 +1023,10 @@ struct FeedPostRow: View {
 struct ExpandableReviewText: View {
     let text: String
     let collapsedLineLimit: Int
+    /// When set, the collapsed state shows only this many characters (word-safe,
+    /// with a trailing ellipsis) instead of a line count — used by carousel
+    /// slides, where a review should read as a glance. Tap still expands.
+    let collapsedCharacterLimit: Int?
     /// Double-tapping the review text likes the post — the text owns its own
     /// tap gesture, so the like has to be recognized here rather than by an
     /// ancestor (a child gesture wins over the parent's).
@@ -964,17 +1036,35 @@ struct ExpandableReviewText: View {
     /// True once measurement shows the full text is taller than the collapsed limit.
     @State private var truncatable = false
 
-    init(text: String, collapsedLineLimit: Int = 14, onDoubleTap: (() -> Void)? = nil) {
+    init(text: String, collapsedLineLimit: Int = 14, collapsedCharacterLimit: Int? = nil, onDoubleTap: (() -> Void)? = nil) {
         self.text = text
         self.collapsedLineLimit = collapsedLineLimit
+        self.collapsedCharacterLimit = collapsedCharacterLimit
         self.onDoubleTap = onDoubleTap
+    }
+
+    /// True when a character cap applies and the text overruns it.
+    private var characterClamped: Bool {
+        guard let limit = collapsedCharacterLimit else { return false }
+        return text.count > limit
+    }
+
+    /// Text to draw: the whole review, or its first `collapsedCharacterLimit`
+    /// characters cut back to the last whole word, with an ellipsis.
+    private var displayText: String {
+        guard !expanded, characterClamped, let limit = collapsedCharacterLimit else { return text }
+        var head = String(text.prefix(limit))
+        if let lastSpace = head.lastIndex(of: " "), head.distance(from: head.startIndex, to: lastSpace) > limit / 2 {
+            head = String(head[..<lastSpace])
+        }
+        return head.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters)) + "…"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // @mentions render ink-weighted and tappable (spine-mention:// links,
             // handled by FeedView's openURL action).
-            Text(MentionScanner.attributed(text, mentionColor: Theme.chrome))
+            Text(MentionScanner.attributed(displayText, mentionColor: Theme.chrome))
                 .font(Theme.body())
                 .foregroundStyle(Theme.textPrimary)
                 .tint(Theme.chrome)
@@ -992,8 +1082,10 @@ struct ExpandableReviewText: View {
                     updateTruncatable()
                 }
                 .background(measurer)
-            if truncatable {
-                Text(expanded ? "show less" : "…read more")
+            if truncatable || characterClamped {
+                // The clamped text already ends in an ellipsis, so its toggle
+                // doesn't lead with another one.
+                Text(expanded ? "show less" : (characterClamped ? "read more" : "…read more"))
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Theme.chrome)
             }
@@ -1001,7 +1093,7 @@ struct ExpandableReviewText: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { onDoubleTap?() }
         .onTapGesture {
-            guard truncatable else { return }
+            guard truncatable || characterClamped else { return }
             withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
         }
     }

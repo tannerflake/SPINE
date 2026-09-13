@@ -94,7 +94,9 @@ struct RootView: View {
             }
         }
         // A same-day posting burst from a second demo reader (6 posts today) so
-        // the day-group carousel renders in preview, plus a normal standalone post.
+        // the day-group carousel renders in preview, plus standalone posts across
+        // the tier ladder (A, B, F, Unranked) and a recommendation, so every
+        // pillar treatment of the tier-row feed shows up.
         var burstAuthor = User.demo
         burstAuthor.id = UUID()
         burstAuthor.username = "june"
@@ -112,7 +114,11 @@ struct RootView: View {
             Post(id: UUID(), userId: "ui-preview-burst", type: .finishedBook, bookId: item.0, book: book(item.0, item.1, item.2), caption: i == 0 ? "Backfilling my library. Loved this one." : (i == 1 ? longCaption : nil), createdAt: now.addingTimeInterval(Double(-60 * (i + 1))), likeCount: i == 0 ? 3 : 0, commentCount: 0, user: burstAuthor, rating: nil, dateFinished: now, tier: item.3)
         }
         appState.feedPosts = burstPosts + [
-            Post(id: UUID(), userId: uid, type: .finishedBook, bookId: "r1", book: book("r1", "Build", "Tony Fadell"), caption: "An unorthodox guide to making things worth making.", createdAt: now.addingTimeInterval(-86400 * 2), likeCount: 4, commentCount: 0, user: .demo, rating: nil, dateFinished: now, tier: "A")
+            Post(id: UUID(), userId: uid, type: .finishedBook, bookId: "r1", book: book("r1", "Build", "Tony Fadell"), caption: "An unorthodox guide to making things worth making.", createdAt: now.addingTimeInterval(-86400 * 2), likeCount: 4, commentCount: 0, user: .demo, rating: nil, dateFinished: now, tier: "A"),
+            Post(id: UUID(), userId: uid, type: .finishedBook, bookId: "r4", book: book("r4", "Misbelief", "Dan Ariely"), caption: longCaption, createdAt: now.addingTimeInterval(-86400 * 3), likeCount: 1, commentCount: 0, user: .demo, rating: nil, dateFinished: now, tier: "B"),
+            Post(id: UUID(), userId: "ui-preview-burst", type: .recommendation, bookId: "un1", book: book("un1", "Chip War", "Chris Miller"), caption: "You'd tear through this one.", createdAt: now.addingTimeInterval(-86400 * 4), likeCount: 0, commentCount: 0, user: burstAuthor, rating: nil, dateFinished: nil, tier: nil),
+            Post(id: UUID(), userId: uid, type: .finishedBook, bookId: "r5", book: book("r5", "Outrage Machine", "Tobias Rose-Stockwell"), caption: nil, createdAt: now.addingTimeInterval(-86400 * 5), likeCount: 0, commentCount: 0, user: .demo, rating: nil, dateFinished: now, tier: nil),
+            Post(id: UUID(), userId: "ui-preview-burst", type: .finishedBook, bookId: "g7", book: book("g7", "Fourth Wing", "Rebecca Yarros"), caption: "Not for me.", createdAt: now.addingTimeInterval(-86400 * 6), likeCount: 0, commentCount: 0, user: burstAuthor, rating: nil, dateFinished: now, tier: "F")
         ]
         appState.isFeedLoading = false
         // Discover pipeline stocked so the feed's "Selected for you" rows render.

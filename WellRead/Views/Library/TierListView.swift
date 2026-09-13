@@ -16,16 +16,6 @@ private let tierDropSlotWidth: CGFloat = 10
 /// Coordinate space of the tier-list ScrollView, used to pin each tier's letter
 /// to the top of the viewport while its (possibly very tall) row scrolls by.
 private let tierListScrollSpace = "tierListScroll"
-/// Natural height of the "A / Tier" letter block that pins inside the colored
-/// label column. Deliberately much shorter than a row's 96pt minimum so even an
-/// empty row has slack to slide the letter down into instead of clipping it.
-private let tierStickyLetterHeight: CGFloat = 34
-/// Where the letter block rests, measured from the row's top edge, before any
-/// scrolling pins it: centered within the row's 96pt minimum height.
-private let tierStickyLetterRestingY: CGFloat = (96 - tierStickyLetterHeight) / 2
-/// Gap the pinned letter keeps above its own row's bottom edge, so it never
-/// slides out through the row's rounded corner clip.
-private let tierStickyLetterBottomGap: CGFloat = 8
 /// Breathing room the pinned tier letter keeps below the viewport's top edge,
 /// so it doesn't crowd the goal strip and the list/feed buttons sitting just
 /// above the scroll view. The year tab deliberately does *not* use this: it's a
@@ -814,46 +804,11 @@ struct TierRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            ZStack {
-                tierColor(for: tier)
-                if header == "Unranked" {
-                    Text(header)
-                        .font(Theme.headline())
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .foregroundStyle(Theme.textSecondary)
-                        .rotationEffect(.degrees(-90))
-                } else {
-                    // Pin the letter to the top of the viewport while scrolling through
-                    // a tall tier, stopping at the bottom of the row.
-                    GeometryReader { geo in
-                        let frame = geo.frame(in: .named(tierListScrollSpace))
-                        // Where the viewport's top edge falls inside this row,
-                        // plus the inset the sticky furniture holds below it.
-                        let wanted = -frame.minY + tierStickyTopInset
-                        // Never past the row's own bottom edge, and never above
-                        // the resting position (an unscrolled row is untouched).
-                        let lowest = max(
-                            tierStickyLetterRestingY,
-                            frame.height - tierStickyLetterHeight - tierStickyLetterBottomGap
-                        )
-                        let pinned = min(max(tierStickyLetterRestingY, wanted), lowest)
-                        VStack(spacing: 0) {
-                            Text(header)
-                                .font(Theme.headline())
-                                .lineLimit(1)
-                            Text("Tier")
-                                .font(.system(size: 8, weight: .medium))
-                                .opacity(0.7)
-                        }
-                        .foregroundStyle(Color.black.opacity(0.75))
-                        .frame(width: 38, height: tierStickyLetterHeight)
-                        .offset(y: pinned)
-                    }
-                }
-            }
-            .frame(minWidth: 38, maxWidth: 38, minHeight: 96)
-            .frame(maxHeight: .infinity)
+            // Shared with the feed's posts (see TierBadge.swift): the letter pins
+            // to the top of the viewport while a tall tier scrolls by.
+            TierRowPillar(tier: tier, stickyScrollSpace: tierListScrollSpace, stickyTopInset: tierStickyTopInset)
+                .frame(minHeight: 96)
+                .frame(maxHeight: .infinity)
 
             tierContent(contentWidth: contentAreaWidth, readOnly: readOnly)
                 .frame(minHeight: 96)
