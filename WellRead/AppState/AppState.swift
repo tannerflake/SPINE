@@ -117,6 +117,8 @@ final class AppState: ObservableObject {
     private var feedListener: FeedListenerHandle?
     private var recommendationsListener: ListenerRegistration?
     private var currentUserId: String?
+    /// Read-only uid for views that must work under `-uiPreview` (no Firebase user).
+    var viewerUid: String? { currentUserId }
     /// Uids the signed-in user follows, kept for feed-listener restarts on scope switches.
     private var currentFollowing: [String] = []
 

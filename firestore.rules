@@ -128,6 +128,66 @@ service cloud.firestore {
       allow delete: if request.auth != null && request.auth.uid in resource.data.userIds;
     }
 
+    // Book clubs: one doc per club; only members read it. The creator makes the
+    // doc (as its first member and admin). Admins (or everyone, when the club is
+    // set that way) may change anything but `createdBy`. Any member may leave,
+    // as long as the write removes exactly themselves and nothing else.
+    // Joining by code and phone-invite matching run through Cloud Functions, so
+    // a non-member never needs read access here.
+    function isClubAdmin(data, uid) {
+      return data.everyoneIsAdmin == true || uid in data.adminIds;
+    }
+
+    function clubLeaveOnly(uid) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['memberIds', 'adminIds', 'members', 'updatedAt', 'updatedBy'])
+        && request.resource.data.memberIds == resource.data.memberIds.removeAll([uid])
+        && request.resource.data.adminIds == resource.data.adminIds.removeAll([uid])
+        && !(uid in request.resource.data.members)
+        && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([uid]);
+    }
+
+    match /clubs/{clubId} {
+      allow read: if request.auth != null && request.auth.uid in resource.data.memberIds;
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.uid
+        && request.auth.uid in request.resource.data.memberIds
+        && request.auth.uid in request.resource.data.adminIds
+        && request.resource.data.memberIds.size() <= 50
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 40;
+      allow update: if request.auth != null
+        && request.auth.uid in resource.data.memberIds
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.inviteCode == resource.data.inviteCode
+        && request.resource.data.memberIds.size() <= 50
+        && (isClubAdmin(resource.data, request.auth.uid) || clubLeaveOnly(request.auth.uid));
+      allow delete: if request.auth != null && (
+        isClubAdmin(resource.data, request.auth.uid)
+        || resource.data.memberIds == [request.auth.uid]
+      );
+    }
+
+    // Invite codes: `{CODE}` → { clubId, createdBy, createdAt }. Create-only
+    // (claimed in the same transaction as the club, so a collision fails loudly);
+    // readable so that transaction can check for one. Redeeming happens in the
+    // joinClubByCode function, which is the only path that hands out membership.
+    match /clubInviteCodes/{code} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.keys().hasOnly(['clubId', 'createdBy', 'createdAt']);
+      allow update, delete: if false;
+    }
+
+    // Phone invites: SHA-256 of the invitee's last ten digits → clubs waiting on
+    // them. Written by the inviteClubPhones function, consumed when a user doc
+    // gains that number. Server-only.
+    match /clubPhoneInvites/{phoneHash} {
+      allow read, write: if false;
+    }
+
     // Founder blend outreach ledger: one doc per member, written only by the
     // Cloud Function that schedules and sends @tan's automatic blend request.
     // Server-only — clients never read or write it.

@@ -14,6 +14,25 @@ import FirebaseFirestore
 import FirebaseMessaging
 
 enum WellreadDeepLink {
+    /// `wellread://club/join/{CODE}` — a club invite link; opens the join sheet
+    /// with the code filled in (or joins outright once signed in).
+    static func clubInviteCode(from url: URL) -> String? {
+        guard url.scheme?.lowercased() == "wellread" else { return nil }
+        guard url.host?.lowercased() == "club" else { return nil }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard parts.count == 2, parts[0].lowercased() == "join" else { return nil }
+        return BookClub.normalizeInviteCode(parts[1])
+    }
+
+    /// `wellread://club/{clubId}` — straight to a club the reader belongs to.
+    static func clubId(from url: URL) -> String? {
+        guard url.scheme?.lowercased() == "wellread" else { return nil }
+        guard url.host?.lowercased() == "club" else { return nil }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard parts.count == 1, parts[0].lowercased() != "join" else { return nil }
+        return parts[0]
+    }
+
     /// `wellread://post/{postUUID}` — opens Feed and the post’s comment thread.
     static func postId(from url: URL) -> String? {
         guard url.scheme?.lowercased() == "wellread" else { return nil }
@@ -75,6 +94,10 @@ enum PushNotificationService {
     /// consumed by `MainTabView.onAppear`, since a NotificationCenter post at tap
     /// time would land before any listener exists.
     private static var pendingBlendId: String?
+    /// Club pushes (`club_*`) carry `clubId`; stashed until the Clubs tab is up.
+    static var pendingClubId: String?
+    /// A `wellread://club/join/{CODE}` link opened before the main UI existed.
+    static var pendingClubInviteCode: String?
 
     static func consumePendingBlendTap() -> String? {
         defer { pendingBlendId = nil }
@@ -336,6 +359,18 @@ enum PushNotificationService {
 
     private static func routeRemoteNotificationTap(userInfo: [AnyHashable: Any]) {
         let type = WellreadDeepLink.pushNotificationType(from: userInfo)
+        /// Every club push lands on the club page: added, new book, meeting reminders.
+        if (type ?? "").hasPrefix("club_") {
+            if let clubId = userInfo[AnyHashable("clubId")] as? String, !clubId.isEmpty {
+                pendingClubId = clubId
+                NotificationCenter.default.post(
+                    name: .spineOpenClub,
+                    object: nil,
+                    userInfo: ["clubId": clubId]
+                )
+            }
+            return
+        }
         /// Book Blend pushes (invite or ready) land on the blend landing screen,
         /// which routes by the doc's status — both types carry `blendId`.
         if type == "blend_request" || type == "blend_ready" {
@@ -506,6 +541,11 @@ extension Notification.Name {
     static let spineOpenUserProfile = Notification.Name("spineOpenUserProfile")
     /// Feed tab tapped while already selected: FeedView scrolls to top if scrolled down, or refreshes if already at top.
     static let spineFeedTabTappedAgain = Notification.Name("spineFeedTabTappedAgain")
+    static let spineClubsTabTappedAgain = Notification.Name("spineClubsTabTappedAgain")
+    /// userInfo["clubId"]: open that club (Clubs tab + detail page).
+    static let spineOpenClub = Notification.Name("spineOpenClub")
+    /// userInfo["code"]: open the join sheet with an invite code filled in.
+    static let spineJoinClubWithCode = Notification.Name("spineJoinClubWithCode")
     /// Discover tab tapped while already selected: DiscoverView pops any pushed pages back to its root.
     static let spineDiscoverTabTappedAgain = Notification.Name("spineDiscoverTabTappedAgain")
     /// Search tab tapped while already selected: SearchView pops any pushed pages back to its root.

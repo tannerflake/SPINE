@@ -68,6 +68,7 @@ struct MainTabView: View {
     enum Tab: String, CaseIterable {
         case feed
         case discover
+        case clubs
         case search
         case profile
 
@@ -77,6 +78,7 @@ struct MainTabView: View {
             switch self {
             case .feed: return .spineFeedTabTappedAgain
             case .discover: return .spineDiscoverTabTappedAgain
+            case .clubs: return .spineClubsTabTappedAgain
             case .search: return .spineSearchTabTappedAgain
             case .profile: return .spineProfileTabTappedAgain
             }
@@ -90,6 +92,7 @@ struct MainTabView: View {
             switch selectedTab {
             case .feed: FeedView()
             case .discover: DiscoverView()
+            case .clubs: ClubsView()
             case .search: SearchView()
             case .profile: ProfileLibraryView()
             }
@@ -164,6 +167,21 @@ struct MainTabView: View {
         // bar clears the custom tab bar. With the parent safeAreaInset reserving the tab bar, this gives
         // the action bar a clean breathing-room gap above the tab bar.
         .environment(\.mainTabBarOverlapExtraHeight, Theme.mainTabBarChromeHeight)
+        // Club pushes and invite links land on the Clubs tab; ClubsView does the
+        // rest (pushing the club, or opening the join sheet with the code).
+        .onReceive(NotificationCenter.default.publisher(for: .spineOpenClub)) { _ in
+            withAnimation(.snappy(duration: 0.3, extraBounce: 0.12)) { selectedTab = .clubs }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .spineJoinClubWithCode)) { _ in
+            withAnimation(.snappy(duration: 0.3, extraBounce: 0.12)) { selectedTab = .clubs }
+        }
+        .onAppear {
+            // Cold start from a club push or invite link: the stash is consumed by
+            // ClubsView once the tab is up.
+            if PushNotificationService.pendingClubId != nil || PushNotificationService.pendingClubInviteCode != nil {
+                selectedTab = .clubs
+            }
+        }
         .toastHost()
         // One unclipped, full-screen host for finish-line confetti, above the tab
         // bar. Attached only here: a second host would double the burst.
@@ -842,6 +860,7 @@ struct MainTabView: View {
         HStack(spacing: 0) {
             tabButton(.feed, icon: "person.2.fill", label: "Social")
             tabButton(.discover, icon: "sparkles", label: "Discover")
+            tabButton(.clubs, icon: "person.3.fill", label: "Clubs")
             tabButton(.search, icon: "magnifyingglass", label: "Search")
             tabButton(.profile, icon: "books.vertical.fill", label: "Profile")
         }
@@ -902,6 +921,7 @@ struct MainTabView: View {
         HStack(spacing: 0) {
             tabItemLabel(icon: "person.2.fill", label: "Social", isSelected: false)
             tabItemLabel(icon: "sparkles", label: "Discover", isSelected: false)
+            tabItemLabel(icon: "person.3.fill", label: "Clubs", isSelected: false)
             tabItemLabel(icon: "magnifyingglass", label: "Search", isSelected: false)
             tabItemLabel(icon: "books.vertical.fill", label: "Profile", isSelected: false)
         }

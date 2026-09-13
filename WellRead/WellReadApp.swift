@@ -252,6 +252,17 @@ struct WellReadApp: App {
                 // `nil` (System) follows the device setting.
                 .preferredColorScheme(appearance.colorScheme)
                 .onOpenURL { url in
+                    // Club invite link: `wellread://club/join/{CODE}`.
+                    if let code = WellreadDeepLink.clubInviteCode(from: url) {
+                        PushNotificationService.pendingClubInviteCode = code
+                        NotificationCenter.default.post(name: .spineJoinClubWithCode, object: nil, userInfo: ["code": code])
+                        return
+                    }
+                    if let clubId = WellreadDeepLink.clubId(from: url) {
+                        PushNotificationService.pendingClubId = clubId
+                        NotificationCenter.default.post(name: .spineOpenClub, object: nil, userInfo: ["clubId": clubId])
+                        return
+                    }
                     if url.scheme == "wellread", url.host == "goodreads-import" {
                         handleGoodreadsImportFromShare()
                     } else if url.scheme == "wellread", url.host == "link-import" {

@@ -72,7 +72,6 @@
 		B0010039 /* WellReadTagCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010039 /* WellReadTagCatalog.swift */; };
 		B001003A /* UserLibraryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003A /* UserLibraryDetailView.swift */; };
 		B001003B /* QueueBookDragCover.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003B /* QueueBookDragCover.swift */; };
-		B0010517 /* ReadingNowProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010517 /* ReadingNowProgressCard.swift */; };
 		B001003C /* LibraryReadQueueSegmentShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003C /* LibraryReadQueueSegmentShared.swift */; };
 		B001003D /* WelcomeSpinesGoodreadsModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003D /* WelcomeSpinesGoodreadsModal.swift */; };
 		B001003E /* GoodreadsImportTutorialEmbed.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003E /* GoodreadsImportTutorialEmbed.swift */; };
@@ -113,38 +112,41 @@
 		B0010207 /* FindFriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010207 /* FindFriendsView.swift */; };
 		B0010208 /* RecommendBookSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010208 /* RecommendBookSheet.swift */; };
 		B0010331 /* ProfilePhotoNudgeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010331 /* ProfilePhotoNudgeStorage.swift */; };
-		B0010911 /* AppReviewPromptStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010911 /* AppReviewPromptStorage.swift */; };
-		B0010912 /* RateSpineNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010912 /* RateSpineNudgeModal.swift */; };
 		B0010332 /* ProfilePhotoNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010332 /* ProfilePhotoNudgeModal.swift */; };
 		B0010333 /* OnboardingCurrentlyReadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010333 /* OnboardingCurrentlyReadingView.swift */; };
+		B0010517 /* ReadingNowProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010517 /* ReadingNowProgressCard.swift */; };
 		B0010731 /* SearchQueryCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010731 /* SearchQueryCompletion.swift */; };
 		B0010777 /* ReadingYearListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010777 /* ReadingYearListView.swift */; };
 		B0010833 /* BookDiscussionSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010833 /* BookDiscussionSection.swift */; };
 		B0010901 /* PhoneNumberNudgeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010901 /* PhoneNumberNudgeStorage.swift */; };
 		B0010902 /* PhoneNumberNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010902 /* PhoneNumberNudgeModal.swift */; };
+		B0010911 /* AppReviewPromptStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010911 /* AppReviewPromptStorage.swift */; };
+		B0010912 /* RateSpineNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010912 /* RateSpineNudgeModal.swift */; };
 		B0010C47 /* CircularPhotoCropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010C47 /* CircularPhotoCropView.swift */; };
+		B0010E71 /* TierMultiSelect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010E71 /* TierMultiSelect.swift */; };
 		B0017747 /* CoverRegenerationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0017747 /* CoverRegenerationService.swift */; };
 		B0018D71 /* BookSummaryMoreService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0018D71 /* BookSummaryMoreService.swift */; };
 		B0018D72 /* BookSummaryMoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0018D72 /* BookSummaryMoreView.swift */; };
 		B00B1E01 /* BookBlend.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E01 /* BookBlend.swift */; };
 		B00B1E02 /* BookBlendService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E02 /* BookBlendService.swift */; };
 		B00B1E03 /* BookBlendInviteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E03 /* BookBlendInviteView.swift */; };
+		B00C1B01 /* BookClub.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B01 /* BookClub.swift */; };
+		B00C1B02 /* BookClubService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B02 /* BookClubService.swift */; };
+		B00C1B10 /* ClubComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B10 /* ClubComponents.swift */; };
+		B00C1B11 /* ClubsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B11 /* ClubsView.swift */; };
+		B00C1B12 /* ClubDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B12 /* ClubDetailView.swift */; };
+		B00C1B13 /* CreateClubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B13 /* CreateClubView.swift */; };
+		B00C1B14 /* ClubMemberPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B14 /* ClubMemberPickerView.swift */; };
+		B00C1B15 /* JoinClubSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B15 /* JoinClubSheet.swift */; };
+		B00C1B16 /* ClubInviteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B16 /* ClubInviteSheet.swift */; };
+		B00C1B17 /* ClubBookPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B17 /* ClubBookPickerSheet.swift */; };
+		B00C1B18 /* ClubSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B18 /* ClubSettingsView.swift */; };
 		B00B1E04 /* BookBlendStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E04 /* BookBlendStoryView.swift */; };
 		B00B1E05 /* OpenLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E05 /* OpenLibraryService.swift */; };
 		B00B1E06 /* BookSearchCacheService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E06 /* BookSearchCacheService.swift */; };
+		B00B1E07 /* AIContentCacheRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E07 /* AIContentCacheRepository.swift */; };
 		B00B1E20 /* UserDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E20 /* UserDirectory.swift */; };
 		B00B1E21 /* ReadDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E21 /* ReadDraftStore.swift */; };
-		B00D4E51 /* QueueNoteComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D4E51 /* QueueNoteComposer.swift */; };
-		B00D8E1 /* LinkImportShareHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E1 /* LinkImportShareHelper.swift */; };
-		B00D8E2 /* LinkImportSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E2 /* LinkImportSession.swift */; };
-		B00D8E3 /* LinkBookExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E3 /* LinkBookExtractionService.swift */; };
-		B00D8E4 /* LinkImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E4 /* LinkImportView.swift */; };
-		B0010E71 /* TierMultiSelect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010E71 /* TierMultiSelect.swift */; };
-		B00E9A01 /* StoryExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A01 /* StoryExporter.swift */; };
-		B00E9A02 /* ShareCoverResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A02 /* ShareCoverResolver.swift */; };
-		B00E9A03 /* ShareStoryCanvases.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A03 /* ShareStoryCanvases.swift */; };
-		B00E9A04 /* ShareHubSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A04 /* ShareHubSheet.swift */; };
-		B00B1E07 /* AIContentCacheRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E07 /* AIContentCacheRepository.swift */; };
 		B00C7A31 /* BookPopularityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C7A31 /* BookPopularityService.swift */; };
 		B00D1A01 /* TypewriterText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A01 /* TypewriterText.swift */; };
 		B00D1A02 /* OnboardingWizard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A02 /* OnboardingWizard.swift */; };
@@ -159,17 +161,26 @@
 		B00D2A19 /* FeedDayGroupCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A19 /* FeedDayGroupCarousel.swift */; };
 		B00D2A1A /* UserProfileCardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A1A /* UserProfileCardSheet.swift */; };
 		B00D2A1B /* PeopleStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A1B /* PeopleStrip.swift */; };
-		B00E7A01 /* FeedInterstitials.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7A01 /* FeedInterstitials.swift */; };
 		B00D2A1C /* ProfileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A1C /* ProfileSettingsView.swift */; };
+		B00D4E51 /* QueueNoteComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D4E51 /* QueueNoteComposer.swift */; };
+		B00D8E1 /* LinkImportShareHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E1 /* LinkImportShareHelper.swift */; };
+		B00D8E2 /* LinkImportSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E2 /* LinkImportSession.swift */; };
+		B00D8E3 /* LinkBookExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E3 /* LinkBookExtractionService.swift */; };
+		B00D8E4 /* LinkImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E4 /* LinkImportView.swift */; };
+		B00E7A01 /* FeedInterstitials.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7A01 /* FeedInterstitials.swift */; };
 		B00E7C31 /* UserAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7C31 /* UserAvatarView.swift */; };
+		B00E9A01 /* StoryExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A01 /* StoryExporter.swift */; };
+		B00E9A02 /* ShareCoverResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A02 /* ShareCoverResolver.swift */; };
+		B00E9A03 /* ShareStoryCanvases.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A03 /* ShareStoryCanvases.swift */; };
+		B00E9A04 /* ShareHubSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A04 /* ShareHubSheet.swift */; };
 		B00F3A17 /* NotificationsBellButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A17 /* NotificationsBellButton.swift */; };
 		B00F3A2A /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A2A /* MarkdownText.swift */; };
 		B04F3B71 /* NotificationsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04F3B71 /* NotificationsRepository.swift */; };
 		B04F3B72 /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04F3B72 /* NotificationsView.swift */; };
 		B07E4D21 /* UserFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07E4D21 /* UserFeedView.swift */; };
 		B7D91A42 /* ISBNdbService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D91A42 /* ISBNdbService.swift */; };
-		BA9E7301 /* Mentions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA9E7301 /* Mentions.swift */; };
 		BA0C0001 /* OnboardingCompletionMemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0C0001 /* OnboardingCompletionMemo.swift */; };
+		BA9E7301 /* Mentions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA9E7301 /* Mentions.swift */; };
 		NE01000A /* WellReadNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = NE010002 /* WellReadNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		WG01000A /* WellReadWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = WG010002 /* WellReadWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		WG010010 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG010011 /* WidgetSnapshot.swift */; };
@@ -276,7 +287,6 @@
 		F0010039 /* WellReadTagCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellReadTagCatalog.swift; sourceTree = "<group>"; };
 		F001003A /* UserLibraryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserLibraryDetailView.swift; sourceTree = "<group>"; };
 		F001003B /* QueueBookDragCover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueBookDragCover.swift; sourceTree = "<group>"; };
-		F0010517 /* ReadingNowProgressCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingNowProgressCard.swift; sourceTree = "<group>"; };
 		F001003C /* LibraryReadQueueSegmentShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryReadQueueSegmentShared.swift; sourceTree = "<group>"; };
 		F001003D /* WelcomeSpinesGoodreadsModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeSpinesGoodreadsModal.swift; sourceTree = "<group>"; };
 		F001003E /* GoodreadsImportTutorialEmbed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsImportTutorialEmbed.swift; sourceTree = "<group>"; };
@@ -317,38 +327,41 @@
 		F0010207 /* FindFriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindFriendsView.swift; sourceTree = "<group>"; };
 		F0010208 /* RecommendBookSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendBookSheet.swift; sourceTree = "<group>"; };
 		F0010331 /* ProfilePhotoNudgeStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoNudgeStorage.swift; sourceTree = "<group>"; };
-		F0010911 /* AppReviewPromptStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppReviewPromptStorage.swift; sourceTree = "<group>"; };
-		F0010912 /* RateSpineNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateSpineNudgeModal.swift; sourceTree = "<group>"; };
 		F0010332 /* ProfilePhotoNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoNudgeModal.swift; sourceTree = "<group>"; };
 		F0010333 /* OnboardingCurrentlyReadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCurrentlyReadingView.swift; sourceTree = "<group>"; };
+		F0010517 /* ReadingNowProgressCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingNowProgressCard.swift; sourceTree = "<group>"; };
 		F0010731 /* SearchQueryCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchQueryCompletion.swift; sourceTree = "<group>"; };
 		F0010777 /* ReadingYearListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingYearListView.swift; sourceTree = "<group>"; };
 		F0010833 /* BookDiscussionSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookDiscussionSection.swift; sourceTree = "<group>"; };
 		F0010901 /* PhoneNumberNudgeStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberNudgeStorage.swift; sourceTree = "<group>"; };
 		F0010902 /* PhoneNumberNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberNudgeModal.swift; sourceTree = "<group>"; };
+		F0010911 /* AppReviewPromptStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppReviewPromptStorage.swift; sourceTree = "<group>"; };
+		F0010912 /* RateSpineNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateSpineNudgeModal.swift; sourceTree = "<group>"; };
 		F0010C47 /* CircularPhotoCropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CircularPhotoCropView.swift; sourceTree = "<group>"; };
+		F0010E71 /* TierMultiSelect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TierMultiSelect.swift; sourceTree = "<group>"; };
 		F0017747 /* CoverRegenerationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverRegenerationService.swift; sourceTree = "<group>"; };
 		F0018D71 /* BookSummaryMoreService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSummaryMoreService.swift; sourceTree = "<group>"; };
 		F0018D72 /* BookSummaryMoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSummaryMoreView.swift; sourceTree = "<group>"; };
 		F00B1E01 /* BookBlend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlend.swift; sourceTree = "<group>"; };
 		F00B1E02 /* BookBlendService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlendService.swift; sourceTree = "<group>"; };
 		F00B1E03 /* BookBlendInviteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlendInviteView.swift; sourceTree = "<group>"; };
+		F00C1B01 /* BookClub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookClub.swift; sourceTree = "<group>"; };
+		F00C1B02 /* BookClubService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookClubService.swift; sourceTree = "<group>"; };
+		F00C1B10 /* ClubComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubComponents.swift; sourceTree = "<group>"; };
+		F00C1B11 /* ClubsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubsView.swift; sourceTree = "<group>"; };
+		F00C1B12 /* ClubDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubDetailView.swift; sourceTree = "<group>"; };
+		F00C1B13 /* CreateClubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateClubView.swift; sourceTree = "<group>"; };
+		F00C1B14 /* ClubMemberPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubMemberPickerView.swift; sourceTree = "<group>"; };
+		F00C1B15 /* JoinClubSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinClubSheet.swift; sourceTree = "<group>"; };
+		F00C1B16 /* ClubInviteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubInviteSheet.swift; sourceTree = "<group>"; };
+		F00C1B17 /* ClubBookPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubBookPickerSheet.swift; sourceTree = "<group>"; };
+		F00C1B18 /* ClubSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubSettingsView.swift; sourceTree = "<group>"; };
 		F00B1E04 /* BookBlendStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlendStoryView.swift; sourceTree = "<group>"; };
 		F00B1E05 /* OpenLibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLibraryService.swift; sourceTree = "<group>"; };
 		F00B1E06 /* BookSearchCacheService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSearchCacheService.swift; sourceTree = "<group>"; };
+		F00B1E07 /* AIContentCacheRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIContentCacheRepository.swift; sourceTree = "<group>"; };
 		F00B1E20 /* UserDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDirectory.swift; sourceTree = "<group>"; };
 		F00B1E21 /* ReadDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadDraftStore.swift; sourceTree = "<group>"; };
-		F00D4E51 /* QueueNoteComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueNoteComposer.swift; sourceTree = "<group>"; };
-		F00D8E1 /* LinkImportShareHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportShareHelper.swift; sourceTree = "<group>"; };
-		F00D8E2 /* LinkImportSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportSession.swift; sourceTree = "<group>"; };
-		F00D8E3 /* LinkBookExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkBookExtractionService.swift; sourceTree = "<group>"; };
-		F00D8E4 /* LinkImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportView.swift; sourceTree = "<group>"; };
-		F0010E71 /* TierMultiSelect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TierMultiSelect.swift; sourceTree = "<group>"; };
-		F00E9A01 /* StoryExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryExporter.swift; sourceTree = "<group>"; };
-		F00E9A02 /* ShareCoverResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCoverResolver.swift; sourceTree = "<group>"; };
-		F00E9A03 /* ShareStoryCanvases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareStoryCanvases.swift; sourceTree = "<group>"; };
-		F00E9A04 /* ShareHubSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareHubSheet.swift; sourceTree = "<group>"; };
-		F00B1E07 /* AIContentCacheRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIContentCacheRepository.swift; sourceTree = "<group>"; };
 		F00C7A31 /* BookPopularityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPopularityService.swift; sourceTree = "<group>"; };
 		F00D1A01 /* TypewriterText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypewriterText.swift; sourceTree = "<group>"; };
 		F00D1A02 /* OnboardingWizard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWizard.swift; sourceTree = "<group>"; };
@@ -363,17 +376,26 @@
 		F00D2A19 /* FeedDayGroupCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedDayGroupCarousel.swift; sourceTree = "<group>"; };
 		F00D2A1A /* UserProfileCardSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileCardSheet.swift; sourceTree = "<group>"; };
 		F00D2A1B /* PeopleStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleStrip.swift; sourceTree = "<group>"; };
-		F00E7A01 /* FeedInterstitials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInterstitials.swift; sourceTree = "<group>"; };
 		F00D2A1C /* ProfileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSettingsView.swift; sourceTree = "<group>"; };
+		F00D4E51 /* QueueNoteComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueNoteComposer.swift; sourceTree = "<group>"; };
+		F00D8E1 /* LinkImportShareHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportShareHelper.swift; sourceTree = "<group>"; };
+		F00D8E2 /* LinkImportSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportSession.swift; sourceTree = "<group>"; };
+		F00D8E3 /* LinkBookExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkBookExtractionService.swift; sourceTree = "<group>"; };
+		F00D8E4 /* LinkImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportView.swift; sourceTree = "<group>"; };
+		F00E7A01 /* FeedInterstitials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInterstitials.swift; sourceTree = "<group>"; };
 		F00E7C31 /* UserAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAvatarView.swift; sourceTree = "<group>"; };
+		F00E9A01 /* StoryExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryExporter.swift; sourceTree = "<group>"; };
+		F00E9A02 /* ShareCoverResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCoverResolver.swift; sourceTree = "<group>"; };
+		F00E9A03 /* ShareStoryCanvases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareStoryCanvases.swift; sourceTree = "<group>"; };
+		F00E9A04 /* ShareHubSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareHubSheet.swift; sourceTree = "<group>"; };
 		F00F3A17 /* NotificationsBellButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsBellButton.swift; sourceTree = "<group>"; };
 		F00F3A2A /* MarkdownText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
 		F04F3B71 /* NotificationsRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsRepository.swift; sourceTree = "<group>"; };
 		F04F3B72 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 		F07E4D21 /* UserFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFeedView.swift; sourceTree = "<group>"; };
 		F7D91A42 /* ISBNdbService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISBNdbService.swift; sourceTree = "<group>"; };
-		FA9E7301 /* Mentions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mentions.swift; sourceTree = "<group>"; };
 		FA0C0001 /* OnboardingCompletionMemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCompletionMemo.swift; sourceTree = "<group>"; };
+		FA9E7301 /* Mentions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mentions.swift; sourceTree = "<group>"; };
 		NE010002 /* WellReadNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WellReadNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		WG010002 /* WellReadWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WellReadWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		WG010011 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
@@ -514,6 +536,7 @@
 		G0010004 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				F00C1B01 /* BookClub.swift */,
 				F0010005 /* User.swift */,
 				F00B1E01 /* BookBlend.swift */,
 				F0010203 /* BookRecommendation.swift */,
@@ -537,6 +560,7 @@
 		G0010006 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				F00C1B02 /* BookClubService.swift */,
 				WG010011 /* WidgetSnapshot.swift */,
 				WG010013 /* WidgetDataService.swift */,
 				F001000A /* GoogleBooksService.swift */,
@@ -609,6 +633,7 @@
 				G001000E /* Profile */,
 				G0010203 /* Friends */,
 				G00B1E00 /* Blend */,
+				G00C1B00 /* Clubs */,
 				G00E9A00 /* Share */,
 			);
 			path = Views;
@@ -709,17 +734,6 @@
 			path = Library;
 			sourceTree = "<group>";
 		};
-		G00E9A00 /* Share */ = {
-			isa = PBXGroup;
-			children = (
-				F00E9A01 /* StoryExporter.swift */,
-				F00E9A02 /* ShareCoverResolver.swift */,
-				F00E9A03 /* ShareStoryCanvases.swift */,
-				F00E9A04 /* ShareHubSheet.swift */,
-			);
-			path = Share;
-			sourceTree = "<group>";
-		};
 		G001000E /* Profile */ = {
 			isa = PBXGroup;
 			children = (
@@ -781,6 +795,22 @@
 			path = Blend;
 			sourceTree = "<group>";
 		};
+		G00C1B00 /* Clubs */ = {
+			isa = PBXGroup;
+			children = (
+				F00C1B10 /* ClubComponents.swift */,
+				F00C1B11 /* ClubsView.swift */,
+				F00C1B12 /* ClubDetailView.swift */,
+				F00C1B13 /* CreateClubView.swift */,
+				F00C1B14 /* ClubMemberPickerView.swift */,
+				F00C1B15 /* JoinClubSheet.swift */,
+				F00C1B16 /* ClubInviteSheet.swift */,
+				F00C1B17 /* ClubBookPickerSheet.swift */,
+				F00C1B18 /* ClubSettingsView.swift */,
+			);
+			path = Clubs;
+			sourceTree = "<group>";
+		};
 		G00D1A00 /* Wizard */ = {
 			isa = PBXGroup;
 			children = (
@@ -794,6 +824,17 @@
 				F00D2A17 /* WizardAppearanceStep.swift */,
 			);
 			path = Wizard;
+			sourceTree = "<group>";
+		};
+		G00E9A00 /* Share */ = {
+			isa = PBXGroup;
+			children = (
+				F00E9A01 /* StoryExporter.swift */,
+				F00E9A02 /* ShareCoverResolver.swift */,
+				F00E9A03 /* ShareStoryCanvases.swift */,
+				F00E9A04 /* ShareHubSheet.swift */,
+			);
+			path = Share;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -1120,6 +1161,17 @@
 				B00B1E01 /* BookBlend.swift in Sources */,
 				B00B1E02 /* BookBlendService.swift in Sources */,
 				B00B1E03 /* BookBlendInviteView.swift in Sources */,
+				B00C1B01 /* BookClub.swift in Sources */,
+				B00C1B02 /* BookClubService.swift in Sources */,
+				B00C1B10 /* ClubComponents.swift in Sources */,
+				B00C1B11 /* ClubsView.swift in Sources */,
+				B00C1B12 /* ClubDetailView.swift in Sources */,
+				B00C1B13 /* CreateClubView.swift in Sources */,
+				B00C1B14 /* ClubMemberPickerView.swift in Sources */,
+				B00C1B15 /* JoinClubSheet.swift in Sources */,
+				B00C1B16 /* ClubInviteSheet.swift in Sources */,
+				B00C1B17 /* ClubBookPickerSheet.swift in Sources */,
+				B00C1B18 /* ClubSettingsView.swift in Sources */,
 				B00B1E04 /* BookBlendStoryView.swift in Sources */,
 				B00B1E05 /* OpenLibraryService.swift in Sources */,
 				B00B1E06 /* BookSearchCacheService.swift in Sources */,
@@ -1536,7 +1588,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.5.2;
+				MARKETING_VERSION = 3.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1564,7 +1616,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.5.2;
+				MARKETING_VERSION = 3.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

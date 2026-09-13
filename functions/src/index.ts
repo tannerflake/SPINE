@@ -70,6 +70,11 @@ const TITLE_EMOJI: Record<string, string> = {
   blend_request: "🔀",
   blend_ready: "🔀",
   book_recommended: "📖",
+  club_added: "📚",
+  club_member_joined: "👋",
+  club_new_book: "📖",
+  club_meeting_moved: "📅",
+  club_meeting_soon: "📅",
 };
 
 /** Unrated finishes share a type with rated reviews but read as a "book" event. */
@@ -1493,5 +1498,389 @@ export const runFounderBlendSweepNow = onCall(
     }
     const sent = await sweepDueFounderBlendRequests(true);
     return { ok: true, sent };
+  }
+);
+
+
+// ---------------------------------------------------------------------------
+// Book clubs
+// ---------------------------------------------------------------------------
+
+const CLUB_MAX_MEMBERS = 50;
+const CLUB_CODE_RE = /^[A-Z0-9]{6}$/;
+const CLUB_PHONE_HASH_RE = /^[a-f0-9]{64}$/;
+
+interface ClubMemberSnapshot {
+  firstName: string;
+  displayName: string;
+  username: string;
+  photoURL: string | null;
+  joinedAt: Timestamp;
+}
+
+function clubMemberSnapshot(user: DocumentData | undefined): ClubMemberSnapshot {
+  const displayName = ((user?.displayName as string | undefined)?.trim() || "Reader");
+  return {
+    firstName: firstNameFromUser(user),
+    displayName,
+    username: ((user?.username as string | undefined) ?? "").toLowerCase(),
+    photoURL: (user?.profileImageURL as string | undefined) ?? null,
+    joinedAt: Timestamp.now(),
+  };
+}
+
+function clubMemberFirstName(club: DocumentData, uid: string): string {
+  const members = (club.members ?? {}) as Record<string, { firstName?: string; displayName?: string }>;
+  const m = members[uid];
+  const first = m?.firstName?.trim();
+  if (first) return first;
+  const dn = m?.displayName?.trim();
+  if (dn) return dn.split(/\s+/)[0] ?? "Someone";
+  return "Someone";
+}
+
+/** "Sat, Oct 4 at 7:00 PM" in the app's home timezone. */
+function formatMeeting(ts: Timestamp): string {
+  const d = ts.toDate();
+  const day = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: APP_DAY_TIMEZONE }).format(d);
+  const time = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: APP_DAY_TIMEZONE }).format(d);
+  return `${day} at ${time}`;
+}
+
+/**
+ * Adds `uid` to a club inside a transaction. Returns the club name, or null when
+ * nothing changed (already a member) / the club is full (throws).
+ */
+async function addMemberToClub(clubId: string, uid: string, actorUid: string): Promise<{ clubName: string; alreadyMember: boolean }> {
+  const clubRef = db.collection("clubs").doc(clubId);
+  const userSnap = await db.collection("users").doc(uid).get();
+  const snapshot = clubMemberSnapshot(userSnap.data());
+  return db.runTransaction(async (tx) => {
+    const clubSnap = await tx.get(clubRef);
+    const club = clubSnap.data();
+    if (!clubSnap.exists || !club) {
+      throw new HttpsError("not-found", "That club no longer exists.");
+    }
+    const memberIds = (club.memberIds as string[] | undefined) ?? [];
+    const clubName = (club.name as string | undefined) ?? "your club";
+    if (memberIds.includes(uid)) return { clubName, alreadyMember: true };
+    if (memberIds.length >= CLUB_MAX_MEMBERS) {
+      throw new HttpsError("resource-exhausted", "That club is full.");
+    }
+    tx.update(clubRef, {
+      memberIds: FieldValue.arrayUnion(uid),
+      [`members.${uid}`]: snapshot,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorUid,
+    });
+    return { clubName, alreadyMember: false };
+  });
+}
+
+/** Redeems a six-character invite code for the caller. Returns { clubId, clubName, alreadyMember }. */
+export const joinClubByCode = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+    const raw = request.data as { code?: unknown } | undefined;
+    const code = String(raw?.code ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!CLUB_CODE_RE.test(code)) {
+      throw new HttpsError("invalid-argument", "Codes are 6 letters and numbers.");
+    }
+    const codeSnap = await db.collection("clubInviteCodes").doc(code).get();
+    const clubId = codeSnap.data()?.clubId as string | undefined;
+    if (!codeSnap.exists || !clubId) {
+      throw new HttpsError("not-found", "No club with that code.");
+    }
+    const result = await addMemberToClub(clubId, uid, uid);
+    logger.info("club join by code", { clubId, uid, alreadyMember: result.alreadyMember });
+    return { clubId, ...result };
+  }
+);
+
+/**
+ * Registers hashed phone numbers (SHA-256 of the last ten digits) the caller
+ * texted an invite to. When a user later saves that number on their profile,
+ * `onUserWrittenForClubInvites` drops them into the club. Raw numbers never
+ * reach the server.
+ */
+export const inviteClubPhones = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+    const raw = request.data as { clubId?: unknown; hashes?: unknown } | undefined;
+    const clubId = typeof raw?.clubId === "string" ? raw.clubId : "";
+    const hashes = Array.from(
+      new Set(
+        (Array.isArray(raw?.hashes) ? raw.hashes : [])
+          .filter((h): h is string => typeof h === "string" && CLUB_PHONE_HASH_RE.test(h))
+      )
+    ).slice(0, 50);
+    if (!clubId || hashes.length === 0) {
+      throw new HttpsError("invalid-argument", "clubId and hashes are required.");
+    }
+    const clubSnap = await db.collection("clubs").doc(clubId).get();
+    const club = clubSnap.data();
+    if (!clubSnap.exists || !club) {
+      throw new HttpsError("not-found", "That club no longer exists.");
+    }
+    const memberIds = (club.memberIds as string[] | undefined) ?? [];
+    if (!memberIds.includes(uid)) {
+      throw new HttpsError("permission-denied", "Only members can invite.");
+    }
+    const batch = db.batch();
+    for (const hash of hashes) {
+      batch.set(
+        db.collection("clubPhoneInvites").doc(hash),
+        {
+          clubIds: FieldValue.arrayUnion(clubId),
+          [`invitedBy.${clubId}`]: uid,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+    await batch.commit();
+    return { count: hashes.length };
+  }
+);
+
+function clubPhoneHash(phoneNumber: string): string | null {
+  const digits = phoneNumber.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+  return createHash("sha256").update(digits.slice(-10)).digest("hex");
+}
+
+/**
+ * A user doc gained (or changed) its phone number: if anyone texted that number
+ * a club invite, add them to those clubs and let them know.
+ */
+export const onUserWrittenForClubInvites = onDocumentWritten(
+  {
+    document: "users/{uid}",
+    database: DATABASE_ID,
+  },
+  async (event) => {
+    const uid = event.params.uid as string;
+    const before = event.data?.before.exists ? event.data.before.data() : undefined;
+    const after = event.data?.after.exists ? event.data.after.data() : undefined;
+    if (!after) return;
+    const phone = (after.phoneNumber as string | undefined)?.trim();
+    if (!phone) return;
+    if (before && (before.phoneNumber as string | undefined)?.trim() === phone) return;
+    if (after.isTestAccount === true) return;
+
+    const hash = clubPhoneHash(phone);
+    if (!hash) return;
+    const inviteRef = db.collection("clubPhoneInvites").doc(hash);
+    const inviteSnap = await inviteRef.get();
+    const invite = inviteSnap.data();
+    if (!inviteSnap.exists || !invite) return;
+
+    const clubIds = ((invite.clubIds as string[] | undefined) ?? []).slice(0, 10);
+    const invitedBy = (invite.invitedBy ?? {}) as Record<string, string>;
+    for (const clubId of clubIds) {
+      const actor = invitedBy[clubId] ?? uid;
+      try {
+        const result = await addMemberToClub(clubId, uid, actor);
+        logger.info("club phone invite matched", { clubId, uid, alreadyMember: result.alreadyMember });
+      } catch (err) {
+        logger.warn("club phone invite failed", { clubId, uid, err: String(err) });
+      }
+    }
+    // One-shot: the number has been matched; the club doc now carries membership.
+    await inviteRef.delete();
+  }
+);
+
+/**
+ * Club doc changed: welcome new members, tell the room who joined, announce a
+ * new book or a moved meeting, keep an admin around, and tidy up on delete.
+ * `updatedBy` (written by every client write) is the actor, who is never pushed
+ * about their own change.
+ */
+export const onClubWritten = onDocumentWritten(
+  {
+    document: "clubs/{clubId}",
+    database: DATABASE_ID,
+  },
+  async (event) => {
+    const clubId = event.params.clubId as string;
+    const before = event.data?.before.exists ? event.data.before.data() : undefined;
+    const after = event.data?.after.exists ? event.data.after.data() : undefined;
+
+    if (!after) {
+      const code = before?.inviteCode as string | undefined;
+      if (code) {
+        await db.collection("clubInviteCodes").doc(code).delete().catch(() => undefined);
+      }
+      return;
+    }
+
+    const clubName = (after.name as string | undefined) ?? "your club";
+    const memberIds = (after.memberIds as string[] | undefined) ?? [];
+    const priorMemberIds = (before?.memberIds as string[] | undefined) ?? [];
+    const actor = (after.updatedBy as string | undefined) ?? (after.createdBy as string | undefined) ?? null;
+
+    // Empty club: nobody left to read anything.
+    if (memberIds.length === 0) {
+      await event.data!.after.ref.delete();
+      return;
+    }
+
+    // Keep an admin around when the last one leaves.
+    const everyoneIsAdmin = after.everyoneIsAdmin === true;
+    const adminIds = ((after.adminIds as string[] | undefined) ?? []).filter((a) => memberIds.includes(a));
+    if (!everyoneIsAdmin && adminIds.length === 0) {
+      const members = (after.members ?? {}) as Record<string, { joinedAt?: Timestamp }>;
+      const eldest = [...memberIds].sort((a, b) => {
+        const ja = members[a]?.joinedAt?.toMillis() ?? Number.MAX_SAFE_INTEGER;
+        const jb = members[b]?.joinedAt?.toMillis() ?? Number.MAX_SAFE_INTEGER;
+        return ja - jb;
+      })[0]!;
+      await event.data!.after.ref.update({ adminIds: [eldest] });
+      logger.info("club admin promoted", { clubId, uid: eldest });
+    }
+
+    // New members.
+    const newMembers = memberIds.filter((m) => !priorMemberIds.includes(m));
+    if (newMembers.length > 0) {
+      const actorName = actor ? clubMemberFirstName(after, actor) : "Someone";
+      for (const uid of newMembers) {
+        if (uid === actor) continue;
+        if (actor && !hiddenAccountCanNotify(actor, uid)) continue;
+        await notifyUser(
+          uid,
+          `You're in ${clubName}`,
+          actor && actor !== uid
+            ? `${actorName} added you. See what the club is reading.`
+            : "See what the club is reading.",
+          { type: "club_added", clubId },
+          actor
+        );
+      }
+      // Tell the existing room, unless this is the club being created.
+      if (before) {
+        const joinedNames = newMembers.map((m) => clubMemberFirstName(after, m));
+        const body =
+          joinedNames.length === 1
+            ? `${joinedNames[0]} joined ${clubName}.`
+            : joinedNames.length === 2
+              ? `${joinedNames[0]} and ${joinedNames[1]} joined ${clubName}.`
+              : `${joinedNames[0]} and ${joinedNames.length - 1} others joined ${clubName}.`;
+        const firstNew = newMembers[0]!;
+        for (const uid of priorMemberIds) {
+          if (uid === actor || newMembers.includes(uid)) continue;
+          if (!hiddenAccountCanNotify(firstNew, uid)) continue;
+          await notifyUser(uid, "New member", body, { type: "club_member_joined", clubId }, firstNew);
+        }
+      }
+    }
+
+    // Book / meeting changes.
+    const pick = after.currentPick as DocumentData | undefined | null;
+    const priorPick = before?.currentPick as DocumentData | undefined | null;
+    if (pick && pick.id !== priorPick?.id) {
+      const title = (pick.title as string | undefined) ?? "the next book";
+      const author = (pick.author as string | undefined) ?? "";
+      const meeting = pick.meetingAt as Timestamp | undefined | null;
+      const body = meeting
+        ? `${title}${author ? ` by ${author}` : ""}. Meeting ${formatMeeting(meeting)}. Tap to add it to your Reading now.`
+        : `${title}${author ? ` by ${author}` : ""}. Tap to add it to your Reading now.`;
+      const cover = (pick.coverURL as string | undefined) || null;
+      for (const uid of memberIds) {
+        if (uid === actor) continue;
+        if (actor && !hiddenAccountCanNotify(actor, uid)) continue;
+        await notifyUser(uid, `${clubName}: next up`, body, { type: "club_new_book", clubId, bookId: String(pick.bookId ?? "") }, actor, cover);
+      }
+      return;
+    }
+    if (pick && priorPick && pick.id === priorPick.id) {
+      const meeting = pick.meetingAt as Timestamp | undefined | null;
+      const priorMeeting = priorPick.meetingAt as Timestamp | undefined | null;
+      const changed = (meeting?.toMillis() ?? null) !== (priorMeeting?.toMillis() ?? null);
+      if (changed && meeting) {
+        const title = (pick.title as string | undefined) ?? "the book";
+        for (const uid of memberIds) {
+          if (uid === actor) continue;
+          if (actor && !hiddenAccountCanNotify(actor, uid)) continue;
+          await notifyUser(
+            uid,
+            `${clubName} meeting ${priorMeeting ? "moved" : "set"}`,
+            `${formatMeeting(meeting)} for ${title}.`,
+            { type: "club_meeting_moved", clubId },
+            actor
+          );
+        }
+      }
+    }
+  }
+);
+
+/**
+ * Day-before reminders: every club whose meeting falls 23–25 hours from now
+ * (and has not been reminded) pushes each member their own progress line.
+ */
+async function sweepClubMeetingReminders(): Promise<number> {
+  const now = Date.now();
+  const lower = Timestamp.fromMillis(now + 23 * 60 * 60 * 1000);
+  const upper = Timestamp.fromMillis(now + 25 * 60 * 60 * 1000);
+  const snap = await db.collection("clubs")
+    .where("currentPick.meetingAt", ">", lower)
+    .where("currentPick.meetingAt", "<=", upper)
+    .get();
+  let sent = 0;
+  for (const doc of snap.docs) {
+    const club = doc.data();
+    const pick = club.currentPick as DocumentData | undefined;
+    if (!pick || pick.reminderSentAt) continue;
+    const clubName = (club.name as string | undefined) ?? "Book club";
+    const title = (pick.title as string | undefined) ?? "the book";
+    const bookId = pick.bookId as string | undefined;
+    const meeting = pick.meetingAt as Timestamp;
+    const memberIds = (club.memberIds as string[] | undefined) ?? [];
+    // Claim first so a slow loop never double-sends.
+    await doc.ref.update({ "currentPick.reminderSentAt": FieldValue.serverTimestamp() });
+    for (const uid of memberIds) {
+      let line = `Meeting ${formatMeeting(meeting)}. Still time to finish ${title}.`;
+      if (bookId) {
+        const rows = await db.collection("userBooks")
+          .where("userId", "==", uid)
+          .where("bookId", "==", bookId)
+          .limit(3)
+          .get();
+        let best: DocumentData | undefined;
+        for (const r of rows.docs) {
+          const d = r.data();
+          if (!best || d.status === "Read" || ((d.readingProgress as number) ?? 0) > ((best.readingProgress as number) ?? 0)) best = d;
+        }
+        if (best?.status === "Read") {
+          line = `Meeting ${formatMeeting(meeting)}. You've finished ${title}. Bring opinions.`;
+        } else if (typeof best?.readingProgress === "number" && best.readingProgress > 0) {
+          line = `Meeting ${formatMeeting(meeting)}. You're ${Math.round(best.readingProgress * 100)}% through ${title}.`;
+        }
+      }
+      await notifyUser(uid, `${clubName} meets tomorrow`, line, { type: "club_meeting_soon", clubId: doc.id }, null);
+      sent += 1;
+    }
+  }
+  return sent;
+}
+
+export const sendClubMeetingReminders = onSchedule(
+  {
+    schedule: "every 60 minutes",
+    timeZone: APP_DAY_TIMEZONE,
+    region: "us-central1",
+  },
+  async () => {
+    const sent = await sweepClubMeetingReminders();
+    if (sent > 0) logger.info("club meeting reminders", { sent });
   }
 );
