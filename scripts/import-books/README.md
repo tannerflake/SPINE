@@ -1,4 +1,4 @@
-# Import books into WellRead Firestore
+# Import books into SPINE Firestore
 
 One-time script to add books from `books.json` to the **wellread** Firestore database under your user.
 

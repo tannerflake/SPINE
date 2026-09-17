@@ -1,4 +1,4 @@
-Goal: Implement real Firebase Auth using Google SSO + Apple SSO in the WellRead iOS app. Console config is done. Xcode config is done (Google URL scheme added, Sign in with Apple capability added). Now implement app code.
+Goal: Implement real Firebase Auth using Google SSO + Apple SSO in the SPINE iOS app. Console config is done. Xcode config is done (Google URL scheme added, Sign in with Apple capability added). Now implement app code.
 
 Context:
 - Firebase already integrated and GoogleService-Info.plist updated (has CLIENT_ID + REVERSED_CLIENT_ID).

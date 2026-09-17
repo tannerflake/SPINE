@@ -1,5 +1,5 @@
 # Secrets — do not commit keys
-WellRead/Secrets.plist
+SPINE/Secrets.plist
 Secrets.plist
 scripts/import-books/service-account.json
 

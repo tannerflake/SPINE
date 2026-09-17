@@ -1,4 +1,4 @@
-# WellRead iOS
+# SPINE iOS
 
 A modern, minimal book tracking app — dark-first, SwiftUI, designed to replace Goodreads.
 
@@ -9,14 +9,14 @@ A modern, minimal book tracking app — dark-first, SwiftUI, designed to replace
 
 ## Open and Run
 
-1. Open `WellRead.xcodeproj` in Xcode.
+1. Open `SPINE.xcodeproj` in Xcode.
 2. In **Signing & Capabilities**, select your **Team** (required for running on device/simulator).
 3. Choose a simulator or device and press **Run** (⌘R).
 
 ### Secrets & test account (optional)
 
 - Copy `Secrets.example.plist` to `Secrets.plist` **in the repo root** (`Secrets.plist` is gitignored).
-  The root `Secrets.plist` is the only one registered in the app target's Copy Resources phase, so it is the only one that gets bundled. A `Secrets.plist` placed in `WellRead/` is silently ignored at runtime, and missing keys fail quietly (the Gemini tier just falls through to Claude).
+  The root `Secrets.plist` is the only one registered in the app target's Copy Resources phase, so it is the only one that gets bundled. A `Secrets.plist` placed in `SPINE/` is silently ignored at runtime, and missing keys fail quietly (the Gemini tier just falls through to Claude).
 - Add API keys and, for a **dev-only test login**, create an **Email/Password** user in Firebase Authentication with your chosen email and password, then set:
   - `TEST_ACCOUNT_EMAIL`
   - `TEST_ACCOUNT_PASSWORD`

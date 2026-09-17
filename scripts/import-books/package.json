@@ -1,7 +1,7 @@
 {
-  "name": "wellread-import-books",
+  "name": "spine-import-books",
   "version": "1.0.0",
-  "description": "One-time import of books into Firestore for WellRead (user @tannerflake)",
+  "description": "One-time import of books into Firestore for SPINE (user @tannerflake)",
   "type": "module",
   "main": "import.js",
   "dependencies": {

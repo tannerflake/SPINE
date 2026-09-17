@@ -1,6 +1,6 @@
-# WellRead iOS — Next Steps to Usable State
+# SPINE iOS — Next Steps to Usable State
 
-This document is a concrete roadmap for taking the WellRead MVP from “built but not wired” to a usable app: real backend, auth, Google Books, AI, tier list, and the rest of the spec.
+This document is a concrete roadmap for taking the SPINE MVP from “built but not wired” to a usable app: real backend, auth, Google Books, AI, tier list, and the rest of the spec.
 
 ---
 
@@ -26,11 +26,11 @@ This document is a concrete roadmap for taking the WellRead MVP from “built bu
 **Goal:** Open in Xcode, build, run on simulator or device, and confirm the existing flows work.
 
 1. **Restore or confirm project structure**
-  - Ensure you have `WellRead.xcodeproj` and the `WellRead/` app target with all Swift files, `Info.plist`, and `Assets.xcassets`.
+  - Ensure you have `SPINE.xcodeproj` and the `SPINE/` app target with all Swift files, `Info.plist`, and `Assets.xcassets`.
   - If the project was never committed, rebuild it from the spec (or from the same Cursor conversation that generated it).
 2. **Xcode setup**
-  - Open `WellRead.xcodeproj` in Xcode.
-  - Select the **WellRead** target → **Signing & Capabilities**.
+  - Open `SPINE.xcodeproj` in Xcode.
+  - Select the **SPINE** target → **Signing & Capabilities**.
   - Choose your **Team** so the app can run on simulator or device.
   - Set **Bundle Identifier** (e.g. `com.yourname.wellread`) and confirm **Deployment Target** (e.g. iOS 17+).
 3. **Run and smoke-test**
@@ -48,18 +48,18 @@ This document is a concrete roadmap for taking the WellRead MVP from “built bu
 
 1. **Create Firebase project**
   - Go to [Firebase Console](https://console.firebase.google.com).
-  - Create a project (e.g. “WellRead”).
+  - Create a project (e.g. “SPINE”).
   - Enable **Google Analytics** if you want it (optional for MVP).
 2. **Add iOS app to the project**
   - In Project settings, add an **iOS app**.
   - Use the **Bundle ID** from Xcode (e.g. `com.yourname.wellread`).
-  - Download **GoogleService-Info.plist** and add it to the WellRead target in Xcode (drag into the project, check “Copy items” and the WellRead target).
+  - Download **GoogleService-Info.plist** and add it to the SPINE target in Xcode (drag into the project, check “Copy items” and the SPINE target).
 3. **Add Firebase SDK via Swift Package Manager**
   - In Xcode: **File → Add Package Dependencies**.
   - Use: `https://github.com/firebase/firebase-ios-sdk`.
   - Add at least: **FirebaseAuth**, **FirebaseFirestore**, **FirebaseStorage** (if you plan profile images). Pin a stable version (e.g. 10.x).
 4. **Initialize Firebase in the app**
-  - In `WellReadApp.swift`, import Firebase and call `FirebaseApp.configure()` at app launch (before any Firebase usage).
+  - In `SpineApp.swift`, import Firebase and call `FirebaseApp.configure()` at app launch (before any Firebase usage).
   - Run again and confirm no crash; you can add a temporary `print` or breakpoint to confirm `FirebaseApp.app()` is non-nil.
 
 **Done when:** App launches with Firebase configured and `GoogleService-Info.plist` in the target.
@@ -73,7 +73,7 @@ This document is a concrete roadmap for taking the WellRead MVP from “built bu
 1. **Enable auth methods in Firebase Console**
   - **Authentication → Sign-in method**: enable **Email/Password** and **Apple**.
 2. **Apple Sign In (required if you offer it)**
-  - In Xcode: WellRead target → **Signing & Capabilities** → **+ Capability** → **Sign in with Apple**.
+  - In Xcode: SPINE target → **Signing & Capabilities** → **+ Capability** → **Sign in with Apple**.
   - In Firebase Console, Apple provider needs a Services ID and key (see Firebase docs for “Sign in with Apple” setup). Configure as needed for your Apple Developer account.
 3. **Auth service in the app**
   - Create a dedicated **AuthService** (or equivalent) that:
@@ -182,7 +182,7 @@ This document is a concrete roadmap for taking the WellRead MVP from “built bu
   - Ensure the Tier List view only shows **read** books (as in the spec). Unranked = books with no tier or tier null. Dragging or “Move to X” should update the tier and persist.
   - If you have drag-and-drop: on drop, compute the new tier from the drop target and persist. If you only have context menu for now, that’s enough for “usable.”
 3. **Share as image (optional but in spec)**
-  - Render the tier list (S, A, B, C, D, Unranked + book covers) into a `UIImage` (e.g. using SwiftUI’s `ImageRenderer` or snapshot a hidden view). Add WellRead branding (logo or text). Present share sheet (UIActivityViewController) so the user can save or share the image.
+  - Render the tier list (S, A, B, C, D, Unranked + book covers) into a `UIImage` (e.g. using SwiftUI’s `ImageRenderer` or snapshot a hidden view). Add SPINE branding (logo or text). Present share sheet (UIActivityViewController) so the user can save or share the image.
 
 **Done when:** Moving a book to a tier persists to Firestore and survives app restart; Tier List view always reflects saved tiers; optionally user can share the tier list as an image.
 

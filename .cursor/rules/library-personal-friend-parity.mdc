@@ -1,7 +1,7 @@
 ---
 description: Keep personal and friend library UIs aligned
 globs:
-  - WellRead/Views/Library/**/*.swift
+  - SPINE/Views/Library/**/*.swift
 ---
 
 # Personal vs friend library parity

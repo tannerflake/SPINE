@@ -1,6 +1,6 @@
 # Tier List Drag-and-Drop: Technical Notes
 
-This document describes the technical choices that make the WellRead tier list drag-and-drop reliable and responsive.
+This document describes the technical choices that make the SPINE tier list drag-and-drop reliable and responsive.
 
 ---
 
@@ -121,11 +121,11 @@ This keeps the drag-and-drop interaction feeling smooth and avoids unnecessary n
 
 | Concern              | Primary file(s)                          |
 |----------------------|------------------------------------------|
-| Tier list UI & drop  | `WellRead/Views/Library/TierListView.swift` |
+| Tier list UI & drop  | `SPINE/Views/Library/TierListView.swift` |
 | Transfer payload     | `TierListView.swift` (`TierDragItem`)    |
-| Read drag cover      | `WellRead/Views/Library/QueueBookDragCover.swift` (`ReadListBookDragCover`) |
-| Cover image cache    | `WellRead/Views/Components/BookCoverView.swift` |
-| Tier/order updates   | `WellRead/AppState/AppState.swift` (`setTierAndOrder`) |
+| Read drag cover      | `SPINE/Views/Library/QueueBookDragCover.swift` (`ReadListBookDragCover`) |
+| Cover image cache    | `SPINE/Views/Components/BookCoverView.swift` |
+| Tier/order updates   | `SPINE/AppState/AppState.swift` (`setTierAndOrder`) |
 
 ---
 

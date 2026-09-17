@@ -1,0 +1,1779 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 70;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		8B7B90EC2F54C77000B7FB0C /* Secrets.plist in Resources */ = {isa = PBXBuildFile; fileRef = 8B7B90EB2F54C72300B7FB0C /* Secrets.plist */; };
+		8B8FC0012F4E9AEF0068B4B7 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 8BE1FAC52F4E8A70006ED44D /* FirebaseMessaging */; };
+		8BB2986E2F671AAA007008DC /* SPINEShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 8BB298642F671AAA007008DC /* SPINEShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		8BB4CBC02F4E9AEF0068B4B6 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8BE1FABE2F4E8A70006ED44D /* FirebaseCore */; };
+		8BB4CBC32F4E9F2B0068B4B6 /* SPINE Firebase Service Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 8BB4CBC22F4E9F2B0068B4B6 /* SPINE Firebase Service Info.plist */; };
+		8BB4CBC62F4E9AEF0068B4B6 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 8BE1FABF2F4E8A70006ED44D /* FirebaseAuth */; };
+		8BB4CBC72F4E9AEF0068B4B6 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 8BE1FAC32F4E8A70006ED44D /* FirebaseFirestore */; };
+		8BB4CBC82F4E8B00006ED44D /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 8BE1FAC22F4E8B00006ED44D /* GoogleSignIn */; };
+		8BB4CBC92F4E9AEF0068B4B6 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 8BE1FAC42F4E8A70006ED44D /* FirebaseStorage */; };
+		8BB4CBCA2F4E9AEF0068B4B6 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 8BE1FAC72F4E8A70006ED44D /* FirebaseFunctions */; };
+		AMP0000000000000000000001 /* AmplitudeSwift in Frameworks */ = {isa = PBXBuildFile; productRef = AMP0000000000000000000003 /* AmplitudeSwift */; };
+		AMP0000000000000000000004 /* AmplitudeSwiftSessionReplayPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = AMP0000000000000000000006 /* AmplitudeSwiftSessionReplayPlugin */; };
+		B0010001 /* SpineApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010001 /* SpineApp.swift */; };
+		B0010002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010002 /* RootView.swift */; };
+		B0010003 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010003 /* AppState.swift */; };
+		B0010004 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010004 /* Theme.swift */; };
+		B0010005 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010005 /* User.swift */; };
+		B0010006 /* Book.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010006 /* Book.swift */; };
+		B0010007 /* Comment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010007 /* Comment.swift */; };
+		B0010008 /* Post.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010008 /* Post.swift */; };
+		B0010009 /* UserBook.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010009 /* UserBook.swift */; };
+		B001000A /* GoogleBooksService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001000A /* GoogleBooksService.swift */; };
+		B001000B /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001000B /* MainTabView.swift */; };
+		B001000C /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001000C /* OnboardingFlowView.swift */; };
+		B001000D /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001000D /* SearchView.swift */; };
+		B001000E /* BookSearchRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001000E /* BookSearchRow.swift */; };
+		B001000F /* BookCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001000F /* BookCoverView.swift */; };
+		B0010010 /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010010 /* FeedView.swift */; };
+		B0010011 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010011 /* DiscoverView.swift */; };
+		B0010012 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010012 /* LibraryView.swift */; };
+		B0010013 /* GridLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010013 /* GridLibraryView.swift */; };
+		B0010014 /* RatingLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010014 /* RatingLibraryView.swift */; };
+		B0010015 /* TierListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010015 /* TierListView.swift */; };
+		B0010016 /* TimelineLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010016 /* TimelineLibraryView.swift */; };
+		B0010017 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010017 /* ProfileView.swift */; };
+		B0010018 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F0010019 /* Assets.xcassets */; };
+		B0010019 /* (null) in Resources */ = {isa = PBXBuildFile; };
+		B001001A /* SPINE/GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 8BE1FAC02F4E8A70006ED44D /* SPINE/GoogleService-Info.plist */; };
+		B0010020 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010020 /* AuthService.swift */; };
+		B0010021 /* UserRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010021 /* UserRepository.swift */; };
+		B0010022 /* RootViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010022 /* RootViewController.swift */; };
+		B0010023 /* BookRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010023 /* BookRepository.swift */; };
+		B0010024 /* UserBookRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010024 /* UserBookRepository.swift */; };
+		B0010025 /* PostRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010025 /* PostRepository.swift */; };
+		B0010026 /* CommentRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010026 /* CommentRepository.swift */; };
+		B0010027 /* ApiKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010027 /* ApiKeys.swift */; };
+		B0010028 /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010028 /* ClaudeService.swift */; };
+		B0010029 /* ReviewerLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010029 /* ReviewerLoginView.swift */; };
+		B001002A /* LocalLibraryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002A /* LocalLibraryCache.swift */; };
+		B001002B /* BookProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002B /* BookProfileView.swift */; };
+		B001002C /* BookProfileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002C /* BookProfileService.swift */; };
+		B001002D /* DismissedSuggestionsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002D /* DismissedSuggestionsRepository.swift */; };
+		B001002E /* DiscoverSuggestionsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002E /* DiscoverSuggestionsService.swift */; };
+		B001002F /* ProfilePhotoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002F /* ProfilePhotoService.swift */; };
+		B0010030 /* CommentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010030 /* CommentsView.swift */; };
+		B0010032 /* GoodreadsCSVParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010032 /* GoodreadsCSVParser.swift */; };
+		B0010033 /* GoodreadsImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010033 /* GoodreadsImportService.swift */; };
+		B0010034 /* GoodreadsImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010034 /* GoodreadsImportView.swift */; };
+		B0010035 /* GoodreadsShareHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010035 /* GoodreadsShareHelper.swift */; };
+		B0010036 /* QueueLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010036 /* QueueLibraryView.swift */; };
+		B0010037 /* ProfileCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010037 /* ProfileCompletionView.swift */; };
+		B0010038 /* Tags.csv in Resources */ = {isa = PBXBuildFile; fileRef = F0010038 /* Tags.csv */; };
+		B0010039 /* SpineTagCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010039 /* SpineTagCatalog.swift */; };
+		B001003A /* UserLibraryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003A /* UserLibraryDetailView.swift */; };
+		B001003B /* QueueBookDragCover.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003B /* QueueBookDragCover.swift */; };
+		B001003C /* LibraryReadQueueSegmentShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003C /* LibraryReadQueueSegmentShared.swift */; };
+		B001003D /* WelcomeSpinesGoodreadsModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003D /* WelcomeSpinesGoodreadsModal.swift */; };
+		B001003E /* GoodreadsImportTutorialEmbed.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003E /* GoodreadsImportTutorialEmbed.swift */; };
+		B001003F /* LibraryDragHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001003F /* LibraryDragHaptics.swift */; };
+		B0010040 /* ProfileImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010040 /* ProfileImageCache.swift */; };
+		B0010041 /* CachedProfileImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010041 /* CachedProfileImage.swift */; };
+		B0010042 /* EditReadReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010042 /* EditReadReviewSheet.swift */; };
+		B0010043 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010043 /* PushNotificationService.swift */; };
+		B0010045 /* FlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010045 /* FlowLayout.swift */; };
+		B0010046 /* MarkAsReadDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010046 /* MarkAsReadDrawer.swift */; };
+		B0010047 /* PushRegistrationDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010047 /* PushRegistrationDiagnostics.swift */; };
+		B0010048 /* PushDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010048 /* PushDiagnosticsView.swift */; };
+		B0010049 /* PushNotificationPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010049 /* PushNotificationPromptView.swift */; };
+		B0010050 /* PushNotificationNudgeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010050 /* PushNotificationNudgeStorage.swift */; };
+		B0010051 /* PushNotificationNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010051 /* PushNotificationNudgeModal.swift */; };
+		B0010052 /* BookRefresherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010052 /* BookRefresherService.swift */; };
+		B0010053 /* BookRefresherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010053 /* BookRefresherView.swift */; };
+		B0010054 /* MatchScoreService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010054 /* MatchScoreService.swift */; };
+		B00100F0 /* TierBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00100F0 /* TierBadge.swift */; };
+		B00100FA /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00100FA /* Toast.swift */; };
+		B0010100 /* NoSuggestionsTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010100 /* NoSuggestionsTextField.swift */; };
+		B0010101 /* GoodreadsWizardSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010101 /* GoodreadsWizardSession.swift */; };
+		B0010102 /* GoodreadsExportWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010102 /* GoodreadsExportWebView.swift */; };
+		B0010103 /* CoverResolutionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010103 /* CoverResolutionStore.swift */; };
+		B0010104 /* ITunesCoverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010104 /* ITunesCoverService.swift */; };
+		B0010105 /* BookSearchRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010105 /* BookSearchRanker.swift */; };
+		B0010106 /* DiscoverCriteria.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010106 /* DiscoverCriteria.swift */; };
+		B0010107 /* TagCatalogPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010107 /* TagCatalogPicker.swift */; };
+		B0010108 /* DiscoverCriteriaStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010108 /* DiscoverCriteriaStrip.swift */; };
+		B0010109 /* DiscoverCriteriaEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010109 /* DiscoverCriteriaEditorSheet.swift */; };
+		B001010A /* DiscoverBookPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001010A /* DiscoverBookPickerView.swift */; };
+		B0010201 /* ReadingNowFanStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010201 /* ReadingNowFanStack.swift */; };
+		B0010202 /* ContactSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010202 /* ContactSyncService.swift */; };
+		B0010203 /* BookRecommendation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010203 /* BookRecommendation.swift */; };
+		B0010204 /* RecommendationRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010204 /* RecommendationRepository.swift */; };
+		B0010205 /* AppLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010205 /* AppLinks.swift */; };
+		B0010206 /* MessageComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010206 /* MessageComposeView.swift */; };
+		B0010207 /* FindFriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010207 /* FindFriendsView.swift */; };
+		B0010208 /* RecommendBookSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010208 /* RecommendBookSheet.swift */; };
+		B0010331 /* ProfilePhotoNudgeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010331 /* ProfilePhotoNudgeStorage.swift */; };
+		B0010332 /* ProfilePhotoNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010332 /* ProfilePhotoNudgeModal.swift */; };
+		B0010333 /* OnboardingCurrentlyReadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010333 /* OnboardingCurrentlyReadingView.swift */; };
+		B0010517 /* ReadingNowProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010517 /* ReadingNowProgressCard.swift */; };
+		B0010731 /* SearchQueryCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010731 /* SearchQueryCompletion.swift */; };
+		B0010777 /* ReadingYearListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010777 /* ReadingYearListView.swift */; };
+		B0010833 /* BookDiscussionSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010833 /* BookDiscussionSection.swift */; };
+		B0010901 /* PhoneNumberNudgeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010901 /* PhoneNumberNudgeStorage.swift */; };
+		B0010902 /* PhoneNumberNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010902 /* PhoneNumberNudgeModal.swift */; };
+		B0010911 /* AppReviewPromptStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010911 /* AppReviewPromptStorage.swift */; };
+		B0010912 /* RateSpineNudgeModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010912 /* RateSpineNudgeModal.swift */; };
+		B0010C47 /* CircularPhotoCropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010C47 /* CircularPhotoCropView.swift */; };
+		B0010E71 /* TierMultiSelect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010E71 /* TierMultiSelect.swift */; };
+		B0010F01 /* SlidingLens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010F01 /* SlidingLens.swift */; };
+		B0017747 /* CoverRegenerationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0017747 /* CoverRegenerationService.swift */; };
+		B0018D71 /* BookSummaryMoreService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0018D71 /* BookSummaryMoreService.swift */; };
+		B0018D72 /* BookSummaryMoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0018D72 /* BookSummaryMoreView.swift */; };
+		B00B1E01 /* BookBlend.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E01 /* BookBlend.swift */; };
+		B00B1E02 /* BookBlendService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E02 /* BookBlendService.swift */; };
+		B00B1E03 /* BookBlendInviteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E03 /* BookBlendInviteView.swift */; };
+		B00B1E04 /* BookBlendStoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E04 /* BookBlendStoryView.swift */; };
+		B00B1E05 /* OpenLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E05 /* OpenLibraryService.swift */; };
+		B00B1E06 /* BookSearchCacheService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E06 /* BookSearchCacheService.swift */; };
+		B00B1E07 /* AIContentCacheRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E07 /* AIContentCacheRepository.swift */; };
+		B00B1E20 /* UserDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E20 /* UserDirectory.swift */; };
+		B00B1E21 /* ReadDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E21 /* ReadDraftStore.swift */; };
+		B00B1E33 /* BookBlendSummaryCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00B1E33 /* BookBlendSummaryCard.swift */; };
+		B00C1B01 /* BookClub.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B01 /* BookClub.swift */; };
+		B00C1B02 /* BookClubService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B02 /* BookClubService.swift */; };
+		B00C1B10 /* ClubComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B10 /* ClubComponents.swift */; };
+		B00C1B11 /* ClubsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B11 /* ClubsView.swift */; };
+		B00C1B12 /* ClubDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B12 /* ClubDetailView.swift */; };
+		B00C1B13 /* CreateClubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B13 /* CreateClubView.swift */; };
+		B00C1B14 /* ClubMemberPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B14 /* ClubMemberPickerView.swift */; };
+		B00C1B15 /* JoinClubSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B15 /* JoinClubSheet.swift */; };
+		B00C1B16 /* ClubInviteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B16 /* ClubInviteSheet.swift */; };
+		B00C1B17 /* ClubBookPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B17 /* ClubBookPickerSheet.swift */; };
+		B00C1B18 /* ClubSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1B18 /* ClubSettingsView.swift */; };
+		B00C7A31 /* BookPopularityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C7A31 /* BookPopularityService.swift */; };
+		B00D1A01 /* TypewriterText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A01 /* TypewriterText.swift */; };
+		B00D1A02 /* OnboardingWizard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A02 /* OnboardingWizard.swift */; };
+		B00D1A03 /* WizardIdentitySteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A03 /* WizardIdentitySteps.swift */; };
+		B00D1A04 /* WizardTasteStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A04 /* WizardTasteStep.swift */; };
+		B00D1A05 /* WizardBookSteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A05 /* WizardBookSteps.swift */; };
+		B00D1A06 /* WizardSocialSteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A06 /* WizardSocialSteps.swift */; };
+		B00D1A07 /* WizardFinaleSteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A07 /* WizardFinaleSteps.swift */; };
+		B00D1A11 /* WizardTierListStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A11 /* WizardTierListStep.swift */; };
+		B00D1C71 /* WizardTierPracticeStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1C71 /* WizardTierPracticeStep.swift */; };
+		B00D2A17 /* WizardAppearanceStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A17 /* WizardAppearanceStep.swift */; };
+		B00D2A18 /* LibraryCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A18 /* LibraryCardView.swift */; };
+		B00D2A19 /* FeedDayGroupCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A19 /* FeedDayGroupCarousel.swift */; };
+		B00D2A1A /* UserProfileCardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A1A /* UserProfileCardSheet.swift */; };
+		B00D2A1B /* PeopleStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A1B /* PeopleStrip.swift */; };
+		B00D2A1C /* ProfileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D2A1C /* ProfileSettingsView.swift */; };
+		B00D4E51 /* QueueNoteComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D4E51 /* QueueNoteComposer.swift */; };
+		B00D8E1 /* LinkImportShareHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E1 /* LinkImportShareHelper.swift */; };
+		B00D8E2 /* LinkImportSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E2 /* LinkImportSession.swift */; };
+		B00D8E3 /* LinkBookExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E3 /* LinkBookExtractionService.swift */; };
+		B00D8E4 /* LinkImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E4 /* LinkImportView.swift */; };
+		B00E7A01 /* FeedInterstitials.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7A01 /* FeedInterstitials.swift */; };
+		B00E7C31 /* UserAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7C31 /* UserAvatarView.swift */; };
+		B00E9A01 /* StoryExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A01 /* StoryExporter.swift */; };
+		B00E9A02 /* ShareCoverResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A02 /* ShareCoverResolver.swift */; };
+		B00E9A03 /* ShareStoryCanvases.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A03 /* ShareStoryCanvases.swift */; };
+		B00E9A04 /* ShareHubSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A04 /* ShareHubSheet.swift */; };
+		B00F3A17 /* NotificationsBellButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A17 /* NotificationsBellButton.swift */; };
+		B00F3A2A /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A2A /* MarkdownText.swift */; };
+		B00F3A40 /* LaunchSplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A40 /* LaunchSplashView.swift */; };
+		B04F3B71 /* NotificationsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04F3B71 /* NotificationsRepository.swift */; };
+		B04F3B72 /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04F3B72 /* NotificationsView.swift */; };
+		B07E4D21 /* UserFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07E4D21 /* UserFeedView.swift */; };
+		B7D91A42 /* ISBNdbService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D91A42 /* ISBNdbService.swift */; };
+		BA0C0001 /* OnboardingCompletionMemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0C0001 /* OnboardingCompletionMemo.swift */; };
+		BA9E7301 /* Mentions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA9E7301 /* Mentions.swift */; };
+		NE01000A /* SPINENotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = NE010002 /* SPINENotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		WG01000A /* SPINEWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = WG010002 /* SPINEWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		WG010010 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG010011 /* WidgetSnapshot.swift */; };
+		WG010012 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG010011 /* WidgetSnapshot.swift */; };
+		WG010014 /* WidgetDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG010013 /* WidgetDataService.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8BB2986C2F671AAA007008DC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P0010001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8BB298632F671AAA007008DC;
+			remoteInfo = SPINEShareExtension;
+		};
+		NE010008 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P0010001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = NE010001;
+			remoteInfo = SPINENotificationService;
+		};
+		WG010008 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P0010001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = WG010001;
+			remoteInfo = SPINEWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		8BB2986F2F671AAA007008DC /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				8BB2986E2F671AAA007008DC /* SPINEShareExtension.appex in Embed Foundation Extensions */,
+				NE01000A /* SPINENotificationService.appex in Embed Foundation Extensions */,
+				WG01000A /* SPINEWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		8B7B90EB2F54C72300B7FB0C /* Secrets.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Secrets.plist; sourceTree = "<group>"; };
+		8BB298642F671AAA007008DC /* SPINEShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SPINEShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		8BB4CBC22F4E9F2B0068B4B6 /* SPINE Firebase Service Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "SPINE Firebase Service Info.plist"; sourceTree = "<group>"; };
+		8BB4CBC42F4EA0910068B4B6 /* SPINE.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SPINE.entitlements; sourceTree = "<group>"; };
+		8BE1FAC02F4E8A70006ED44D /* SPINE/GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "SPINE/GoogleService-Info.plist"; sourceTree = "<group>"; };
+		E0010000 /* SPINE.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SPINE.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F0010001 /* SpineApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpineApp.swift; sourceTree = "<group>"; };
+		F0010002 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		F0010003 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		F0010004 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		F0010005 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
+		F0010006 /* Book.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book.swift; sourceTree = "<group>"; };
+		F0010007 /* Comment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Comment.swift; sourceTree = "<group>"; };
+		F0010008 /* Post.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Post.swift; sourceTree = "<group>"; };
+		F0010009 /* UserBook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserBook.swift; sourceTree = "<group>"; };
+		F001000A /* GoogleBooksService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleBooksService.swift; sourceTree = "<group>"; };
+		F001000B /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		F001000C /* OnboardingFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlowView.swift; sourceTree = "<group>"; };
+		F001000D /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		F001000E /* BookSearchRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSearchRow.swift; sourceTree = "<group>"; };
+		F001000F /* BookCoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCoverView.swift; sourceTree = "<group>"; };
+		F0010010 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
+		F0010011 /* DiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverView.swift; sourceTree = "<group>"; };
+		F0010012 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		F0010013 /* GridLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridLibraryView.swift; sourceTree = "<group>"; };
+		F0010014 /* RatingLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RatingLibraryView.swift; sourceTree = "<group>"; };
+		F0010015 /* TierListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TierListView.swift; sourceTree = "<group>"; };
+		F0010016 /* TimelineLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineLibraryView.swift; sourceTree = "<group>"; };
+		F0010017 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		F0010018 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F0010019 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F0010020 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		F0010021 /* UserRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserRepository.swift; sourceTree = "<group>"; };
+		F0010022 /* RootViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootViewController.swift; sourceTree = "<group>"; };
+		F0010023 /* BookRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRepository.swift; sourceTree = "<group>"; };
+		F0010024 /* UserBookRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserBookRepository.swift; sourceTree = "<group>"; };
+		F0010025 /* PostRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostRepository.swift; sourceTree = "<group>"; };
+		F0010026 /* CommentRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentRepository.swift; sourceTree = "<group>"; };
+		F0010027 /* ApiKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiKeys.swift; sourceTree = "<group>"; };
+		F0010028 /* ClaudeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeService.swift; sourceTree = "<group>"; };
+		F0010029 /* ReviewerLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewerLoginView.swift; sourceTree = "<group>"; };
+		F001002A /* LocalLibraryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibraryCache.swift; sourceTree = "<group>"; };
+		F001002B /* BookProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookProfileView.swift; sourceTree = "<group>"; };
+		F001002C /* BookProfileService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookProfileService.swift; sourceTree = "<group>"; };
+		F001002D /* DismissedSuggestionsRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DismissedSuggestionsRepository.swift; sourceTree = "<group>"; };
+		F001002E /* DiscoverSuggestionsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverSuggestionsService.swift; sourceTree = "<group>"; };
+		F001002F /* ProfilePhotoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoService.swift; sourceTree = "<group>"; };
+		F0010030 /* CommentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentsView.swift; sourceTree = "<group>"; };
+		F0010032 /* GoodreadsCSVParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsCSVParser.swift; sourceTree = "<group>"; };
+		F0010033 /* GoodreadsImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsImportService.swift; sourceTree = "<group>"; };
+		F0010034 /* GoodreadsImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsImportView.swift; sourceTree = "<group>"; };
+		F0010035 /* GoodreadsShareHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsShareHelper.swift; sourceTree = "<group>"; };
+		F0010036 /* QueueLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueLibraryView.swift; sourceTree = "<group>"; };
+		F0010037 /* ProfileCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileCompletionView.swift; sourceTree = "<group>"; };
+		F0010038 /* Tags.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = Tags.csv; sourceTree = "<group>"; };
+		F0010039 /* SpineTagCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpineTagCatalog.swift; sourceTree = "<group>"; };
+		F001003A /* UserLibraryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserLibraryDetailView.swift; sourceTree = "<group>"; };
+		F001003B /* QueueBookDragCover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueBookDragCover.swift; sourceTree = "<group>"; };
+		F001003C /* LibraryReadQueueSegmentShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryReadQueueSegmentShared.swift; sourceTree = "<group>"; };
+		F001003D /* WelcomeSpinesGoodreadsModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeSpinesGoodreadsModal.swift; sourceTree = "<group>"; };
+		F001003E /* GoodreadsImportTutorialEmbed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsImportTutorialEmbed.swift; sourceTree = "<group>"; };
+		F001003F /* LibraryDragHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDragHaptics.swift; sourceTree = "<group>"; };
+		F0010040 /* ProfileImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileImageCache.swift; sourceTree = "<group>"; };
+		F0010041 /* CachedProfileImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedProfileImage.swift; sourceTree = "<group>"; };
+		F0010042 /* EditReadReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditReadReviewSheet.swift; sourceTree = "<group>"; };
+		F0010043 /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
+		F0010045 /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
+		F0010046 /* MarkAsReadDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkAsReadDrawer.swift; sourceTree = "<group>"; };
+		F0010047 /* PushRegistrationDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushRegistrationDiagnostics.swift; sourceTree = "<group>"; };
+		F0010048 /* PushDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushDiagnosticsView.swift; sourceTree = "<group>"; };
+		F0010049 /* PushNotificationPromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationPromptView.swift; sourceTree = "<group>"; };
+		F0010050 /* PushNotificationNudgeStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationNudgeStorage.swift; sourceTree = "<group>"; };
+		F0010051 /* PushNotificationNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationNudgeModal.swift; sourceTree = "<group>"; };
+		F0010052 /* BookRefresherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRefresherService.swift; sourceTree = "<group>"; };
+		F0010053 /* BookRefresherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRefresherView.swift; sourceTree = "<group>"; };
+		F0010054 /* MatchScoreService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchScoreService.swift; sourceTree = "<group>"; };
+		F00100F0 /* TierBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TierBadge.swift; sourceTree = "<group>"; };
+		F00100FA /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
+		F0010100 /* NoSuggestionsTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoSuggestionsTextField.swift; sourceTree = "<group>"; };
+		F0010101 /* GoodreadsWizardSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsWizardSession.swift; sourceTree = "<group>"; };
+		F0010102 /* GoodreadsExportWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsExportWebView.swift; sourceTree = "<group>"; };
+		F0010103 /* CoverResolutionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverResolutionStore.swift; sourceTree = "<group>"; };
+		F0010104 /* ITunesCoverService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ITunesCoverService.swift; sourceTree = "<group>"; };
+		F0010105 /* BookSearchRanker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSearchRanker.swift; sourceTree = "<group>"; };
+		F0010106 /* DiscoverCriteria.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverCriteria.swift; sourceTree = "<group>"; };
+		F0010107 /* TagCatalogPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCatalogPicker.swift; sourceTree = "<group>"; };
+		F0010108 /* DiscoverCriteriaStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverCriteriaStrip.swift; sourceTree = "<group>"; };
+		F0010109 /* DiscoverCriteriaEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverCriteriaEditorSheet.swift; sourceTree = "<group>"; };
+		F001010A /* DiscoverBookPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverBookPickerView.swift; sourceTree = "<group>"; };
+		F0010201 /* ReadingNowFanStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingNowFanStack.swift; sourceTree = "<group>"; };
+		F0010202 /* ContactSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactSyncService.swift; sourceTree = "<group>"; };
+		F0010203 /* BookRecommendation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRecommendation.swift; sourceTree = "<group>"; };
+		F0010204 /* RecommendationRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationRepository.swift; sourceTree = "<group>"; };
+		F0010205 /* AppLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLinks.swift; sourceTree = "<group>"; };
+		F0010206 /* MessageComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageComposeView.swift; sourceTree = "<group>"; };
+		F0010207 /* FindFriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindFriendsView.swift; sourceTree = "<group>"; };
+		F0010208 /* RecommendBookSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendBookSheet.swift; sourceTree = "<group>"; };
+		F0010331 /* ProfilePhotoNudgeStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoNudgeStorage.swift; sourceTree = "<group>"; };
+		F0010332 /* ProfilePhotoNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoNudgeModal.swift; sourceTree = "<group>"; };
+		F0010333 /* OnboardingCurrentlyReadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCurrentlyReadingView.swift; sourceTree = "<group>"; };
+		F0010517 /* ReadingNowProgressCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingNowProgressCard.swift; sourceTree = "<group>"; };
+		F0010731 /* SearchQueryCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchQueryCompletion.swift; sourceTree = "<group>"; };
+		F0010777 /* ReadingYearListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingYearListView.swift; sourceTree = "<group>"; };
+		F0010833 /* BookDiscussionSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookDiscussionSection.swift; sourceTree = "<group>"; };
+		F0010901 /* PhoneNumberNudgeStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberNudgeStorage.swift; sourceTree = "<group>"; };
+		F0010902 /* PhoneNumberNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberNudgeModal.swift; sourceTree = "<group>"; };
+		F0010911 /* AppReviewPromptStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppReviewPromptStorage.swift; sourceTree = "<group>"; };
+		F0010912 /* RateSpineNudgeModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateSpineNudgeModal.swift; sourceTree = "<group>"; };
+		F0010C47 /* CircularPhotoCropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CircularPhotoCropView.swift; sourceTree = "<group>"; };
+		F0010E71 /* TierMultiSelect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TierMultiSelect.swift; sourceTree = "<group>"; };
+		F0010F01 /* SlidingLens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlidingLens.swift; sourceTree = "<group>"; };
+		F0017747 /* CoverRegenerationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverRegenerationService.swift; sourceTree = "<group>"; };
+		F0018D71 /* BookSummaryMoreService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSummaryMoreService.swift; sourceTree = "<group>"; };
+		F0018D72 /* BookSummaryMoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSummaryMoreView.swift; sourceTree = "<group>"; };
+		F00B1E01 /* BookBlend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlend.swift; sourceTree = "<group>"; };
+		F00B1E02 /* BookBlendService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlendService.swift; sourceTree = "<group>"; };
+		F00B1E03 /* BookBlendInviteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlendInviteView.swift; sourceTree = "<group>"; };
+		F00B1E04 /* BookBlendStoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlendStoryView.swift; sourceTree = "<group>"; };
+		F00B1E05 /* OpenLibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLibraryService.swift; sourceTree = "<group>"; };
+		F00B1E06 /* BookSearchCacheService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSearchCacheService.swift; sourceTree = "<group>"; };
+		F00B1E07 /* AIContentCacheRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIContentCacheRepository.swift; sourceTree = "<group>"; };
+		F00B1E20 /* UserDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDirectory.swift; sourceTree = "<group>"; };
+		F00B1E21 /* ReadDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadDraftStore.swift; sourceTree = "<group>"; };
+		F00B1E33 /* BookBlendSummaryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBlendSummaryCard.swift; sourceTree = "<group>"; };
+		F00C1B01 /* BookClub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookClub.swift; sourceTree = "<group>"; };
+		F00C1B02 /* BookClubService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookClubService.swift; sourceTree = "<group>"; };
+		F00C1B10 /* ClubComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubComponents.swift; sourceTree = "<group>"; };
+		F00C1B11 /* ClubsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubsView.swift; sourceTree = "<group>"; };
+		F00C1B12 /* ClubDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubDetailView.swift; sourceTree = "<group>"; };
+		F00C1B13 /* CreateClubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateClubView.swift; sourceTree = "<group>"; };
+		F00C1B14 /* ClubMemberPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubMemberPickerView.swift; sourceTree = "<group>"; };
+		F00C1B15 /* JoinClubSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinClubSheet.swift; sourceTree = "<group>"; };
+		F00C1B16 /* ClubInviteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubInviteSheet.swift; sourceTree = "<group>"; };
+		F00C1B17 /* ClubBookPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubBookPickerSheet.swift; sourceTree = "<group>"; };
+		F00C1B18 /* ClubSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubSettingsView.swift; sourceTree = "<group>"; };
+		F00C7A31 /* BookPopularityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPopularityService.swift; sourceTree = "<group>"; };
+		F00D1A01 /* TypewriterText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypewriterText.swift; sourceTree = "<group>"; };
+		F00D1A02 /* OnboardingWizard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWizard.swift; sourceTree = "<group>"; };
+		F00D1A03 /* WizardIdentitySteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardIdentitySteps.swift; sourceTree = "<group>"; };
+		F00D1A04 /* WizardTasteStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardTasteStep.swift; sourceTree = "<group>"; };
+		F00D1A05 /* WizardBookSteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardBookSteps.swift; sourceTree = "<group>"; };
+		F00D1A06 /* WizardSocialSteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardSocialSteps.swift; sourceTree = "<group>"; };
+		F00D1A07 /* WizardFinaleSteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardFinaleSteps.swift; sourceTree = "<group>"; };
+		F00D1A11 /* WizardTierListStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardTierListStep.swift; sourceTree = "<group>"; };
+		F00D1C71 /* WizardTierPracticeStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardTierPracticeStep.swift; sourceTree = "<group>"; };
+		F00D2A17 /* WizardAppearanceStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WizardAppearanceStep.swift; sourceTree = "<group>"; };
+		F00D2A18 /* LibraryCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCardView.swift; sourceTree = "<group>"; };
+		F00D2A19 /* FeedDayGroupCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedDayGroupCarousel.swift; sourceTree = "<group>"; };
+		F00D2A1A /* UserProfileCardSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileCardSheet.swift; sourceTree = "<group>"; };
+		F00D2A1B /* PeopleStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleStrip.swift; sourceTree = "<group>"; };
+		F00D2A1C /* ProfileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSettingsView.swift; sourceTree = "<group>"; };
+		F00D4E51 /* QueueNoteComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueNoteComposer.swift; sourceTree = "<group>"; };
+		F00D8E1 /* LinkImportShareHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportShareHelper.swift; sourceTree = "<group>"; };
+		F00D8E2 /* LinkImportSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportSession.swift; sourceTree = "<group>"; };
+		F00D8E3 /* LinkBookExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkBookExtractionService.swift; sourceTree = "<group>"; };
+		F00D8E4 /* LinkImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportView.swift; sourceTree = "<group>"; };
+		F00E7A01 /* FeedInterstitials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInterstitials.swift; sourceTree = "<group>"; };
+		F00E7C31 /* UserAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAvatarView.swift; sourceTree = "<group>"; };
+		F00E9A01 /* StoryExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryExporter.swift; sourceTree = "<group>"; };
+		F00E9A02 /* ShareCoverResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCoverResolver.swift; sourceTree = "<group>"; };
+		F00E9A03 /* ShareStoryCanvases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareStoryCanvases.swift; sourceTree = "<group>"; };
+		F00E9A04 /* ShareHubSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareHubSheet.swift; sourceTree = "<group>"; };
+		F00F3A17 /* NotificationsBellButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsBellButton.swift; sourceTree = "<group>"; };
+		F00F3A2A /* MarkdownText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
+		F00F3A40 /* LaunchSplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchSplashView.swift; sourceTree = "<group>"; };
+		F04F3B71 /* NotificationsRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsRepository.swift; sourceTree = "<group>"; };
+		F04F3B72 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
+		F07E4D21 /* UserFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFeedView.swift; sourceTree = "<group>"; };
+		F7D91A42 /* ISBNdbService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISBNdbService.swift; sourceTree = "<group>"; };
+		FA0C0001 /* OnboardingCompletionMemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCompletionMemo.swift; sourceTree = "<group>"; };
+		FA9E7301 /* Mentions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mentions.swift; sourceTree = "<group>"; };
+		NE010002 /* SPINENotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SPINENotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		WG010002 /* SPINEWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SPINEWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		WG010011 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
+		WG010013 /* WidgetDataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDataService.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8BB298722F671AAA007008DC /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 8BB298632F671AAA007008DC /* SPINEShareExtension */;
+		};
+		NE010004 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = NE010001 /* SPINENotificationService */;
+		};
+		WG010004 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = WG010001 /* SPINEWidget */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		8BB298652F671AAA007008DC /* SPINEShareExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (8BB298722F671AAA007008DC /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = SPINEShareExtension; sourceTree = "<group>"; };
+		NE010003 /* SPINENotificationService */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (NE010004 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = SPINENotificationService; sourceTree = "<group>"; };
+		WG010003 /* SPINEWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (WG010004 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = SPINEWidget; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8BB298612F671AAA007008DC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0010001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8BB4CBC02F4E9AEF0068B4B6 /* FirebaseCore in Frameworks */,
+				8BB4CBC62F4E9AEF0068B4B6 /* FirebaseAuth in Frameworks */,
+				8BB4CBC72F4E9AEF0068B4B6 /* FirebaseFirestore in Frameworks */,
+				8BB4CBC92F4E9AEF0068B4B6 /* FirebaseStorage in Frameworks */,
+				8BB4CBC82F4E8B00006ED44D /* GoogleSignIn in Frameworks */,
+				8B8FC0012F4E9AEF0068B4B7 /* FirebaseMessaging in Frameworks */,
+				8BB4CBCA2F4E9AEF0068B4B6 /* FirebaseFunctions in Frameworks */,
+				AMP0000000000000000000001 /* AmplitudeSwift in Frameworks */,
+				AMP0000000000000000000004 /* AmplitudeSwiftSessionReplayPlugin in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		NE010006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		WG010006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8BB4CBC12F4E9AEF0068B4B6 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				8BE1FAC02F4E8A70006ED44D /* SPINE/GoogleService-Info.plist */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+		G0010000 = {
+			isa = PBXGroup;
+			children = (
+				8B7B90EB2F54C72300B7FB0C /* Secrets.plist */,
+				G0010001 /* SPINE */,
+				8BB298652F671AAA007008DC /* SPINEShareExtension */,
+				NE010003 /* SPINENotificationService */,
+				WG010003 /* SPINEWidget */,
+				G0010002 /* Products */,
+				8BB4CBC12F4E9AEF0068B4B6 /* Recovered References */,
+			);
+			sourceTree = "<group>";
+		};
+		G0010001 /* SPINE */ = {
+			isa = PBXGroup;
+			children = (
+				8BB4CBC42F4EA0910068B4B6 /* SPINE.entitlements */,
+				F0010001 /* SpineApp.swift */,
+				F0010002 /* RootView.swift */,
+				F0010018 /* Info.plist */,
+				F0010019 /* Assets.xcassets */,
+				F0010038 /* Tags.csv */,
+				G0010003 /* AppState */,
+				G0010004 /* Models */,
+				G0010005 /* Theme */,
+				G0010006 /* Services */,
+				G0010010 /* Helpers */,
+				G0010007 /* Views */,
+				8BB4CBC22F4E9F2B0068B4B6 /* SPINE Firebase Service Info.plist */,
+			);
+			path = SPINE;
+			sourceTree = "<group>";
+		};
+		G0010002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E0010000 /* SPINE.app */,
+				8BB298642F671AAA007008DC /* SPINEShareExtension.appex */,
+				NE010002 /* SPINENotificationService.appex */,
+				WG010002 /* SPINEWidget.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		G0010003 /* AppState */ = {
+			isa = PBXGroup;
+			children = (
+				F0010003 /* AppState.swift */,
+			);
+			path = AppState;
+			sourceTree = "<group>";
+		};
+		G0010004 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				F00C1B01 /* BookClub.swift */,
+				F0010005 /* User.swift */,
+				F00B1E01 /* BookBlend.swift */,
+				F0010203 /* BookRecommendation.swift */,
+				F0010106 /* DiscoverCriteria.swift */,
+				F0010006 /* Book.swift */,
+				F0010009 /* UserBook.swift */,
+				F0010008 /* Post.swift */,
+				F0010007 /* Comment.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		G0010005 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				F0010004 /* Theme.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		G0010006 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				F00C1B02 /* BookClubService.swift */,
+				WG010011 /* WidgetSnapshot.swift */,
+				WG010013 /* WidgetDataService.swift */,
+				F001000A /* GoogleBooksService.swift */,
+				F0010027 /* ApiKeys.swift */,
+				F0010028 /* ClaudeService.swift */,
+				F0010052 /* BookRefresherService.swift */,
+				F0018D71 /* BookSummaryMoreService.swift */,
+				F0010054 /* MatchScoreService.swift */,
+				F00B1E02 /* BookBlendService.swift */,
+				F00B1E05 /* OpenLibraryService.swift */,
+				F00B1E06 /* BookSearchCacheService.swift */,
+				F00B1E20 /* UserDirectory.swift */,
+				F00B1E21 /* ReadDraftStore.swift */,
+				F00B1E07 /* AIContentCacheRepository.swift */,
+				F00C7A31 /* BookPopularityService.swift */,
+				F7D91A42 /* ISBNdbService.swift */,
+				F0010020 /* AuthService.swift */,
+				F0010021 /* UserRepository.swift */,
+				FA9E7301 /* Mentions.swift */,
+				FA0C0001 /* OnboardingCompletionMemo.swift */,
+				F04F3B71 /* NotificationsRepository.swift */,
+				F0010023 /* BookRepository.swift */,
+				F0010024 /* UserBookRepository.swift */,
+				F0010025 /* PostRepository.swift */,
+				F0010026 /* CommentRepository.swift */,
+				F001002A /* LocalLibraryCache.swift */,
+				F001002C /* BookProfileService.swift */,
+				F0010039 /* SpineTagCatalog.swift */,
+				F001002D /* DismissedSuggestionsRepository.swift */,
+				F001002E /* DiscoverSuggestionsService.swift */,
+				F001002F /* ProfilePhotoService.swift */,
+				F0010040 /* ProfileImageCache.swift */,
+				F0010032 /* GoodreadsCSVParser.swift */,
+				F0010033 /* GoodreadsImportService.swift */,
+				F00D8E3 /* LinkBookExtractionService.swift */,
+				F0010101 /* GoodreadsWizardSession.swift */,
+				F00D8E2 /* LinkImportSession.swift */,
+				F0010103 /* CoverResolutionStore.swift */,
+				F0017747 /* CoverRegenerationService.swift */,
+				F0010104 /* ITunesCoverService.swift */,
+				F0010105 /* BookSearchRanker.swift */,
+				F0010731 /* SearchQueryCompletion.swift */,
+				F0010202 /* ContactSyncService.swift */,
+				F0010204 /* RecommendationRepository.swift */,
+				F0010205 /* AppLinks.swift */,
+				F0010035 /* GoodreadsShareHelper.swift */,
+				F00D8E1 /* LinkImportShareHelper.swift */,
+				F0010043 /* PushNotificationService.swift */,
+				F0010047 /* PushRegistrationDiagnostics.swift */,
+				F0010050 /* PushNotificationNudgeStorage.swift */,
+				F0010331 /* ProfilePhotoNudgeStorage.swift */,
+				F0010901 /* PhoneNumberNudgeStorage.swift */,
+				F0010911 /* AppReviewPromptStorage.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		G0010007 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				F001000B /* MainTabView.swift */,
+				G0010008 /* Onboarding */,
+				G0010009 /* AddBook */,
+				G0010011 /* Book */,
+				G001000A /* Components */,
+				G001000B /* Feed */,
+				G001000C /* Discover */,
+				G0010012 /* Goodreads */,
+				G001000D /* Library */,
+				G001000E /* Profile */,
+				G0010203 /* Friends */,
+				G00B1E00 /* Blend */,
+				G00C1B00 /* Clubs */,
+				G00E9A00 /* Share */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		G0010008 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				G00D1A00 /* Wizard */,
+				F001000C /* OnboardingFlowView.swift */,
+				F0010037 /* ProfileCompletionView.swift */,
+				F001003D /* WelcomeSpinesGoodreadsModal.swift */,
+				F0010049 /* PushNotificationPromptView.swift */,
+				F0010051 /* PushNotificationNudgeModal.swift */,
+				F0010332 /* ProfilePhotoNudgeModal.swift */,
+				F0010902 /* PhoneNumberNudgeModal.swift */,
+				F0010912 /* RateSpineNudgeModal.swift */,
+				F0010333 /* OnboardingCurrentlyReadingView.swift */,
+				F0010029 /* ReviewerLoginView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		G0010009 /* AddBook */ = {
+			isa = PBXGroup;
+			children = (
+				F001000D /* SearchView.swift */,
+				F001000E /* BookSearchRow.swift */,
+				F0010100 /* NoSuggestionsTextField.swift */,
+			);
+			path = AddBook;
+			sourceTree = "<group>";
+		};
+		G001000A /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				F00D1A01 /* TypewriterText.swift */,
+				F001000F /* BookCoverView.swift */,
+				F00F3A17 /* NotificationsBellButton.swift */,
+				F00F3A2A /* MarkdownText.swift */,
+				F0010107 /* TagCatalogPicker.swift */,
+				F00100FA /* Toast.swift */,
+				F0010045 /* FlowLayout.swift */,
+				F0010041 /* CachedProfileImage.swift */,
+				F00E7C31 /* UserAvatarView.swift */,
+				F00F3A40 /* LaunchSplashView.swift */,
+				F00D2A18 /* LibraryCardView.swift */,
+				F0010C47 /* CircularPhotoCropView.swift */,
+				F0010201 /* ReadingNowFanStack.swift */,
+				F0010206 /* MessageComposeView.swift */,
+				F0010F01 /* SlidingLens.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		G001000B /* Feed */ = {
+			isa = PBXGroup;
+			children = (
+				F0010010 /* FeedView.swift */,
+				F00D2A19 /* FeedDayGroupCarousel.swift */,
+				F00D2A1B /* PeopleStrip.swift */,
+				F00E7A01 /* FeedInterstitials.swift */,
+				F07E4D21 /* UserFeedView.swift */,
+				F0010030 /* CommentsView.swift */,
+			);
+			path = Feed;
+			sourceTree = "<group>";
+		};
+		G001000C /* Discover */ = {
+			isa = PBXGroup;
+			children = (
+				F0010011 /* DiscoverView.swift */,
+				F0010108 /* DiscoverCriteriaStrip.swift */,
+				F0010109 /* DiscoverCriteriaEditorSheet.swift */,
+				F001010A /* DiscoverBookPickerView.swift */,
+			);
+			path = Discover;
+			sourceTree = "<group>";
+		};
+		G001000D /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				F0010012 /* LibraryView.swift */,
+				F0010048 /* PushDiagnosticsView.swift */,
+				F001003C /* LibraryReadQueueSegmentShared.swift */,
+				F0010013 /* GridLibraryView.swift */,
+				F0010036 /* QueueLibraryView.swift */,
+				F001003B /* QueueBookDragCover.swift */,
+				F0010517 /* ReadingNowProgressCard.swift */,
+				F001003F /* LibraryDragHaptics.swift */,
+				F001003A /* UserLibraryDetailView.swift */,
+				F0010016 /* TimelineLibraryView.swift */,
+				F0010014 /* RatingLibraryView.swift */,
+				F0010015 /* TierListView.swift */,
+				F00100F0 /* TierBadge.swift */,
+				F0010777 /* ReadingYearListView.swift */,
+				F0010E71 /* TierMultiSelect.swift */,
+				F00D8E4 /* LinkImportView.swift */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		G001000E /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				F0010017 /* ProfileView.swift */,
+				F04F3B72 /* NotificationsView.swift */,
+				F00D2A1A /* UserProfileCardSheet.swift */,
+				F00D2A1C /* ProfileSettingsView.swift */,
+			);
+			path = Profile;
+			sourceTree = "<group>";
+		};
+		G0010010 /* Helpers */ = {
+			isa = PBXGroup;
+			children = (
+				F0010022 /* RootViewController.swift */,
+			);
+			path = Helpers;
+			sourceTree = "<group>";
+		};
+		G0010011 /* Book */ = {
+			isa = PBXGroup;
+			children = (
+				F0010833 /* BookDiscussionSection.swift */,
+				F001002B /* BookProfileView.swift */,
+				F0010053 /* BookRefresherView.swift */,
+				F0018D72 /* BookSummaryMoreView.swift */,
+				F0010042 /* EditReadReviewSheet.swift */,
+				F0010046 /* MarkAsReadDrawer.swift */,
+				F00D4E51 /* QueueNoteComposer.swift */,
+			);
+			path = Book;
+			sourceTree = "<group>";
+		};
+		G0010012 /* Goodreads */ = {
+			isa = PBXGroup;
+			children = (
+				F0010034 /* GoodreadsImportView.swift */,
+				F0010102 /* GoodreadsExportWebView.swift */,
+				F001003E /* GoodreadsImportTutorialEmbed.swift */,
+			);
+			path = Goodreads;
+			sourceTree = "<group>";
+		};
+		G0010203 /* Friends */ = {
+			isa = PBXGroup;
+			children = (
+				F0010207 /* FindFriendsView.swift */,
+				F0010208 /* RecommendBookSheet.swift */,
+			);
+			path = Friends;
+			sourceTree = "<group>";
+		};
+		G00B1E00 /* Blend */ = {
+			isa = PBXGroup;
+			children = (
+				F00B1E03 /* BookBlendInviteView.swift */,
+				F00B1E04 /* BookBlendStoryView.swift */,
+				F00B1E33 /* BookBlendSummaryCard.swift */,
+			);
+			path = Blend;
+			sourceTree = "<group>";
+		};
+		G00C1B00 /* Clubs */ = {
+			isa = PBXGroup;
+			children = (
+				F00C1B10 /* ClubComponents.swift */,
+				F00C1B11 /* ClubsView.swift */,
+				F00C1B12 /* ClubDetailView.swift */,
+				F00C1B13 /* CreateClubView.swift */,
+				F00C1B14 /* ClubMemberPickerView.swift */,
+				F00C1B15 /* JoinClubSheet.swift */,
+				F00C1B16 /* ClubInviteSheet.swift */,
+				F00C1B17 /* ClubBookPickerSheet.swift */,
+				F00C1B18 /* ClubSettingsView.swift */,
+			);
+			path = Clubs;
+			sourceTree = "<group>";
+		};
+		G00D1A00 /* Wizard */ = {
+			isa = PBXGroup;
+			children = (
+				F00D1A02 /* OnboardingWizard.swift */,
+				F00D1A03 /* WizardIdentitySteps.swift */,
+				F00D1A04 /* WizardTasteStep.swift */,
+				F00D1A05 /* WizardBookSteps.swift */,
+				F00D1A06 /* WizardSocialSteps.swift */,
+				F00D1A07 /* WizardFinaleSteps.swift */,
+				F00D1A11 /* WizardTierListStep.swift */,
+				F00D1C71 /* WizardTierPracticeStep.swift */,
+				F00D2A17 /* WizardAppearanceStep.swift */,
+			);
+			path = Wizard;
+			sourceTree = "<group>";
+		};
+		G00E9A00 /* Share */ = {
+			isa = PBXGroup;
+			children = (
+				F00E9A01 /* StoryExporter.swift */,
+				F00E9A02 /* ShareCoverResolver.swift */,
+				F00E9A03 /* ShareStoryCanvases.swift */,
+				F00E9A04 /* ShareHubSheet.swift */,
+			);
+			path = Share;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8BB298632F671AAA007008DC /* SPINEShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8BB298732F671AAA007008DC /* Build configuration list for PBXNativeTarget "SPINEShareExtension" */;
+			buildPhases = (
+				8BB298602F671AAA007008DC /* Sources */,
+				8BB298612F671AAA007008DC /* Frameworks */,
+				8BB298622F671AAA007008DC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				8BB298652F671AAA007008DC /* SPINEShareExtension */,
+			);
+			name = SPINEShareExtension;
+			packageProductDependencies = (
+			);
+			productName = SPINEShareExtension;
+			productReference = 8BB298642F671AAA007008DC /* SPINEShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		NE010001 /* SPINENotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = NE01000B /* Build configuration list for PBXNativeTarget "SPINENotificationService" */;
+			buildPhases = (
+				NE010005 /* Sources */,
+				NE010006 /* Frameworks */,
+				NE010007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				NE010003 /* SPINENotificationService */,
+			);
+			name = SPINENotificationService;
+			packageProductDependencies = (
+			);
+			productName = SPINENotificationService;
+			productReference = NE010002 /* SPINENotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		T0010001 /* SPINE */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0020001 /* Build configuration list for PBXNativeTarget "SPINE" */;
+			buildPhases = (
+				C0010002 /* Sources */,
+				C0010001 /* Frameworks */,
+				C0010003 /* Resources */,
+				8BB2986F2F671AAA007008DC /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8BB2986D2F671AAA007008DC /* PBXTargetDependency */,
+				NE010009 /* PBXTargetDependency */,
+				WG010009 /* PBXTargetDependency */,
+			);
+			name = SPINE;
+			packageProductDependencies = (
+				8BE1FABE2F4E8A70006ED44D /* FirebaseCore */,
+				8BE1FABF2F4E8A70006ED44D /* FirebaseAuth */,
+				8BE1FAC32F4E8A70006ED44D /* FirebaseFirestore */,
+				8BE1FAC42F4E8A70006ED44D /* FirebaseStorage */,
+				8BE1FAC22F4E8B00006ED44D /* GoogleSignIn */,
+				8BE1FAC52F4E8A70006ED44D /* FirebaseMessaging */,
+				8BE1FAC72F4E8A70006ED44D /* FirebaseFunctions */,
+				AMP0000000000000000000003 /* AmplitudeSwift */,
+				AMP0000000000000000000006 /* AmplitudeSwiftSessionReplayPlugin */,
+			);
+			productName = SPINE;
+			productReference = E0010000 /* SPINE.app */;
+			productType = "com.apple.product-type.application";
+		};
+		WG010001 /* SPINEWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = WG01000B /* Build configuration list for PBXNativeTarget "SPINEWidget" */;
+			buildPhases = (
+				WG010005 /* Sources */,
+				WG010006 /* Frameworks */,
+				WG010007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				WG010003 /* SPINEWidget */,
+			);
+			name = SPINEWidget;
+			packageProductDependencies = (
+			);
+			productName = SPINEWidget;
+			productReference = WG010002 /* SPINEWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		P0010001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					8BB298632F671AAA007008DC = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					NE010001 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					WG010001 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+				};
+			};
+			buildConfigurationList = C0020002 /* Build configuration list for PBXProject "SPINE" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = G0010000;
+			packageReferences = (
+				8BE1FABD2F4E8A70006ED44D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				8BE1FAC12F4E8B00006ED44D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				AMP0000000000000000000002 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */,
+				AMP0000000000000000000005 /* XCRemoteSwiftPackageReference "AmplitudeSessionReplay-iOS" */,
+			);
+			productRefGroup = G0010002 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				T0010001 /* SPINE */,
+				8BB298632F671AAA007008DC /* SPINEShareExtension */,
+				NE010001 /* SPINENotificationService */,
+				WG010001 /* SPINEWidget */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8BB298622F671AAA007008DC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0010003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8B7B90EC2F54C77000B7FB0C /* Secrets.plist in Resources */,
+				B0010018 /* Assets.xcassets in Resources */,
+				B0010038 /* Tags.csv in Resources */,
+				B0010019 /* (null) in Resources */,
+				B001001A /* SPINE/GoogleService-Info.plist in Resources */,
+				8BB4CBC32F4E9F2B0068B4B6 /* SPINE Firebase Service Info.plist in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		NE010007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		WG010007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8BB298602F671AAA007008DC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0010002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B0010001 /* SpineApp.swift in Sources */,
+				B0010002 /* RootView.swift in Sources */,
+				B0010003 /* AppState.swift in Sources */,
+				B0010004 /* Theme.swift in Sources */,
+				B0010005 /* User.swift in Sources */,
+				B0010006 /* Book.swift in Sources */,
+				B0010007 /* Comment.swift in Sources */,
+				B0010008 /* Post.swift in Sources */,
+				B0010009 /* UserBook.swift in Sources */,
+				B001000A /* GoogleBooksService.swift in Sources */,
+				B001000B /* MainTabView.swift in Sources */,
+				B001000C /* OnboardingFlowView.swift in Sources */,
+				B0010037 /* ProfileCompletionView.swift in Sources */,
+				B001003D /* WelcomeSpinesGoodreadsModal.swift in Sources */,
+				B0010029 /* ReviewerLoginView.swift in Sources */,
+				B001000D /* SearchView.swift in Sources */,
+				B001000E /* BookSearchRow.swift in Sources */,
+				B0010100 /* NoSuggestionsTextField.swift in Sources */,
+				B001000F /* BookCoverView.swift in Sources */,
+				B00F3A17 /* NotificationsBellButton.swift in Sources */,
+				B00F3A2A /* MarkdownText.swift in Sources */,
+				B00100FA /* Toast.swift in Sources */,
+				B0010010 /* FeedView.swift in Sources */,
+				B0010011 /* DiscoverView.swift in Sources */,
+				B0010012 /* LibraryView.swift in Sources */,
+				B001003C /* LibraryReadQueueSegmentShared.swift in Sources */,
+				B0010F01 /* SlidingLens.swift in Sources */,
+				B0010013 /* GridLibraryView.swift in Sources */,
+				B001003A /* UserLibraryDetailView.swift in Sources */,
+				B0010036 /* QueueLibraryView.swift in Sources */,
+				B001003B /* QueueBookDragCover.swift in Sources */,
+				B0010517 /* ReadingNowProgressCard.swift in Sources */,
+				B001003F /* LibraryDragHaptics.swift in Sources */,
+				B0010014 /* RatingLibraryView.swift in Sources */,
+				B0010015 /* TierListView.swift in Sources */,
+				B0010E71 /* TierMultiSelect.swift in Sources */,
+				B00E9A01 /* StoryExporter.swift in Sources */,
+				B00E9A02 /* ShareCoverResolver.swift in Sources */,
+				B00E9A03 /* ShareStoryCanvases.swift in Sources */,
+				B00E9A04 /* ShareHubSheet.swift in Sources */,
+				B00100F0 /* TierBadge.swift in Sources */,
+				B0010777 /* ReadingYearListView.swift in Sources */,
+				B0010016 /* TimelineLibraryView.swift in Sources */,
+				B0010017 /* ProfileView.swift in Sources */,
+				B0010020 /* AuthService.swift in Sources */,
+				B0010021 /* UserRepository.swift in Sources */,
+				BA9E7301 /* Mentions.swift in Sources */,
+				BA0C0001 /* OnboardingCompletionMemo.swift in Sources */,
+				B04F3B71 /* NotificationsRepository.swift in Sources */,
+				B04F3B72 /* NotificationsView.swift in Sources */,
+				B0010022 /* RootViewController.swift in Sources */,
+				B0010023 /* BookRepository.swift in Sources */,
+				B0010024 /* UserBookRepository.swift in Sources */,
+				B0010025 /* PostRepository.swift in Sources */,
+				B0010026 /* CommentRepository.swift in Sources */,
+				B0010027 /* ApiKeys.swift in Sources */,
+				B0010028 /* ClaudeService.swift in Sources */,
+				B001002A /* LocalLibraryCache.swift in Sources */,
+				B001002C /* BookProfileService.swift in Sources */,
+				B0010039 /* SpineTagCatalog.swift in Sources */,
+				B001002B /* BookProfileView.swift in Sources */,
+				B0010046 /* MarkAsReadDrawer.swift in Sources */,
+				B00D4E51 /* QueueNoteComposer.swift in Sources */,
+				B00D8E1 /* LinkImportShareHelper.swift in Sources */,
+				B00D8E2 /* LinkImportSession.swift in Sources */,
+				B00D8E3 /* LinkBookExtractionService.swift in Sources */,
+				B00D8E4 /* LinkImportView.swift in Sources */,
+				B001002D /* DismissedSuggestionsRepository.swift in Sources */,
+				B001002E /* DiscoverSuggestionsService.swift in Sources */,
+				B001002F /* ProfilePhotoService.swift in Sources */,
+				B0010040 /* ProfileImageCache.swift in Sources */,
+				B0010041 /* CachedProfileImage.swift in Sources */,
+				B00E7C31 /* UserAvatarView.swift in Sources */,
+				B00F3A40 /* LaunchSplashView.swift in Sources */,
+				B00D2A18 /* LibraryCardView.swift in Sources */,
+				B00D2A19 /* FeedDayGroupCarousel.swift in Sources */,
+				B00D2A1A /* UserProfileCardSheet.swift in Sources */,
+				B00D2A1B /* PeopleStrip.swift in Sources */,
+				B00E7A01 /* FeedInterstitials.swift in Sources */,
+				B07E4D21 /* UserFeedView.swift in Sources */,
+				B00D2A1C /* ProfileSettingsView.swift in Sources */,
+				B0010C47 /* CircularPhotoCropView.swift in Sources */,
+				B0010201 /* ReadingNowFanStack.swift in Sources */,
+				B0010042 /* EditReadReviewSheet.swift in Sources */,
+				B0010030 /* CommentsView.swift in Sources */,
+				B0010032 /* GoodreadsCSVParser.swift in Sources */,
+				B0010033 /* GoodreadsImportService.swift in Sources */,
+				B0010101 /* GoodreadsWizardSession.swift in Sources */,
+				B0010103 /* CoverResolutionStore.swift in Sources */,
+				B0017747 /* CoverRegenerationService.swift in Sources */,
+				B0010104 /* ITunesCoverService.swift in Sources */,
+				B0010105 /* BookSearchRanker.swift in Sources */,
+				B0010731 /* SearchQueryCompletion.swift in Sources */,
+				B0010106 /* DiscoverCriteria.swift in Sources */,
+				B0010202 /* ContactSyncService.swift in Sources */,
+				B0010203 /* BookRecommendation.swift in Sources */,
+				B0010204 /* RecommendationRepository.swift in Sources */,
+				B0010205 /* AppLinks.swift in Sources */,
+				B0010206 /* MessageComposeView.swift in Sources */,
+				B0010207 /* FindFriendsView.swift in Sources */,
+				B0010208 /* RecommendBookSheet.swift in Sources */,
+				B0010107 /* TagCatalogPicker.swift in Sources */,
+				B0010108 /* DiscoverCriteriaStrip.swift in Sources */,
+				B0010109 /* DiscoverCriteriaEditorSheet.swift in Sources */,
+				B001010A /* DiscoverBookPickerView.swift in Sources */,
+				B0010034 /* GoodreadsImportView.swift in Sources */,
+				B0010102 /* GoodreadsExportWebView.swift in Sources */,
+				B001003E /* GoodreadsImportTutorialEmbed.swift in Sources */,
+				B0010035 /* GoodreadsShareHelper.swift in Sources */,
+				B0010043 /* PushNotificationService.swift in Sources */,
+				B0010047 /* PushRegistrationDiagnostics.swift in Sources */,
+				B0010050 /* PushNotificationNudgeStorage.swift in Sources */,
+				B0010331 /* ProfilePhotoNudgeStorage.swift in Sources */,
+				B0010911 /* AppReviewPromptStorage.swift in Sources */,
+				B0010912 /* RateSpineNudgeModal.swift in Sources */,
+				B0010332 /* ProfilePhotoNudgeModal.swift in Sources */,
+				B0010901 /* PhoneNumberNudgeStorage.swift in Sources */,
+				B0010902 /* PhoneNumberNudgeModal.swift in Sources */,
+				B0010333 /* OnboardingCurrentlyReadingView.swift in Sources */,
+				B0010048 /* PushDiagnosticsView.swift in Sources */,
+				B0010049 /* PushNotificationPromptView.swift in Sources */,
+				B0010051 /* PushNotificationNudgeModal.swift in Sources */,
+				B0010052 /* BookRefresherService.swift in Sources */,
+				B0018D71 /* BookSummaryMoreService.swift in Sources */,
+				B0010054 /* MatchScoreService.swift in Sources */,
+				B00B1E01 /* BookBlend.swift in Sources */,
+				B00B1E02 /* BookBlendService.swift in Sources */,
+				B00B1E03 /* BookBlendInviteView.swift in Sources */,
+				B00C1B01 /* BookClub.swift in Sources */,
+				B00C1B02 /* BookClubService.swift in Sources */,
+				B00C1B10 /* ClubComponents.swift in Sources */,
+				B00C1B11 /* ClubsView.swift in Sources */,
+				B00C1B12 /* ClubDetailView.swift in Sources */,
+				B00C1B13 /* CreateClubView.swift in Sources */,
+				B00C1B14 /* ClubMemberPickerView.swift in Sources */,
+				B00C1B15 /* JoinClubSheet.swift in Sources */,
+				B00C1B16 /* ClubInviteSheet.swift in Sources */,
+				B00C1B17 /* ClubBookPickerSheet.swift in Sources */,
+				B00C1B18 /* ClubSettingsView.swift in Sources */,
+				B00B1E04 /* BookBlendStoryView.swift in Sources */,
+				B00B1E33 /* BookBlendSummaryCard.swift in Sources */,
+				B00B1E05 /* OpenLibraryService.swift in Sources */,
+				B00B1E06 /* BookSearchCacheService.swift in Sources */,
+				B00B1E20 /* UserDirectory.swift in Sources */,
+				B00B1E21 /* ReadDraftStore.swift in Sources */,
+				B00B1E07 /* AIContentCacheRepository.swift in Sources */,
+				B00C7A31 /* BookPopularityService.swift in Sources */,
+				B7D91A42 /* ISBNdbService.swift in Sources */,
+				B00D1A01 /* TypewriterText.swift in Sources */,
+				B00D1A02 /* OnboardingWizard.swift in Sources */,
+				B00D1A03 /* WizardIdentitySteps.swift in Sources */,
+				B00D1A04 /* WizardTasteStep.swift in Sources */,
+				B00D1A05 /* WizardBookSteps.swift in Sources */,
+				B00D1A06 /* WizardSocialSteps.swift in Sources */,
+				B00D2A17 /* WizardAppearanceStep.swift in Sources */,
+				B00D1A07 /* WizardFinaleSteps.swift in Sources */,
+				B00D1A11 /* WizardTierListStep.swift in Sources */,
+				B00D1C71 /* WizardTierPracticeStep.swift in Sources */,
+				B0010053 /* BookRefresherView.swift in Sources */,
+				B0010833 /* BookDiscussionSection.swift in Sources */,
+				B0018D72 /* BookSummaryMoreView.swift in Sources */,
+				B0010045 /* FlowLayout.swift in Sources */,
+				WG010012 /* WidgetSnapshot.swift in Sources */,
+				WG010014 /* WidgetDataService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		NE010005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		WG010005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				WG010010 /* WidgetSnapshot.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8BB2986D2F671AAA007008DC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8BB298632F671AAA007008DC /* SPINEShareExtension */;
+			targetProxy = 8BB2986C2F671AAA007008DC /* PBXContainerItemProxy */;
+		};
+		NE010009 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = NE010001 /* SPINENotificationService */;
+			targetProxy = NE010008 /* PBXContainerItemProxy */;
+		};
+		WG010009 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = WG010001 /* SPINEWidget */;
+			targetProxy = WG010008 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		8BB298702F671AAA007008DC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_ENTITLEMENTS = SPINEShareExtension/SPINEShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T32N9X64JM;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SPINEShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 3.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		8BB298712F671AAA007008DC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_ENTITLEMENTS = SPINEShareExtension/SPINEShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T32N9X64JM;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SPINEShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 3.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		NE01000C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T32N9X64JM;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SPINENotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 3.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadNotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		NE01000D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T32N9X64JM;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SPINENotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 3.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadNotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		WG01000C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_ENTITLEMENTS = SPINEWidget/SPINEWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T32N9X64JM;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SPINEWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 3.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		WG01000D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_ENTITLEMENTS = SPINEWidget/SPINEWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T32N9X64JM;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SPINEWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 3.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		X0010001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		X0010002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		X0010003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SPINE/SPINE.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T32N9X64JM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SPINE/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 3.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		X0010004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SPINE/SPINE.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T32N9X64JM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SPINE/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 3.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8BB298732F671AAA007008DC /* Build configuration list for PBXNativeTarget "SPINEShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8BB298702F671AAA007008DC /* Debug */,
+				8BB298712F671AAA007008DC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C0020001 /* Build configuration list for PBXNativeTarget "SPINE" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				X0010003 /* Debug */,
+				X0010004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C0020002 /* Build configuration list for PBXProject "SPINE" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				X0010001 /* Debug */,
+				X0010002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		NE01000B /* Build configuration list for PBXNativeTarget "SPINENotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				NE01000C /* Debug */,
+				NE01000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		WG01000B /* Build configuration list for PBXNativeTarget "SPINEWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				WG01000C /* Debug */,
+				WG01000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8BE1FABD2F4E8A70006ED44D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.9.0;
+			};
+		};
+		8BE1FAC12F4E8B00006ED44D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.2.0;
+			};
+		};
+		AMP0000000000000000000002 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/amplitude/Amplitude-Swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.9.0;
+			};
+		};
+		AMP0000000000000000000005 /* XCRemoteSwiftPackageReference "AmplitudeSessionReplay-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/amplitude/AmplitudeSessionReplay-iOS";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.12.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8BE1FABE2F4E8A70006ED44D /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8BE1FABD2F4E8A70006ED44D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		8BE1FABF2F4E8A70006ED44D /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8BE1FABD2F4E8A70006ED44D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		8BE1FAC22F4E8B00006ED44D /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8BE1FAC12F4E8B00006ED44D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		8BE1FAC32F4E8A70006ED44D /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8BE1FABD2F4E8A70006ED44D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		8BE1FAC42F4E8A70006ED44D /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8BE1FABD2F4E8A70006ED44D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
+		};
+		8BE1FAC52F4E8A70006ED44D /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8BE1FABD2F4E8A70006ED44D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		8BE1FAC72F4E8A70006ED44D /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8BE1FABD2F4E8A70006ED44D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
+		};
+		AMP0000000000000000000003 /* AmplitudeSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AMP0000000000000000000002 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */;
+			productName = AmplitudeSwift;
+		};
+		AMP0000000000000000000006 /* AmplitudeSwiftSessionReplayPlugin */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AMP0000000000000000000005 /* XCRemoteSwiftPackageReference "AmplitudeSessionReplay-iOS" */;
+			productName = AmplitudeSwiftSessionReplayPlugin;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = P0010001 /* Project object */;
+}
