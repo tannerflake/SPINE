@@ -34,7 +34,7 @@ struct WelcomeSpinesGoodreadsModal: View {
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.center)
 
-            Text("Let's import your Goodreads data. It only takes a couple of minutes.")
+            Text("Let's import your Goodreads or StoryGraph books. It only takes a couple of minutes.")
                 .font(Theme.body())
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)

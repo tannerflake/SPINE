@@ -22,6 +22,11 @@ struct NotificationsBellButton: View {
 
         var iconSize: CGFloat { self == .standard ? 22 : 16 }
         var frame: CGFloat { self == .standard ? 34 : 24 }
+        /// Invisible tap circle, deliberately bigger than `frame` so the bell
+        /// doesn't have to be sniped with a thumb. It spills over neighbours
+        /// (Feed's people strip avatars) on purpose: a stray bell tap is
+        /// cheaper than a missed one. Doesn't affect layout.
+        var hitDiameter: CGFloat { self == .standard ? 48 : 60 }
         var badgeDiameter: CGFloat { self == .standard ? 10 : 7 }
         var badgeOffset: CGSize { self == .standard ? CGSize(width: -2, height: 3) : CGSize(width: -1, height: 1) }
     }
@@ -66,6 +71,13 @@ struct NotificationsBellButton: View {
                     }
                     .frame(width: size.frame, height: size.frame)
                     .contentShape(Circle())
+                    // Oversized hit area: a clear background can extend past
+                    // the label without growing its layout frame.
+                    .background {
+                        Color.clear
+                            .frame(width: size.hitDiameter, height: size.hitDiameter)
+                            .contentShape(Circle())
+                    }
             }
             .buttonStyle(.plain)
             .accessibilityLabel(appState.hasUnreadNotifications ? "Notifications, new activity" : "Notifications")

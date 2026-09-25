@@ -18,15 +18,24 @@ struct ReadingNowFanStack: View {
     /// When true, the covers gently bob and sway forever — use where the fan is a
     /// hero element (own profile header), not in dense lists.
     var floats: Bool = false
+    /// How many covers the fan may show before the rest collapse into "+N".
+    /// Capped lower where the fan shares a fixed-width slot with other chrome
+    /// (the profile nav bar), so its width can't push the title off center.
+    var maxCovers: Int = ReadingNowFanStack.defaultMaxCovers
+    /// When false the overflow pill is dropped entirely — extras just don't show.
+    var showsOverflow: Bool = true
 
     /// Drives the continuous float; each cover reads it with its own amplitude/sign
     /// so they drift out of step instead of bobbing in unison.
     @State private var floatPhase = false
 
-    private static let maxCovers = 3
+    static let defaultMaxCovers = 3
 
-    private var visible: [Book] { Array(books.prefix(Self.maxCovers)) }
-    private var overflow: Int { max(0, books.count - Self.maxCovers) }
+    private var visible: [Book] { Array(books.prefix(max(1, maxCovers))) }
+    private var overflow: Int {
+        guard showsOverflow else { return 0 }
+        return max(0, books.count - max(1, maxCovers))
+    }
 
     /// Alternating tilts sell the "floating" look; values shrink as the fan grows crowded.
     private func rotation(_ index: Int) -> Double {
@@ -52,7 +61,31 @@ struct ReadingNowFanStack: View {
     }
 
     private var fanWidth: CGFloat {
-        coverWidth + CGFloat(max(0, visible.count - 1)) * coverWidth * 0.55 + 6
+        Self.fanWidth(coverCount: visible.count, coverWidth: coverWidth)
+    }
+
+    private static func fanWidth(coverCount: Int, coverWidth: CGFloat) -> CGFloat {
+        coverWidth + CGFloat(max(0, coverCount - 1)) * coverWidth * 0.55 + 6
+    }
+
+    /// Laid-out width for a given shelf, without rendering it — lets a caller
+    /// that has to budget around the fan (the profile nav bar) know its size up
+    /// front instead of measuring it a frame late.
+    static func width(
+        bookCount: Int,
+        coverWidth: CGFloat = 30,
+        maxCovers: Int = defaultMaxCovers,
+        showsOverflow: Bool = true
+    ) -> CGFloat {
+        guard bookCount > 0 else { return 0 }
+        let cap = max(1, maxCovers)
+        let shown = min(bookCount, cap)
+        var width = fanWidth(coverCount: shown, coverWidth: coverWidth)
+        if showsOverflow, bookCount > cap {
+            // "+N" pill: glyph box at 0.3x the cover width plus its capsule padding.
+            width += 5 + max(9, coverWidth * 0.3) * 1.6 + 10
+        }
+        return width
     }
 
     var body: some View {

@@ -269,10 +269,8 @@ struct EditReadReviewSheet: View {
                 .buttonStyle(.plain)
                 Spacer(minLength: 0)
             } else {
-                DatePicker("", selection: date, displayedComponents: .date)
-                    .datePickerStyle(.compact)
-                    .labelsHidden()
-                    .tint(Theme.accent)
+                ReadDateChip(date: date, compact: true)
+                Spacer(minLength: 0)
                 Button {
                     date.wrappedValue = ReadDate.longAgo
                 } label: {

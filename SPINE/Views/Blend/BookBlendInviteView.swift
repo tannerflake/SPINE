@@ -162,13 +162,21 @@ struct BookBlendLandingView: View {
         case story(BookBlend)
         case waiting
         case gone
+        /// No snapshot at all within `loadTimeout` (offline with nothing cached).
+        case failed
     }
+
+    /// The spinner never outlives this. A missing doc now resolves to `gone`
+    /// quickly; this backstops anything else that stalls the first snapshot.
+    private static let loadTimeout: TimeInterval = 12
 
     @State private var blend: BookBlend?
     @State private var listener: ListenerRegistration?
     @State private var phase: Phase = .loading
     @State private var acceptError: String?
     @State private var autoAcceptConsumed = false
+    /// Bumped by "Try again" to restart the listener and the load timeout.
+    @State private var loadAttempt = 0
 
     private var myUid: String { authService.firebaseUser?.uid ?? "" }
 
@@ -201,6 +209,8 @@ struct BookBlendLandingView: View {
                 waitingScreen
             case .gone:
                 goneScreen
+            case .failed:
+                failedScreen
             }
 
             // Close chip — the story page has its own dismiss affordances. Kept
@@ -227,6 +237,10 @@ struct BookBlendLandingView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear { startListening() }
+        .task(id: loadAttempt) {
+            try? await Task.sleep(nanoseconds: UInt64(Self.loadTimeout * 1_000_000_000))
+            if !Task.isCancelled, phase == .loading { phase = .failed }
+        }
         .onDisappear {
             listener?.remove()
             listener = nil
@@ -236,6 +250,14 @@ struct BookBlendLandingView: View {
     private var isStory: Bool {
         if case .story = phase { return true }
         return false
+    }
+
+    private func retryLoad() {
+        listener?.remove()
+        listener = nil
+        phase = .loading
+        loadAttempt += 1
+        startListening()
     }
 
     private func startListening() {
@@ -253,6 +275,8 @@ struct BookBlendLandingView: View {
     /// cached "no doc" stays on the loading spinner until the server confirms.
     private func route(_ updated: BookBlend?, isFromCache: Bool) {
         if phase == .generating { return }
+        // A late snapshot after the timeout still wins.
+        if phase == .failed { phase = .loading }
         if isStory {
             // Same ready doc refreshing mid-story: keep playing. Server
             // contradiction (e.g. the story came from a stale cache): re-route.
@@ -413,14 +437,31 @@ struct BookBlendLandingView: View {
         }
     }
 
+    private var failedScreen: some View {
+        VStack(spacing: 14) {
+            Text("Couldn't load this Blend")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(Theme.paperFixed)
+            Text("Check your connection and try again.")
+                .font(Theme.callout())
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Theme.paperFixed.opacity(0.7))
+                .padding(.horizontal, 44)
+            Button("Try again") { retryLoad() }
+                .buttonStyle(.spinePrimary)
+                .padding(.horizontal, 64)
+                .padding(.top, 6)
+        }
+    }
+
     private var goneScreen: some View {
         VStack(spacing: 12) {
             Text("📖")
                 .font(.system(size: 44))
-            Text("No blend here yet")
+            Text("This Blend isn't available")
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(Theme.paperFixed)
-            Text("Visit a reader's profile and request a Book Blend to get one going.")
+            Text("The request may have been withdrawn. You can start a new one from their profile.")
                 .font(Theme.callout())
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.paperFixed.opacity(0.7))

@@ -47,14 +47,20 @@ struct GoodreadsWizardSession: Codable {
     /// Matched books cached by row id so resuming doesn't refetch.
     var matchedBooks: [String: Book]
     var createdAt: Date
+    /// Which service the export came from. Optional so sessions saved before
+    /// StoryGraph support decode as Goodreads.
+    var source: LibraryImportSource?
 
-    init(readRows: [GoodreadsRow], queueRows: [GoodreadsRow]) {
+    var resolvedSource: LibraryImportSource { source ?? .goodreads }
+
+    init(readRows: [GoodreadsRow], queueRows: [GoodreadsRow], source: LibraryImportSource = .goodreads) {
         self.readRows = readRows
         self.queueRows = queueRows
         self.decisions = [:]
         self.phase = .readBooks
         self.matchedBooks = [:]
         self.createdAt = Date()
+        self.source = source
     }
 
     /// Rows for the phase currently being walked through.
@@ -83,6 +89,11 @@ struct GoodreadsWizardSession: Codable {
 
     var pendingQueueCount: Int {
         queueRows.filter { decisions[$0.id] == nil }.count
+    }
+
+    /// Subset of `pendingQueueCount` that the export marked did-not-finish.
+    var pendingDNFCount: Int {
+        queueRows.filter { decisions[$0.id] == nil && $0.importStatus == .didNotFinish }.count
     }
 
     var importedCount: Int {
@@ -122,18 +133,19 @@ struct GoodreadsWizardSession: Codable {
 
     /// Build a fresh session from parsed CSV rows: read books most-recently-read
     /// first, everything not yet read held back for the queue phase.
-    static func fromRows(_ rows: [GoodreadsRow]) -> GoodreadsWizardSession {
+    static func fromRows(_ rows: [GoodreadsRow], source: LibraryImportSource = .goodreads) -> GoodreadsWizardSession {
         var read: [GoodreadsRow] = []
         var queue: [GoodreadsRow] = []
         for row in dedupedByWork(rows) {
-            switch GoodreadsImportService.status(for: row.exclusiveShelf) {
+            switch row.importStatus {
             case .read: read.append(row)
-            case .wantToRead, .currentlyReading: queue.append(row)
-            case .didNotFinish: break // never produced by this mapping today
+            // StoryGraph "did-not-finish" rows walk through the queue phase too;
+            // they land on the DNF list instead of the Backlog (see `importStatus`).
+            case .wantToRead, .currentlyReading, .didNotFinish: queue.append(row)
             }
         }
         read.sort { sortDate($0) > sortDate($1) }
-        return GoodreadsWizardSession(readRows: read, queueRows: queue)
+        return GoodreadsWizardSession(readRows: read, queueRows: queue, source: source)
     }
 
     private static func sortDate(_ row: GoodreadsRow) -> Date {
@@ -165,7 +177,7 @@ struct GoodreadsWizardSession: Codable {
     private static func preferredRow(_ a: GoodreadsRow, _ b: GoodreadsRow) -> GoodreadsRow {
         func score(_ r: GoodreadsRow) -> Int {
             var s = 0
-            if GoodreadsImportService.status(for: r.exclusiveShelf) == .read { s += 8 }
+            if r.importStatus == .read { s += 8 }
             if (r.myRating ?? 0) > 0 { s += 4 }
             if !(r.myReview ?? "").isEmpty { s += 2 }
             if r.isbn13 != nil || r.isbn != nil { s += 1 }

@@ -51,8 +51,17 @@ final class BookBlendService {
     /// Metadata changes are included so the server-confirmed snapshot always
     /// delivers, even when its data matches the cached one.
     func listenBlend(pairId: String, onUpdate: @escaping (BookBlend?, _ isFromCache: Bool) -> Void) -> ListenerRegistration {
-        db.collection(collectionName).document(pairId).addSnapshotListener(includeMetadataChanges: true) { snapshot, _ in
-            guard let snapshot else { return }
+        db.collection(collectionName).document(pairId).addSnapshotListener(includeMetadataChanges: true) { snapshot, error in
+            guard let snapshot else {
+                // The pair id always contains my uid, so a listen error means the
+                // doc is gone (older rules deny reads of a deleted doc). Report it
+                // as a server-confirmed miss so callers stop waiting on a snapshot
+                // that will never come.
+                if error != nil {
+                    DispatchQueue.main.async { onUpdate(nil, false) }
+                }
+                return
+            }
             let blend = snapshot.data().flatMap { BookBlend.from(data: $0, docId: snapshot.documentID) }
             let fromCache = snapshot.metadata.isFromCache
             DispatchQueue.main.async { onUpdate(blend, fromCache) }

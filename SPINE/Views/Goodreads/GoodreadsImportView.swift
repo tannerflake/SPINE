@@ -37,6 +37,8 @@ final class GoodreadsWizardModel: ObservableObject {
 
     @Published var step: Step = .explainer
     @Published private(set) var session: GoodreadsWizardSession?
+    /// Which service the rows came from; drives copy ("your StoryGraph export").
+    @Published private(set) var source: LibraryImportSource = .goodreads
     @Published private(set) var matchStates: [String: MatchState] = [:]
     @Published var bulkDone = 0
     @Published var bulkTotal = 0
@@ -108,11 +110,12 @@ final class GoodreadsWizardModel: ObservableObject {
 
     // MARK: Session lifecycle
 
-    func startSession(rows: [GoodreadsRow]) {
+    func startSession(rows: [GoodreadsRow], source: LibraryImportSource = .goodreads) {
         parseError = nil
-        var s = GoodreadsWizardSession.fromRows(rows)
+        self.source = source
+        var s = GoodreadsWizardSession.fromRows(rows, source: source)
         guard !s.readRows.isEmpty || !s.queueRows.isEmpty else {
-            parseError = "No books were found in that file. Make sure it's your Goodreads library export (goodreads_library_export.csv)."
+            parseError = "No books were found in that file. Make sure it's your \(source.displayName) library export (\(source.exportFileName))."
             return
         }
         // Re-importing a fresh export must not lose progress: Goodreads row ids
@@ -147,6 +150,7 @@ final class GoodreadsWizardModel: ObservableObject {
 
     private func resume(_ saved: GoodreadsWizardSession) {
         session = saved
+        source = saved.resolvedSource
         matchStates = saved.matchedBooks.mapValues { .matched($0) }
         warmISBNCache()
         enterStep(for: saved.phase)
@@ -394,7 +398,8 @@ final class GoodreadsWizardModel: ObservableObject {
                     Task { _ = await appState.importGoodreadsQueueBook(book: book) }
                 }
             } else {
-                appState.removeFromQueue(book: book)
+                let status = s.queueRows.first { $0.id == record.rowId }?.importStatus ?? .wantToRead
+                appState.removeFromQueue(book: book, status: status)
             }
         }
         enterStep(for: s.phase)
@@ -497,12 +502,17 @@ final class GoodreadsWizardModel: ObservableObject {
     }
 
     func acceptCurrentQueueBook() {
-        guard let book = currentBook, let appState, let rowId = session?.currentRow?.id else { return }
+        guard let book = currentBook, let appState, let row = session?.currentRow else { return }
+        let rowId = row.id
+        // Read these off the row BEFORE deciding: `decideCurrent` advances
+        // `currentRow` to the next book.
+        let status = row.importStatus
+        let review = row.plainTextReview
         pushUndo(UndoRecord(rowId: rowId, decision: .imported, book: book, wasQueuedBefore: false))
         recordImported(book)
         decideCurrent(.imported)
         Task { [weak self] in
-            let outcome = await appState.importGoodreadsQueueBook(book: book)
+            let outcome = await appState.importGoodreadsQueueBook(book: book, status: status, review: review)
             if case .failed = outcome {
                 self?.revertFailedImport(rowId: rowId, book: book)
             }
@@ -580,11 +590,12 @@ final class GoodreadsWizardModel: ObservableObject {
                                 book: book,
                                 rating: GoodreadsImportService.ratingOutOfTen(from: row.myRating),
                                 review: row.plainTextReview,
-                                dateFinished: row.dateRead ?? row.dateAdded,
+                                // Neither Goodreads date: "A long, long time ago", same as the card.
+                                dateFinished: row.dateRead ?? row.dateAdded ?? ReadDate.longAgo,
                                 tier: nil
                             )
                         } else {
-                            importOutcome = await appState.importGoodreadsQueueBook(book: book)
+                            importOutcome = await appState.importGoodreadsQueueBook(book: book, status: row.importStatus, review: row.plainTextReview)
                         }
                         switch importOutcome {
                         case .imported:
@@ -657,6 +668,8 @@ struct GoodreadsImportView: View {
     @StateObject private var model = GoodreadsWizardModel()
     @State private var showFileImporter = false
     @State private var showExportWebView = false
+    /// Explainer source choice. nil shows the Goodreads / StoryGraph picker.
+    @State private var selectedSource: LibraryImportSource? = nil
     /// Goodreads bounces an unauthenticated visit to its login page, then
     /// strands the user on the homepage instead of the export page — so the
     /// explainer walks two visits: log in first ("I'm logged in" advances this
@@ -688,7 +701,7 @@ struct GoodreadsImportView: View {
                 Theme.background.ignoresSafeArea()
                 content
             }
-            .navigationTitle("Import from Goodreads")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.background, for: .navigationBar)
             // This view lives in a sheet above MainTabView's toast host, so it
@@ -734,17 +747,19 @@ struct GoodreadsImportView: View {
                 syncCardState()
             }
             .fullScreenCover(isPresented: $showExportWebView) {
+                let source = selectedSource ?? .goodreads
                 GoodreadsExportWebView(
-                    mode: goodreadsLoginDone ? .export : .login,
+                    source: source,
+                    mode: (source == .goodreads && !goodreadsLoginDone) ? .login : .export,
                     onLoggedIn: {
                         goodreadsLoginDone = true
                         showExportWebView = false
                     },
-                    onRows: { rows in
+                    onExport: { export in
                         // Already-logged-in users can export on the first visit.
                         goodreadsLoginDone = true
                         showExportWebView = false
-                        model.startSession(rows: rows)
+                        model.startSession(rows: export.rows, source: export.source)
                     }
                 )
             }
@@ -774,25 +789,37 @@ struct GoodreadsImportView: View {
         }
     }
 
+    private var navigationTitle: String {
+        if model.session != nil {
+            return "Import from \(model.source.displayName)"
+        }
+        if let selectedSource {
+            return "Import from \(selectedSource.displayName)"
+        }
+        return "Import your books"
+    }
+
     /// Seed the inline-editable card fields from the current Goodreads row.
     /// Rows without a "Date Read" fall back to the Goodreads "Date Added"
-    /// (flagged), never silently to today.
+    /// (flagged). Rows with neither default to "A long, long time ago", never
+    /// to today.
     private func syncCardState() {
         reviewFocused = false
         selectedTier = nil
         guard let row = model.currentRow else { return }
         cardReview = row.plainTextReview ?? ""
-        cardDateIsLongAgo = false
         if let dateRead = row.dateRead {
             cardDateIsLongAgo = ReadDate.isLongAgo(dateRead)
             cardDateRead = cardDateIsLongAgo ? Date() : dateRead
             cardDateNote = nil
         } else if let dateAdded = row.dateAdded {
+            cardDateIsLongAgo = false
             cardDateRead = dateAdded
-            cardDateNote = "No read date in your Goodreads export. This is the date you added it. Adjust if needed."
+            cardDateNote = "No read date in your \(model.source.displayName) export. This is the date you added it. Adjust if needed."
         } else {
+            cardDateIsLongAgo = true
             cardDateRead = Date()
-            cardDateNote = "No date in your Goodreads export. Pick when you finished it."
+            cardDateNote = "No date in your \(model.source.displayName) export. Pick when you finished it."
         }
     }
 
@@ -816,7 +843,91 @@ struct GoodreadsImportView: View {
 
     // MARK: Explainer (CSV-only entry path)
 
+    @ViewBuilder
     private var explainerContent: some View {
+        switch selectedSource {
+        case nil:
+            sourcePickerContent
+        case .goodreads?:
+            goodreadsExplainerContent
+        case .storyGraph?:
+            storyGraphExplainerContent
+        }
+    }
+
+    /// First screen: which service to pull the library from.
+    private var sourcePickerContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Where are your books?")
+                        .font(Theme.headline())
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Pick the app you track your reading in. SPINE grabs the export for you and walks through your books one at a time.")
+                        .font(Theme.callout())
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(spacing: 12) {
+                    sourceOption(
+                        .goodreads,
+                        subtitle: "Ratings, reviews, read dates, and your to-read shelf."
+                    )
+                    sourceOption(
+                        .storyGraph,
+                        subtitle: "Ratings, reviews, read dates, and your to-read pile."
+                    )
+                }
+
+                if let err = model.parseError {
+                    Text(err)
+                        .font(Theme.caption())
+                        .foregroundStyle(Theme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(Theme.cardPadding)
+            .padding(.bottom, 16)
+        }
+        .safeAreaInset(edge: .bottom) { haveFileButton }
+    }
+
+    private func sourceOption(_ source: LibraryImportSource, subtitle: String) -> some View {
+        Button {
+            model.parseError = nil
+            selectedSource = source
+        } label: {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(source.displayName)
+                        .font(Theme.headline())
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(subtitle)
+                        .font(Theme.caption())
+                        .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Theme.chrome.opacity(0.4), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.springPress)
+    }
+
+    private var goodreadsExplainerContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -856,6 +967,8 @@ struct GoodreadsImportView: View {
                 }
                 .buttonStyle(.spinePrimary)
 
+                changeSourceButton
+
                 if let err = model.parseError {
                     Text(err)
                         .font(Theme.caption())
@@ -866,21 +979,90 @@ struct GoodreadsImportView: View {
             .padding(Theme.cardPadding)
             .padding(.bottom, 16)
         }
-        .safeAreaInset(edge: .bottom) {
-            Button {
-                showFileImporter = true
-            } label: {
-                Text("Already have the export file?")
-                    .font(Theme.caption())
-                    .fontWeight(.medium)
-                    .foregroundStyle(Theme.textTertiary)
-                    .underline()
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+        .safeAreaInset(edge: .bottom) { haveFileButton }
+    }
+
+    private var storyGraphExplainerContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("How to Import:")
+                        .font(Theme.headline())
+                        .foregroundStyle(Theme.textPrimary)
+
+                    Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 12) {
+                        GridRow {
+                            stepNumberBadge(1, done: false, active: true)
+                            stepBody("Tap the button below. Sign in to StoryGraph if asked, then tap “Generate export”.")
+                        }
+                        GridRow {
+                            stepNumberBadge(2, done: false, active: false)
+                            stepBody("It usually takes about a minute. Stay on the page and tap Refresh until a download link appears. No need to check your email.")
+                        }
+                        GridRow {
+                            stepNumberBadge(3, done: false, active: false)
+                            stepBody("Tap the download link. SPINE grabs the file and starts the import.")
+                        }
+                    }
+                }
+
+                Button {
+                    showExportWebView = true
+                } label: {
+                    HStack {
+                        Image(systemName: "square.and.arrow.down")
+                        Text("Get my StoryGraph export")
+                    }
+                }
+                .buttonStyle(.spinePrimary)
+
+                changeSourceButton
+
+                if let err = model.parseError {
+                    Text(err)
+                        .font(Theme.caption())
+                        .foregroundStyle(Theme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .buttonStyle(.plain)
-            .padding(.bottom, 4)
+            .padding(Theme.cardPadding)
+            .padding(.bottom, 16)
         }
+        .safeAreaInset(edge: .bottom) { haveFileButton }
+    }
+
+    /// Back to the Goodreads / StoryGraph picker.
+    private var changeSourceButton: some View {
+        Button {
+            model.parseError = nil
+            selectedSource = nil
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Import from somewhere else")
+            }
+            .font(Theme.caption())
+            .fontWeight(.medium)
+            .foregroundStyle(Theme.textTertiary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var haveFileButton: some View {
+        Button {
+            showFileImporter = true
+        } label: {
+            Text("Already have the export file?")
+                .font(Theme.caption())
+                .fontWeight(.medium)
+                .foregroundStyle(Theme.textTertiary)
+                .underline()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, 4)
     }
 
     private func stepNumberBadge(_ number: Int, done: Bool, active: Bool) -> some View {
@@ -975,7 +1157,7 @@ struct GoodreadsImportView: View {
         ManualBookMatchCard(
             title: row.title,
             author: row.author,
-            hint: "Search for it below and tap the right edition to match it. Your Goodreads rating, review, and dates come along.",
+            hint: "Search for it below and tap the right edition to match it. Your \(model.source.displayName) rating, review, and dates come along.",
             onMatch: { model.applyManualMatch($0) },
             onSkip: { model.markCurrentUnmatched() }
         )
@@ -1004,11 +1186,11 @@ struct GoodreadsImportView: View {
                             .foregroundStyle(Theme.textSecondary)
                         // The 1900 sentinel never reaches a picker: a long-ago read
                         // shows the chip alone, in prose.
+                        // Shared calendar chip, not the compact DatePicker: its
+                        // UIKit popover dismissed itself mid-edit, so nobody
+                        // could change the year and then the month.
                         if !cardDateIsLongAgo {
-                            DatePicker("", selection: $cardDateRead, in: ...Date(), displayedComponents: .date)
-                                .datePickerStyle(.compact)
-                                .labelsHidden()
-                                .tint(Theme.accent)
+                            ReadDateChip(date: $cardDateRead, compact: true)
                         }
                         cardLongAgoChip
                         if let note = cardDateNote, !cardDateIsLongAgo {
@@ -1225,7 +1407,7 @@ struct GoodreadsImportView: View {
                 Text("Read books done!")
                     .font(Theme.title2())
                     .foregroundStyle(Theme.textPrimary)
-                Text("You have \(model.session?.pendingQueueCount ?? 0) books on your Goodreads to-read shelf. Add them to the Backlog section in your queue?")
+                Text(queuePromptText)
                     .font(Theme.callout())
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -1290,8 +1472,25 @@ struct GoodreadsImportView: View {
         }
     }
 
+    /// Queue-phase prompt: to-read rows go to the Backlog, did-not-finish rows
+    /// (StoryGraph only) to the DNF list under the queue.
+    private var queuePromptText: String {
+        let total = model.session?.pendingQueueCount ?? 0
+        let dnf = model.session?.pendingDNFCount ?? 0
+        let source = model.source.displayName
+        func books(_ n: Int) -> String { n == 1 ? "1 book" : "\(n) books" }
+        if dnf == 0 {
+            return "You have \(books(total)) on your \(source) to-read shelf. Add them to the Backlog section in your queue?"
+        }
+        if dnf == total {
+            return "You have \(books(dnf)) marked did not finish on \(source). Add them to your Did Not Finish list?"
+        }
+        return "You have \(books(total - dnf)) on your \(source) to-read shelf and \(dnf) you didn't finish. Add them to your queue? Unfinished ones go to your Did Not Finish list."
+    }
+
     private func queueBookCard(book: Book) -> some View {
-        VStack(spacing: 16) {
+        let isDNF = model.currentRow?.importStatus == .didNotFinish
+        return VStack(spacing: 16) {
             BookCoverView(book: book, size: 120)
             VStack(spacing: 4) {
                 Text(book.title)
@@ -1303,6 +1502,13 @@ struct GoodreadsImportView: View {
                     .font(Theme.callout())
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(2)
+                if isDNF {
+                    Text(SpinesGlyphs.caps("Did not finish on \(model.source.displayName)"))
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(0.5)
+                        .foregroundStyle(Theme.chrome)
+                        .padding(.top, 6)
+                }
             }
 
             HStack(spacing: 10) {
@@ -1316,7 +1522,7 @@ struct GoodreadsImportView: View {
                 Button {
                     model.acceptCurrentQueueBook()
                 } label: {
-                    Text("Add to queue")
+                    Text(isDNF ? "Add as DNF" : "Add to queue")
                 }
                 .buttonStyle(.spinePrimary)
             }
@@ -1505,11 +1711,11 @@ struct GoodreadsImportView: View {
         defer { url.stopAccessingSecurityScopedResource() }
         do {
             let data = try Data(contentsOf: url)
-            let rows = GoodreadsCSVParser.parse(data: data)
-            if rows.isEmpty {
-                model.parseError = "No book data found in that file. Make sure you picked your Goodreads library export (goodreads_library_export.csv)."
+            if let export = LibraryExportParser.parse(data: data) {
+                model.startSession(rows: export.rows, source: export.source)
             } else {
-                model.startSession(rows: rows)
+                let hint = selectedSource.map { " (\($0.exportFileName))" } ?? ""
+                model.parseError = "No book data found in that file. Make sure you picked your Goodreads or StoryGraph library export\(hint)."
             }
         } catch {
             model.parseError = "Couldn't read that file. Try downloading your export again."

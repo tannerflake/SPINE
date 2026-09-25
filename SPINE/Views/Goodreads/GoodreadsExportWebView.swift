@@ -2,7 +2,7 @@
 //  GoodreadsExportWebView.swift
 //  SPINE
 //
-//  Embedded browser for the Goodreads export page. Three jobs:
+//  Embedded browser for the Goodreads (or StoryGraph) export page. Three jobs:
 //  1. Keep navigation inside Spine — goodreads.com registers a catch-all
 //     universal link, so opening the page externally hands off to the Goodreads
 //     app (where the CSV can't be downloaded). Embedded web views are mostly
@@ -18,6 +18,12 @@
 //     export page), so the wizard opens this view twice — once in `.login` mode
 //     ("sign in, then tap I'm logged in") and once in `.export` mode. Same URL
 //     both times.
+//
+//  StoryGraph is simpler: its sign-in page bounces straight back to the
+//  export page, so it's a single `.export` visit. The catch there is that the
+//  export is generated asynchronously (about a minute) and the download link
+//  only appears after a reload, so this view adds pull-to-refresh and a
+//  Refresh button that re-opens the export page.
 //
 
 import SwiftUI
@@ -52,29 +58,34 @@ struct GoodreadsExportWebView: View {
         case export
     }
 
+    var source: LibraryImportSource = .goodreads
     var mode: Mode = .export
     /// Login mode only: the user tapped "I'm logged in" — the wizard advances
     /// to the export step.
     var onLoggedIn: () -> Void = {}
-    /// Called with parsed rows when the user's export CSV is captured.
-    let onRows: ([GoodreadsRow]) -> Void
+    /// Called with the parsed export when the user's CSV is captured.
+    let onExport: (LibraryExport) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var isDownloading = false
     @State private var errorMessage: String?
+    /// Bumped by the Refresh button; the web view re-opens the export page.
+    @State private var reloadToken = 0
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 statusBanner
                 GoodreadsExportWebViewRepresentable(
+                    source: source,
                     isDownloading: $isDownloading,
                     errorMessage: $errorMessage,
-                    onRows: onRows
+                    reloadToken: reloadToken,
+                    onExport: onExport
                 )
                 .ignoresSafeArea(edges: .bottom)
             }
-            .navigationTitle(mode == .login ? "Log in to Goodreads" : "Goodreads export")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.background, for: .navigationBar)
             .toolbar {
@@ -93,8 +104,27 @@ struct GoodreadsExportWebView: View {
                                 .foregroundStyle(Theme.accent)
                         }
                     }
+                } else if source == .storyGraph {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            errorMessage = nil
+                            reloadToken += 1
+                        } label: {
+                            Text("Refresh")
+                                .font(Theme.callout())
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Theme.accent)
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    private var navigationTitle: String {
+        switch source {
+        case .goodreads: return mode == .login ? "Log in to Goodreads" : "Goodreads export"
+        case .storyGraph: return "StoryGraph export"
         }
     }
 
@@ -120,7 +150,7 @@ struct GoodreadsExportWebView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                Text(SpinesGlyphs.caps(mode == .login ? "Step 1 of 2" : "Step 2 of 2"))
+                Text(SpinesGlyphs.caps(stepLabel))
                     .font(.system(size: 11, weight: .bold))
                     .tracking(0.5)
                     .foregroundStyle(Theme.chrome)
@@ -142,13 +172,25 @@ struct GoodreadsExportWebView: View {
         }
     }
 
+    private var stepLabel: String {
+        switch source {
+        case .goodreads: return mode == .login ? "Step 1 of 2" : "Step 2 of 2"
+        case .storyGraph: return "Takes about a minute"
+        }
+    }
+
     private var instructionText: Text {
-        if mode == .login {
-            Text("Sign in to Goodreads, then tap “I’m logged in” at the top. If your phone opens the Goodreads app, close it and come back to SPINE.")
-        } else {
-            Text("Tap “Export Library”, then tap the ")
-                + GoodreadsExportLinkMock.text
-                + Text(" link when it appears.")
+        switch source {
+        case .goodreads:
+            if mode == .login {
+                return Text("Sign in to Goodreads, then tap “I’m logged in” at the top. If your phone opens the Goodreads app, close it and come back to SPINE.")
+            } else {
+                return Text("Tap “Export Library”, then tap the ")
+                    + GoodreadsExportLinkMock.text
+                    + Text(" link when it appears.")
+            }
+        case .storyGraph:
+            return Text("Sign in if asked, then tap “Generate export”. It usually takes about a minute. Stay on this page and tap Refresh (or pull down) until a download link appears, then tap it. No need to check your email.")
         }
     }
 }
@@ -156,25 +198,47 @@ struct GoodreadsExportWebView: View {
 // MARK: - WKWebView wrapper
 
 private struct GoodreadsExportWebViewRepresentable: UIViewRepresentable {
+    let source: LibraryImportSource
     @Binding var isDownloading: Bool
     @Binding var errorMessage: String?
-    let onRows: ([GoodreadsRow]) -> Void
+    /// Re-opens the export page whenever this changes (Refresh button).
+    var reloadToken: Int
+    let onExport: (LibraryExport) -> Void
 
-    private static let exportPageURL = URL(string: "https://www.goodreads.com/review/import")!
+    static func exportPageURL(for source: LibraryImportSource) -> URL {
+        switch source {
+        case .goodreads: return URL(string: "https://www.goodreads.com/review/import")!
+        case .storyGraph: return URL(string: "https://app.thestorygraph.com/user-export")!
+        }
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        // Default (persistent) store so the Goodreads login survives between imports.
+        // Default (persistent) store so the login survives between imports.
         config.websiteDataStore = .default()
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
-        webView.load(URLRequest(url: Self.exportPageURL))
+        if source == .storyGraph {
+            // The generated export only shows up after a reload; pull-to-refresh
+            // is the gesture people reach for first.
+            let refresh = UIRefreshControl()
+            refresh.addTarget(context.coordinator, action: #selector(Coordinator.pullToRefresh(_:)), for: .valueChanged)
+            webView.scrollView.refreshControl = refresh
+        }
+        context.coordinator.webView = webView
+        context.coordinator.appliedReloadToken = reloadToken
+        webView.load(URLRequest(url: Self.exportPageURL(for: source)))
         return webView
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        if context.coordinator.appliedReloadToken != reloadToken {
+            context.coordinator.appliedReloadToken = reloadToken
+            uiView.load(URLRequest(url: Self.exportPageURL(for: source)))
+        }
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -183,6 +247,25 @@ private struct GoodreadsExportWebViewRepresentable: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
         private let parent: GoodreadsExportWebViewRepresentable
         private var downloadDestination: URL?
+        weak var webView: WKWebView?
+        var appliedReloadToken = 0
+
+        @objc func pullToRefresh(_ control: UIRefreshControl) {
+            parent.errorMessage = nil
+            webView?.load(URLRequest(url: GoodreadsExportWebViewRepresentable.exportPageURL(for: parent.source)))
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            webView.scrollView.refreshControl?.endRefreshing()
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            webView.scrollView.refreshControl?.endRefreshing()
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            webView.scrollView.refreshControl?.endRefreshing()
+        }
 
         /// WebKit's "allow without trying the app link" policy (allow + 2).
         /// Plain .allow lets iOS hand user-gesture cross-domain navigations
@@ -253,7 +336,7 @@ private struct GoodreadsExportWebViewRepresentable: UIViewRepresentable {
             completionHandler: @escaping (URL?) -> Void
         ) {
             let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("goodreads-export-\(UUID().uuidString).csv")
+                .appendingPathComponent("library-export-\(UUID().uuidString).csv")
             downloadDestination = url
             completionHandler(url)
         }
@@ -266,11 +349,15 @@ private struct GoodreadsExportWebViewRepresentable: UIViewRepresentable {
             }
             defer { try? FileManager.default.removeItem(at: url) }
             downloadDestination = nil
-            let rows = GoodreadsCSVParser.parse(data: data)
-            if rows.isEmpty {
-                parent.errorMessage = "That file didn't look like a Goodreads export. Tap the “Your export from…” link, not another download."
+            if let export = LibraryExportParser.parse(data: data) {
+                parent.onExport(export)
             } else {
-                parent.onRows(rows)
+                switch parent.source {
+                case .goodreads:
+                    parent.errorMessage = "That file didn't look like a Goodreads export. Tap the “Your export from…” link, not another download."
+                case .storyGraph:
+                    parent.errorMessage = "That file didn't look like a StoryGraph export. Tap the download link for your export, not another download."
+                }
             }
         }
 

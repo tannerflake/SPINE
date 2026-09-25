@@ -8,6 +8,15 @@
 import SwiftUI
 import FirebaseFirestore
 
+/// Container width, read on the background layer and used to budget the nav bar
+/// title so it always has room to stay centered.
+private struct ProfileBarWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct UserLibraryDetailView: View {
     let userId: String
 
@@ -35,6 +44,9 @@ struct UserLibraryDetailView: View {
     @State private var showAvatarZoom = false
     /// Feed button beside the year filter: pushes this person's post history.
     @State private var showUserFeed = false
+    /// Width of the presented container, which is also the nav bar's width —
+    /// the title slot budgets against it so the name always stays centered.
+    @State private var barWidth: CGFloat = 0
     /// List button beside the feed button: pushes their read shelf grouped by year.
     @State private var showYearList = false
 
@@ -122,6 +134,11 @@ struct UserLibraryDetailView: View {
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
+                .background(
+                    GeometryReader { g in
+                        Color.clear.preference(key: ProfileBarWidthKey.self, value: g.size.width)
+                    }
+                )
                 // On the background layer, not the ZStack: the blend landing
                 // cover already owns the ZStack's presentation slot.
                 .avatarZoom(
@@ -184,6 +201,9 @@ struct UserLibraryDetailView: View {
                 }
                 .padding(.horizontal, 4)
             }
+        }
+        .onPreferenceChange(ProfileBarWidthKey.self) { width in
+            if width > 0, abs(width - barWidth) > 0.5 { barWidth = width }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.background, for: .navigationBar)
@@ -348,6 +368,13 @@ struct UserLibraryDetailView: View {
         // Full name + handle take the title slot. Text-only: the avatar is too big
         // for the inline bar (stacked avatar+name clipped there before), so it
         // lives on the segment row instead.
+        //
+        // The width cap is load-bearing, not cosmetic. UINavigationBar centers a
+        // title view only while the centered frame clears the trailing item; the
+        // moment it doesn't, the bar silently pins the title to the leading edge.
+        // The trailing cluster grows with the number of books this person is
+        // reading, so without the cap the name jumped between centered and
+        // hard-left depending on whose profile you opened.
         ToolbarItem(placement: .principal) {
             if let u = profileUser {
                 VStack(spacing: 1) {
@@ -355,13 +382,16 @@ struct UserLibraryDetailView: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     if !u.username.isEmpty {
                         Text("@\(u.username)")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Theme.textSecondary)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                 }
+                .frame(maxWidth: toolbarTitleMaxWidth)
             }
         }
         // Fan + avatar in the top-right corner, level with the name. Oversized for
@@ -386,17 +416,53 @@ struct UserLibraryDetailView: View {
             // shelf lives, rather than the individual book's profile.
             ReadingNowFanStack(
                 books: wantToReadReadingNow.compactMap(\.book),
-                coverWidth: 28,
+                coverWidth: Self.toolbarFanCoverWidth,
                 onTap: { _ in
                     withAnimation(LibrarySegmentControlAnimation.selection) {
                         segment = .wantToRead
                     }
                 },
-                floats: true
+                floats: true,
+                // Two covers, no "+N": the fan shares the bar with a centered
+                // title, so its width has to stay bounded and predictable.
+                maxCovers: Self.toolbarFanMaxCovers,
+                showsOverflow: false
             )
             otherUserAvatar
         }
-        .padding(.trailing, 4)
+        .padding(.trailing, Self.toolbarClusterTrailingPadding)
+    }
+
+    private static let toolbarFanCoverWidth: CGFloat = 28
+    private static let toolbarFanMaxCovers = 2
+    private static let toolbarAvatarSize: CGFloat = 54
+    private static let toolbarClusterSpacing: CGFloat = 6
+    private static let toolbarClusterTrailingPadding: CGFloat = 4
+    /// The bar's own layout margin plus the breathing room UINavigationBar wants
+    /// on each side before it stops centring the title. Measured on iOS 26: a
+    /// 130pt cluster left the title 6pt of slack and the bar bailed, a 103pt one
+    /// left 36pt and it centered, so budget generously.
+    private static let toolbarTitleSideInset: CGFloat = 32
+
+    /// Laid-out width of the fan + avatar cluster in the trailing slot.
+    private var toolbarTrailingWidth: CGFloat {
+        let fan = ReadingNowFanStack.width(
+            bookCount: wantToReadReadingNow.count,
+            coverWidth: Self.toolbarFanCoverWidth,
+            maxCovers: Self.toolbarFanMaxCovers,
+            showsOverflow: false
+        )
+        return fan
+            + (fan > 0 ? Self.toolbarClusterSpacing : 0)
+            + Self.toolbarAvatarSize
+            + Self.toolbarClusterTrailingPadding
+    }
+
+    /// Widest the name/handle block may be and still be centered by the bar.
+    /// nil until the container reports its width, which is the first layout pass.
+    private var toolbarTitleMaxWidth: CGFloat? {
+        guard barWidth > 0 else { return nil }
+        return max(80, barWidth - 2 * (toolbarTrailingWidth + Self.toolbarTitleSideInset))
     }
 
     /// Tapping the avatar opens their card. Follow lives in the actions row with

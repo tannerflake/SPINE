@@ -63,6 +63,7 @@
 		B001002F /* ProfilePhotoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002F /* ProfilePhotoService.swift */; };
 		B0010030 /* CommentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010030 /* CommentsView.swift */; };
 		B0010032 /* GoodreadsCSVParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010032 /* GoodreadsCSVParser.swift */; };
+		B0010310 /* StoryGraphCSVParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010310 /* StoryGraphCSVParser.swift */; };
 		B0010033 /* GoodreadsImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010033 /* GoodreadsImportService.swift */; };
 		B0010034 /* GoodreadsImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010034 /* GoodreadsImportView.swift */; };
 		B0010035 /* GoodreadsShareHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010035 /* GoodreadsShareHelper.swift */; };
@@ -177,6 +178,7 @@
 		B00E9A03 /* ShareStoryCanvases.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A03 /* ShareStoryCanvases.swift */; };
 		B00E9A04 /* ShareHubSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A04 /* ShareHubSheet.swift */; };
 		B00F3A17 /* NotificationsBellButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A17 /* NotificationsBellButton.swift */; };
+		B00F3A9C /* ReadDatePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A9C /* ReadDatePicker.swift */; };
 		B00F3A2A /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A2A /* MarkdownText.swift */; };
 		B00F3A40 /* LaunchSplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A40 /* LaunchSplashView.swift */; };
 		B04F3B71 /* NotificationsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04F3B71 /* NotificationsRepository.swift */; };
@@ -282,6 +284,7 @@
 		F001002F /* ProfilePhotoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoService.swift; sourceTree = "<group>"; };
 		F0010030 /* CommentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentsView.swift; sourceTree = "<group>"; };
 		F0010032 /* GoodreadsCSVParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsCSVParser.swift; sourceTree = "<group>"; };
+		F0010310 /* StoryGraphCSVParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryGraphCSVParser.swift; sourceTree = "<group>"; };
 		F0010033 /* GoodreadsImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsImportService.swift; sourceTree = "<group>"; };
 		F0010034 /* GoodreadsImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsImportView.swift; sourceTree = "<group>"; };
 		F0010035 /* GoodreadsShareHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsShareHelper.swift; sourceTree = "<group>"; };
@@ -396,6 +399,7 @@
 		F00E9A03 /* ShareStoryCanvases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareStoryCanvases.swift; sourceTree = "<group>"; };
 		F00E9A04 /* ShareHubSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareHubSheet.swift; sourceTree = "<group>"; };
 		F00F3A17 /* NotificationsBellButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsBellButton.swift; sourceTree = "<group>"; };
+		F00F3A9C /* ReadDatePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadDatePicker.swift; sourceTree = "<group>"; };
 		F00F3A2A /* MarkdownText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
 		F00F3A40 /* LaunchSplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchSplashView.swift; sourceTree = "<group>"; };
 		F04F3B71 /* NotificationsRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsRepository.swift; sourceTree = "<group>"; };
@@ -602,6 +606,7 @@
 				F001002F /* ProfilePhotoService.swift */,
 				F0010040 /* ProfileImageCache.swift */,
 				F0010032 /* GoodreadsCSVParser.swift */,
+				F0010310 /* StoryGraphCSVParser.swift */,
 				F0010033 /* GoodreadsImportService.swift */,
 				F00D8E3 /* LinkBookExtractionService.swift */,
 				F0010101 /* GoodreadsWizardSession.swift */,
@@ -681,6 +686,7 @@
 				F00D1A01 /* TypewriterText.swift */,
 				F001000F /* BookCoverView.swift */,
 				F00F3A17 /* NotificationsBellButton.swift */,
+				F00F3A9C /* ReadDatePicker.swift */,
 				F00F3A2A /* MarkdownText.swift */,
 				F0010107 /* TagCatalogPicker.swift */,
 				F00100FA /* Toast.swift */,
@@ -1067,6 +1073,7 @@
 				B0010100 /* NoSuggestionsTextField.swift in Sources */,
 				B001000F /* BookCoverView.swift in Sources */,
 				B00F3A17 /* NotificationsBellButton.swift in Sources */,
+				B00F3A9C /* ReadDatePicker.swift in Sources */,
 				B00F3A2A /* MarkdownText.swift in Sources */,
 				B00100FA /* Toast.swift in Sources */,
 				B0010010 /* FeedView.swift in Sources */,
@@ -1133,6 +1140,7 @@
 				B0010042 /* EditReadReviewSheet.swift in Sources */,
 				B0010030 /* CommentsView.swift in Sources */,
 				B0010032 /* GoodreadsCSVParser.swift in Sources */,
+				B0010310 /* StoryGraphCSVParser.swift in Sources */,
 				B0010033 /* GoodreadsImportService.swift in Sources */,
 				B0010101 /* GoodreadsWizardSession.swift in Sources */,
 				B0010103 /* CoverResolutionStore.swift in Sources */,

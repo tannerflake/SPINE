@@ -182,13 +182,15 @@ final class GoodreadsImportService {
             ?? confident.first
     }
 
-    /// Map Goodreads exclusive shelf to ReadingStatus.
+    /// Map a Goodreads exclusive shelf (or StoryGraph read status, same
+    /// vocabulary plus did-not-finish / paused) to ReadingStatus.
     static func status(for exclusiveShelf: String?) -> ReadingStatus {
         guard let s = exclusiveShelf?.lowercased() else { return .wantToRead }
         switch s {
         case "read": return .read
-        case "currently-reading", "currently reading": return .currentlyReading
+        case "currently-reading", "currently reading", "paused": return .currentlyReading
         case "to-read", "to read", "want to read": return .wantToRead
+        case "did-not-finish", "did not finish", "dnf": return .didNotFinish
         default: return .wantToRead
         }
     }

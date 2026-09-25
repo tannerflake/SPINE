@@ -1040,9 +1040,9 @@ final class AppState: ObservableObject {
     }
 
     /// Remove a book from the queue. No-op if not in queue.
-    func removeFromQueue(book: Book) {
+    func removeFromQueue(book: Book, status: ReadingStatus = .wantToRead) {
         guard let uid = currentUserId else { return }
-        guard let userBook = userBooks.first(where: { $0.bookId == book.id && $0.status == .wantToRead }) else { return }
+        guard let userBook = userBooks.first(where: { $0.bookId == book.id && $0.status == status }) else { return }
         Task {
             try? await userBookRepo.deleteUserBook(userId: uid, userBookId: userBook.id)
         }
@@ -1433,11 +1433,16 @@ final class AppState: ObservableObject {
     }
 
     /// Import one Goodreads not-yet-read book into the queue.
-    func importGoodreadsQueueBook(book: Book) async -> GoodreadsImportOutcome {
+    /// `status` is `.wantToRead` (Backlog) or `.didNotFinish` (the DNF list
+    /// under the queue) for rows the export marked as abandoned.
+    func importGoodreadsQueueBook(book: Book, status: ReadingStatus = .wantToRead, review: String? = nil) async -> GoodreadsImportOutcome {
         guard let uid = currentUserId else { return .failed }
         guard userBook(sameWorkAs: book) == nil else { return .duplicate }
+        let status: ReadingStatus = status == .didNotFinish ? .didNotFinish : .wantToRead
+        // Only DNF rows carry their review/rating note over; to-read rows have none.
+        let reviewText = status == .didNotFinish ? review?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmptyText : nil
         do {
-            _ = try await userBookRepo.addUserBook(userId: uid, book: book, status: .wantToRead, rating: nil, reviewText: nil, dateStarted: nil, dateFinished: nil)
+            _ = try await userBookRepo.addUserBook(userId: uid, book: book, status: status, rating: nil, reviewText: reviewText, dateStarted: nil, dateFinished: nil)
             return .imported
         } catch {
             return .failed
@@ -1766,4 +1771,9 @@ final class AppState: ObservableObject {
             }
         }
     }
+}
+
+
+private extension String {
+    var nilIfEmptyText: String? { isEmpty ? nil : self }
 }

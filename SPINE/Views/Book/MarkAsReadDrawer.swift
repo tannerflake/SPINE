@@ -332,6 +332,9 @@ struct MarkAsReadDrawer: View {
         }()
         return Button {
             isThoughtsFocused = false
+            // Opening the calendar commits today as a starting point, so Done
+            // without a change never leaves the date empty.
+            if dateFinished == nil { dateFinished = Date() }
             showDatePopover = true
         } label: {
             HStack(spacing: 6) {
@@ -352,34 +355,17 @@ struct MarkAsReadDrawer: View {
             )
         }
         .buttonStyle(.springPress)
-        .popover(isPresented: $showDatePopover) {
-            DatePicker(
-                "",
-                selection: Binding(
-                    get: {
-                        guard let d = dateFinished, !ReadDate.isLongAgo(d) else { return Date() }
-                        return d
-                    },
-                    set: { dateFinished = $0 }
-                ),
-                in: ...Date(),
-                displayedComponents: .date
+        // Shared calendar popover: stays open while the month/year wheel is
+        // scrubbed, closes on Done or a tap outside. Never on selection change.
+        .readDatePickerPopover(
+            isPresented: $showDatePopover,
+            selection: Binding(
+                get: { dateFinished ?? Date() },
+                set: { dateFinished = $0 }
             )
-            .datePickerStyle(.graphical)
-            .labelsHidden()
-            .tint(Theme.accent)
-            .padding(12)
-            // The graphical calendar has no usable intrinsic width inside a
-            // popover — without an explicit frame it collapses to a narrow
-            // clipped column. Size it to the calendar's natural dimensions.
-            .frame(width: 320, height: 360)
-            .presentationCompactAdaptation(.popover)
-            // Tapping a specific day changes the selection — close the calendar
-            // immediately instead of waiting for the user to tap outside it.
-            .onChange(of: dateFinished) { _, _ in
-                showDatePopover = false
-                showDateError = false
-            }
+        )
+        .onChange(of: dateFinished) { _, _ in
+            showDateError = false
         }
     }
 

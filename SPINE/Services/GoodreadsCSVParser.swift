@@ -32,6 +32,35 @@ extension GoodreadsRow {
     var plainTextReview: String? {
         GoodreadsCSVParser.plainText(fromReviewHTML: myReview)
     }
+
+    /// Where the row lands in SPINE: read shelf, queue (Backlog), or the DNF list.
+    /// StoryGraph has a real did-not-finish status. Goodreads doesn't, but a
+    /// custom "dnf" / "abandoned" shelf on an unread row is the common workaround.
+    var importStatus: ReadingStatus {
+        let status = GoodreadsImportService.status(for: exclusiveShelf)
+        if status != .read, bookshelves.contains(where: { Self.dnfShelfNames.contains($0.lowercased()) }) {
+            return .didNotFinish
+        }
+        return status
+    }
+
+    private static let dnfShelfNames: Set<String> = [
+        "dnf", "did-not-finish", "did not finish", "didnt-finish", "didn't-finish",
+        "abandoned", "unfinished", "could-not-finish", "couldnt-finish", "gave-up", "gave-up-on",
+    ]
+}
+
+extension GoodreadsCSVParser {
+    /// The source's star rating, spelled out at the end of the review text so it
+    /// survives the import verbatim ("Rated 4.25/5 stars on StoryGraph."). Rows
+    /// with a rating but no review get just the note.
+    static func review(_ review: String?, appendingStars stars: Double?, source: LibraryImportSource) -> String? {
+        guard let stars, stars > 0 else { return review }
+        let value = stars == stars.rounded() ? String(Int(stars)) : String(format: "%g", stars)
+        let note = "Rated \(value)/5 stars on \(source.displayName)."
+        guard let review, !review.isEmpty else { return note }
+        return review + "\n\n" + note
+    }
 }
 
 /// Goodreads CSV column names (export format).
@@ -55,15 +84,13 @@ final class GoodreadsCSVParser {
 
     /// Parses Goodreads CSV data into rows. Tries UTF-8 then ISO-Latin-1. Returns empty array on parse failure.
     static func parse(data: Data) -> [GoodreadsRow] {
-        let raw: String
-        if let s = String(data: data, encoding: .utf8) {
-            raw = s
-        } else if let s = String(data: data, encoding: .isoLatin1) {
-            raw = s
-        } else {
-            return []
-        }
+        guard let raw = decode(data) else { return [] }
         return parse(csv: raw)
+    }
+
+    /// UTF-8 first, ISO-Latin-1 as a fallback (shared with the StoryGraph parser).
+    static func decode(_ data: Data) -> String? {
+        String(data: data, encoding: utf8) ?? String(data: data, encoding: isoLatin1)
     }
 
     static func parse(csv: String) -> [GoodreadsRow] {
@@ -102,7 +129,8 @@ final class GoodreadsCSVParser {
             let dateAdded = parseDate(value(at: .dateAdded, from: values, map: columnIndex))
             let exclusiveShelf = value(at: .exclusiveShelf, from: values, map: columnIndex)?.trimmingCharacters(in: .whitespaces).nilIfEmpty
             let shelves = parseBookshelves(value(at: .bookshelves, from: values, map: columnIndex))
-            let myReview = value(at: .myReview, from: values, map: columnIndex)?.trimmingCharacters(in: .whitespaces).nilIfEmpty
+            let rawReview = value(at: .myReview, from: values, map: columnIndex)?.trimmingCharacters(in: .whitespaces).nilIfEmpty
+            let myReview = review(rawReview, appendingStars: rating.map(Double.init), source: .goodreads)
             rows.append(GoodreadsRow(
                 id: bookId.isEmpty ? UUID().uuidString : bookId,
                 title: title,
@@ -129,7 +157,7 @@ final class GoodreadsCSVParser {
     /// (""), and — critically — newlines. Goodreads reviews are frequently
     /// multi-line; splitting the file by lines first truncated those rows and
     /// spawned junk fragment rows that ended up "unmatched" in the import wizard.
-    private static func parseCSVRecords(_ text: String) -> [[String]] {
+    static func parseCSVRecords(_ text: String) -> [[String]] {
         var records: [[String]] = []
         var record: [String] = []
         var field = ""
@@ -206,7 +234,7 @@ final class GoodreadsCSVParser {
         return nil
     }
 
-    private static func parseDate(_ s: String?) -> Date? {
+    static func parseDate(_ s: String?) -> Date? {
         guard let s = s?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return nil }
         // Goodreads allows partial read dates, so the export can contain
         // "2016/04/12", "2016/04", or just "2016" — all must parse.

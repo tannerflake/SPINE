@@ -268,7 +268,7 @@ struct WizardGoodreadsStep: View {
                 centered: false
             )
 
-            Text("It's easy and only takes a couple of minutes.")
+            Text("Works with Goodreads or StoryGraph, and only takes a couple of minutes.")
                 .font(.system(size: 16))
                 .foregroundStyle(Theme.textSecondary)
                 .padding(.top, 10)
@@ -301,7 +301,7 @@ struct WizardGoodreadsStep: View {
             Spacer()
 
             VStack(spacing: 10) {
-                WizardCTAButton(title: "Import from Goodreads") {
+                WizardCTAButton(title: "Import my books") {
                     // -uiPreviewOnboardingWizard runs may sit on a leftover
                     // simulator session; the real import would write to it.
                     if model.previewMode {

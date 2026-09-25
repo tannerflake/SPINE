@@ -41,7 +41,7 @@ struct ProfileSettingsView: View {
                             showFindFriends = true
                         }
                         rowDivider
-                        settingsRow(title: "Import from Goodreads", icon: "square.and.arrow.down") {
+                        settingsRow(title: "Import your books", icon: "square.and.arrow.down") {
                             showGoodreadsImport = true
                         }
                     }
