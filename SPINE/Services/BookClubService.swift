@@ -82,6 +82,7 @@ final class BookClubService {
         creatorUid: String,
         creator: User?,
         everyoneIsAdmin: Bool,
+        pickMode: BookClub.PickMode = .groupVote,
         initialMembers: [(uid: String, user: User)]
     ) async throws -> BookClub {
         let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(BookClub.maxNameLength))
@@ -115,7 +116,8 @@ final class BookClubService {
                 members: members,
                 inviteCode: code,
                 currentPick: nil,
-                pastPicks: []
+                pastPicks: [],
+                pickMode: pickMode
             )
             let codeRef = db.collection(codesCollection).document(code)
             do {
@@ -141,6 +143,7 @@ final class BookClubService {
                 Analytics.amplitude?.track(eventType: "Created Book Club", eventProperties: [
                     "club_id": club.id,
                     "everyone_is_admin": everyoneIsAdmin,
+                    "pick_mode": pickMode.rawValue,
                     "initial_member_count": memberIds.count,
                 ])
                 return club
@@ -264,6 +267,95 @@ final class BookClubService {
             "updatedAt": FieldValue.serverTimestamp(),
             "updatedBy": actorUid,
         ])
+    }
+
+    // MARK: - Group vote
+
+    /// Admin choice between the group vote and hand-picking. Client-writable:
+    /// it is governance, not ballot data.
+    func setPickMode(clubId: String, actorUid: String, mode: BookClub.PickMode) async throws {
+        try await db.collection(clubsCollection).document(clubId).updateData([
+            "pickMode": mode.rawValue,
+            "updatedAt": FieldValue.serverTimestamp(),
+            "updatedBy": actorUid,
+        ])
+        Analytics.amplitude?.track(eventType: "Set Club Pick Mode", eventProperties: ["club_id": clubId, "mode": mode.rawValue])
+    }
+
+    /// Opens the 24-hour suggestion window and pushes every member. Admins only.
+    func startVote(clubId: String) async throws {
+        try await callVote("startClubVote", ["clubId": clubId])
+        Analytics.amplitude?.track(eventType: "Started Club Vote", eventProperties: ["club_id": clubId])
+    }
+
+    /// One anonymous suggestion. The book is canonicalized first so the
+    /// candidate id matches whatever the members' shelves will use.
+    func submitPick(clubId: String, roundId: String, book: Book) async throws {
+        let resolved = (try? await BookRepository.shared.ensureCanonicalBook(book)) ?? book
+        var bookPayload: [String: Any] = [
+            "bookId": resolved.id,
+            "title": resolved.title,
+            "author": resolved.author,
+            "coverURL": resolved.coverOverrideURL ?? resolved.coverURL,
+        ]
+        if let pages = resolved.pageCount { bookPayload["pageCount"] = pages }
+        try await callVote("submitClubPick", ["clubId": clubId, "roundId": roundId, "book": bookPayload])
+        Analytics.amplitude?.track(eventType: "Submitted Club Pick", eventProperties: ["club_id": clubId, "book_id": resolved.id])
+    }
+
+    func skipPick(clubId: String, roundId: String) async throws {
+        try await callVote("submitClubPick", ["clubId": clubId, "roundId": roundId, "optOut": true])
+        Analytics.amplitude?.track(eventType: "Skipped Club Pick", eventProperties: ["club_id": clubId])
+    }
+
+    /// Full ranking (best first) of the candidates the member is willing to
+    /// read, plus at most one veto.
+    func submitBallot(clubId: String, roundId: String, ranking: [String], veto: String?) async throws {
+        var payload: [String: Any] = ["clubId": clubId, "roundId": roundId, "ranking": ranking]
+        if let veto { payload["veto"] = veto }
+        try await callVote("submitClubBallot", payload)
+        Analytics.amplitude?.track(eventType: "Cast Club Ballot", eventProperties: [
+            "club_id": clubId,
+            "ranked_count": ranking.count,
+            "used_veto": veto != nil,
+        ])
+    }
+
+    func skipBallot(clubId: String, roundId: String) async throws {
+        try await callVote("submitClubBallot", ["clubId": clubId, "roundId": roundId, "optOut": true])
+        Analytics.amplitude?.track(eventType: "Skipped Club Ballot", eventProperties: ["club_id": clubId])
+    }
+
+    /// "I watched the reveal": lets the club page show the book to this member.
+    func ackReveal(clubId: String, roundId: String) async throws {
+        try await callVote("ackClubVoteReveal", ["clubId": clubId, "roundId": roundId])
+        Analytics.amplitude?.track(eventType: "Watched Club Vote Reveal", eventProperties: ["club_id": clubId])
+    }
+
+    /// Admin bails on a vote in flight. Null is the only value a client may
+    /// write to `vote` (rules enforce it).
+    func cancelVote(clubId: String, actorUid: String) async throws {
+        try await db.collection(clubsCollection).document(clubId).updateData([
+            "vote": NSNull(),
+            "updatedAt": FieldValue.serverTimestamp(),
+            "updatedBy": actorUid,
+        ])
+        Analytics.amplitude?.track(eventType: "Cancelled Club Vote", eventProperties: ["club_id": clubId])
+    }
+
+    private func callVote(_ name: String, _ payload: [String: Any]) async throws {
+        do {
+            _ = try await functions.httpsCallable(name).call(payload)
+        } catch let error as NSError where error.domain == FunctionsErrorDomain {
+            let message = error.localizedDescription
+            switch FunctionsErrorCode(rawValue: error.code) {
+            case .unauthenticated: throw BookClubError.notSignedIn
+            case .notFound: throw BookClubError.server("That club is gone.")
+            case .failedPrecondition: throw BookClubError.server(message)
+            case .permissionDenied: throw BookClubError.server("Only admins can do that.")
+            default: throw BookClubError.server(message)
+            }
+        }
     }
 
     // MARK: - Joining

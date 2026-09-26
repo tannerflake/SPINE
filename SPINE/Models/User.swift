@@ -42,6 +42,13 @@ struct User: Identifiable, Codable, Equatable {
     /// (`dismissedRecommendedUids` in Firestore). Never suggested again; still
     /// visible in the roster strip and search, since that's not a recommendation.
     var dismissedRecommendedUids: [String] = []
+    /// Library card stamps (`achievements` map in Firestore). Awarded by Cloud
+    /// Functions; the app only records where each one was pressed. See
+    /// `AchievementStamp`.
+    var achievements: [AchievementStamp] = []
+    /// Last month's reading recap (`monthlyRecap` map in Firestore), written
+    /// by the monthly function; one slot, newest month only. See `MonthlyRecap`.
+    var monthlyRecap: MonthlyRecap? = nil
 
     static let demo = User(
         id: UUID(),

@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
@@ -70,11 +70,18 @@ const TITLE_EMOJI: Record<string, string> = {
   blend_request: "🔀",
   blend_ready: "🔀",
   book_recommended: "📖",
+  achievement_unlocked: "🏅",
+  monthly_recap: "📚",
   club_added: "📚",
   club_member_joined: "👋",
   club_new_book: "📖",
   club_meeting_moved: "📅",
   club_meeting_soon: "📅",
+  club_vote_picks: "🗳️",
+  club_vote_open: "🗳️",
+  club_vote_result: "🎉",
+  club_vote_empty: "🗳️",
+  club_vote_cancelled: "🗳️",
 };
 
 /** Unrated finishes share a type with rated reviews but read as a "book" event. */
@@ -653,10 +660,13 @@ function appDayKey(date: Date): string {
  */
 async function earlierFinishedBooksSameDay(authorId: string, createdAt: Timestamp): Promise<number> {
   const windowStart = Timestamp.fromMillis(createdAt.toMillis() - 24 * 60 * 60 * 1000);
+  // orderBy desc so this runs on the existing (userId ASC, createdAt DESC)
+  // index; without it Firestore demands an ASC index that was never built.
   const q = await db.collection("posts")
     .where("userId", "==", authorId)
     .where("createdAt", ">=", windowStart)
     .where("createdAt", "<", createdAt)
+    .orderBy("createdAt", "desc")
     .get();
   const dayKey = appDayKey(createdAt.toDate());
   return q.docs.filter((d) => {
@@ -724,10 +734,21 @@ export const onFriendReviewPosted = onDocumentCreated(
     let pushCapped = false;
     const postCreatedAt = data.createdAt as Timestamp | undefined;
     if (postCreatedAt) {
-      const earlierToday = await earlierFinishedBooksSameDay(authorId, postCreatedAt);
-      pushCapped = earlierToday >= MAX_FINISHED_BOOK_PUSHES_PER_DAY;
-      if (pushCapped) {
-        logger.info("rating-spree push cap hit", { postId, authorId, earlierToday });
+      // The cap is a nicety: if its lookup fails for any reason (2026-08-17 to
+      // 2026-09-26 it threw on a missing index and silently killed every
+      // finished-book notification), fall through to sending normally.
+      try {
+        const earlierToday = await earlierFinishedBooksSameDay(authorId, postCreatedAt);
+        pushCapped = earlierToday >= MAX_FINISHED_BOOK_PUSHES_PER_DAY;
+        if (pushCapped) {
+          logger.info("rating-spree push cap hit", { postId, authorId, earlierToday });
+        }
+      } catch (e) {
+        logger.error("rating-spree cap lookup failed; sending uncapped", {
+          postId,
+          authorId,
+          error: (e as Error).message,
+        });
       }
     }
 
@@ -1390,6 +1411,192 @@ export const onUserBookRankedForFounderBlend = onDocumentWritten(
   }
 );
 
+// MARK: - Achievement stamps
+
+/**
+ * Library card stamps. Each entry is awarded once, under
+ * `users/{uid}.achievements.{id}.unlockedAt`; the app writes `seenAt` when it
+ * celebrates the unlock and `placement` when the reader presses the stamp onto
+ * their card. Ids and thresholds mirror `AchievementKind` in the app.
+ *
+ * Releasing a new stamp = add it here (and to the app). Members who already
+ * qualify are backfilled automatically: the daily sweep below awards it to
+ * everyone eligible, and `claimRankedAchievements` awards it the moment an
+ * eligible member opens the app, so active readers never wait for the sweep.
+ */
+const RANKED_ACHIEVEMENTS: ReadonlyArray<{ id: string; threshold: number; title: string; body: string }> = [
+  {
+    id: "ranked25",
+    threshold: 25,
+    title: "25 books ranked!",
+    body: "You earned a stamp. Tap to put it on your library card.",
+  },
+];
+
+/**
+ * Awards `achievementId` to `uid` if they do not already hold it. Returns
+ * whether this call was the one that awarded it (so the push goes out once,
+ * even when two ranking writes land together).
+ */
+async function awardAchievement(uid: string, achievementId: string): Promise<boolean> {
+  const userRef = db.collection("users").doc(uid);
+  return db.runTransaction(async (tx) => {
+    const fresh = await tx.get(userRef);
+    if (!fresh.exists) return false;
+    const held = (fresh.data()?.achievements as Record<string, unknown> | undefined)?.[achievementId];
+    if (held) return false;
+    tx.update(userRef, { [`achievements.${achievementId}.unlockedAt`]: FieldValue.serverTimestamp() });
+    return true;
+  });
+}
+
+/**
+ * Awards every ranked-count stamp `uid` qualifies for but does not hold, and
+ * notifies them once per stamp (unless `notify` is false). Returns the ids
+ * awarded by this call. `held` is the user's current `achievements` map, so
+ * callers that already read the doc do not read it twice.
+ */
+async function awardDueRankedAchievements(
+  uid: string,
+  held: Record<string, unknown>,
+  notify = true
+): Promise<string[]> {
+  const candidates = RANKED_ACHIEVEMENTS.filter((a) => !held[a.id]);
+  if (candidates.length === 0) return [];
+  const rankedCount = await rankedBookCount(uid);
+  const awarded: string[] = [];
+  for (const achievement of candidates) {
+    if (rankedCount < achievement.threshold) continue;
+    if (!(await awardAchievement(uid, achievement.id))) continue;
+    awarded.push(achievement.id);
+    if (notify) {
+      await notifyUser(
+        uid,
+        achievement.title,
+        achievement.body,
+        { type: "achievement_unlocked", achievementId: achievement.id },
+        null
+      );
+    }
+    logger.info("achievement awarded", { uid, achievementId: achievement.id, rankedCount });
+  }
+  return awarded;
+}
+
+function heldAchievements(data: DocumentData | undefined): Record<string, unknown> {
+  return (data?.achievements as Record<string, unknown> | undefined) ?? {};
+}
+
+/**
+ * A book moved from unranked into a tier: if that pushes the member's ranked
+ * count over a stamp's threshold they do not hold yet, award it and tell them.
+ * Same unranked → ranked gate as the founder blend trigger; re-tiering an
+ * already ranked book cannot raise the count.
+ */
+export const onUserBookRankedForAchievements = onDocumentWritten(
+  {
+    document: "userBooks/{userBookId}",
+    database: DATABASE_ID,
+  },
+  async (event) => {
+    const after = event.data?.after?.exists ? event.data.after.data() : undefined;
+    if (!after) return;
+    const beforeTier = normalizedTier(event.data?.before?.exists ? event.data.before.data() : undefined);
+    const afterTier = normalizedTier(after);
+    if (beforeTier !== null || afterTier === null) return;
+
+    const uid = (after.userId as string | undefined)?.trim();
+    if (!uid) return;
+
+    try {
+      const user = await db.collection("users").doc(uid).get();
+      if (!user.exists) return;
+      await awardDueRankedAchievements(uid, heldAchievements(user.data()));
+    } catch (err) {
+      logger.error("achievement award failed", { uid, error: (err as Error).message });
+    }
+  }
+);
+
+/**
+ * The app calls this when its own library qualifies for a stamp the user doc
+ * does not show yet (a stamp released after the books were ranked). Awards on
+ * the spot so the celebration lands this session instead of after the sweep.
+ */
+export const claimRankedAchievements = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Sign in required");
+    const user = await db.collection("users").doc(uid).get();
+    if (!user.exists) return { awarded: [] };
+    const awarded = await awardDueRankedAchievements(uid, heldAchievements(user.data()));
+    return { awarded };
+  }
+);
+
+/**
+ * Daily release backfill: every member who qualifies for a stamp they do not
+ * hold gets it (and the push). Runs mid-morning app time so the push never
+ * lands overnight. Cheap when nothing is new: members holding every stamp are
+ * skipped before any count query.
+ */
+export const sweepRankedAchievements = onSchedule(
+  {
+    schedule: "every day 10:00",
+    timeZone: APP_DAY_TIMEZONE,
+    region: "us-central1",
+    timeoutSeconds: 540,
+  },
+  async () => {
+    const users = await db.collection("users").get();
+    let awardedCount = 0;
+    for (const doc of users.docs) {
+      const held = heldAchievements(doc.data());
+      if (RANKED_ACHIEVEMENTS.every((a) => held[a.id])) continue;
+      try {
+        awardedCount += (await awardDueRankedAchievements(doc.id, held)).length;
+      } catch (err) {
+        logger.error("achievement sweep failed for user", { uid: doc.id, error: (err as Error).message });
+      }
+    }
+    logger.info("achievement sweep done", { users: users.size, awarded: awardedCount });
+  }
+);
+
+/**
+ * Founder-only manual backfill, for running a release sweep right away instead
+ * of waiting for the daily one. Dry run by default: reports who would be
+ * awarded. `{ dryRun: false }` awards and notifies; `{ notify: false }` awards
+ * silently.
+ */
+export const backfillRankedAchievements = onCall(
+  { region: "us-central1", timeoutSeconds: 540 },
+  async (request) => {
+    if (request.auth?.uid !== FOUNDER_UID) {
+      throw new HttpsError("permission-denied", "Founder only");
+    }
+    const raw = (request.data ?? {}) as { dryRun?: boolean; notify?: boolean };
+    const dryRun = raw.dryRun !== false;
+    const notify = raw.notify !== false;
+    const users = await db.collection("users").get();
+    const awarded: Array<{ uid: string; achievementId: string; rankedCount: number }> = [];
+    for (const doc of users.docs) {
+      const held = heldAchievements(doc.data());
+      const candidates = RANKED_ACHIEVEMENTS.filter((a) => !held[a.id]);
+      if (candidates.length === 0) continue;
+      const rankedCount = await rankedBookCount(doc.id);
+      const due = candidates.filter((a) => rankedCount >= a.threshold);
+      for (const a of due) awarded.push({ uid: doc.id, achievementId: a.id, rankedCount });
+      if (!dryRun && due.length > 0) {
+        await awardDueRankedAchievements(doc.id, held, notify);
+      }
+    }
+    logger.info("achievement backfill", { dryRun, notify, count: awarded.length });
+    return { dryRun, notify, awarded };
+  }
+);
+
 /**
  * Hourly sweep: every schedule whose 24h wait has elapsed becomes a pending
  * `bookBlends` doc from the founder. Everything is re-checked at send time —
@@ -1498,6 +1705,189 @@ export const runFounderBlendSweepNow = onCall(
     }
     const sent = await sweepDueFounderBlendRequests(true);
     return { ok: true, sent };
+  }
+);
+
+
+// ---------------------------------------------------------------------------
+// Monthly reading recap
+// ---------------------------------------------------------------------------
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/** `YYYY-MM` for a (year, 1-based month). */
+function monthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+/** Parses `YYYY-MM`; null for anything else. */
+function parseMonthKey(key: string): { year: number; month: number } | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(key.trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (!Number.isFinite(year) || month < 1 || month > 12) return null;
+  return { year, month };
+}
+
+/** (year, month) of the calendar month before the one `now` falls in, in the app's timezone. */
+function previousMonth(now: Date): { year: number; month: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: APP_DAY_TIMEZONE, year: "numeric", month: "2-digit" })
+    .formatToParts(now);
+  const year = Number(parts.find((p) => p.type === "year")?.value);
+  const month = Number(parts.find((p) => p.type === "month")?.value);
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
+
+/**
+ * The instant a calendar month starts in the app's timezone. Books are
+ * finished on a calendar day, not an instant, so a timezone-consistent
+ * month boundary is what the reader expects to see on the graphic.
+ */
+function monthStartInAppTimezone(year: number, month: number): Date {
+  // Start from the UTC midnight, then shift by the zone's offset at that moment.
+  const utcGuess = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+  const zoned = new Intl.DateTimeFormat("en-US", {
+    timeZone: APP_DAY_TIMEZONE,
+    hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(utcGuess);
+  const get = (t: string): number => Number(zoned.find((p) => p.type === t)?.value);
+  const asIfUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  const offsetMs = asIfUtc - utcGuess.getTime();
+  return new Date(utcGuess.getTime() - offsetMs);
+}
+
+/**
+ * Distinct finished books per member in the given month. Only `dateFinished`
+ * is range-queried; `additionalReadDates` (older re-reads) cannot be, and a
+ * re-read recorded last month moves `dateFinished` there anyway. The "a long,
+ * long time ago" sentinel (1900) never falls in a real month.
+ */
+async function finishedBookCountsForMonth(year: number, month: number): Promise<Map<string, Set<string>>> {
+  const start = monthStartInAppTimezone(year, month);
+  const end = month === 12 ? monthStartInAppTimezone(year + 1, 1) : monthStartInAppTimezone(year, month + 1);
+  const snap = await db.collection("userBooks")
+    .where("dateFinished", ">=", Timestamp.fromDate(start))
+    .where("dateFinished", "<", Timestamp.fromDate(end))
+    .get();
+  const perUser = new Map<string, Set<string>>();
+  for (const doc of snap.docs) {
+    const d = doc.data();
+    if (d.status !== "Read") continue;
+    const uid = (d.userId as string | undefined)?.trim();
+    const bookId = (d.bookId as string | undefined)?.trim();
+    if (!uid || !bookId) continue;
+    const set = perUser.get(uid) ?? new Set<string>();
+    set.add(bookId);
+    perUser.set(uid, set);
+  }
+  return perUser;
+}
+
+/**
+ * "See your September reading": for every member who finished a book last
+ * month, write `users/{uid}.monthlyRecap` (one slot, overwritten each month,
+ * so a long absence never stacks recaps) and send the push + bell row. The
+ * app shows a modal for the same field, so readers without push permission
+ * hear about it on their next visit. Idempotent per month: a member whose
+ * slot already holds this month is skipped.
+ */
+async function sendMonthlyRecaps(opts: {
+  year: number;
+  month: number;
+  dryRun: boolean;
+  notify: boolean;
+  onlyUid?: string;
+}): Promise<{ eligible: number; sent: number; skipped: number; uids: string[] }> {
+  const key = monthKey(opts.year, opts.month);
+  const monthName = MONTH_NAMES[opts.month - 1] ?? key;
+  const counts = await finishedBookCountsForMonth(opts.year, opts.month);
+  let sent = 0;
+  let skipped = 0;
+  const uids: string[] = [];
+
+  for (const [uid, books] of counts) {
+    if (opts.onlyUid && uid !== opts.onlyUid) continue;
+    if (books.size === 0) continue;
+    try {
+      const user = await db.collection("users").doc(uid).get();
+      if (!user.exists || user.data()?.isTestAccount === true) {
+        skipped += 1;
+        continue;
+      }
+      const held = user.data()?.monthlyRecap as { month?: string } | undefined;
+      if (held?.month === key && !opts.onlyUid) {
+        skipped += 1;
+        continue;
+      }
+      uids.push(uid);
+      if (opts.dryRun) continue;
+      await user.ref.update({
+        monthlyRecap: {
+          month: key,
+          bookCount: books.size,
+          createdAt: FieldValue.serverTimestamp(),
+        },
+      });
+      if (opts.notify) {
+        await notifyUser(
+          uid,
+          `See your ${monthName} reading`,
+          "Customize and share your reading.",
+          { type: "monthly_recap", recapMonth: key },
+          null
+        );
+      }
+      sent += 1;
+    } catch (err) {
+      logger.error("monthly recap failed", { uid, month: key, error: (err as Error).message });
+    }
+  }
+  logger.info("monthly recaps", { month: key, eligible: uids.length, sent, skipped, dryRun: opts.dryRun });
+  return { eligible: uids.length, sent, skipped, uids };
+}
+
+/** 10am Chicago on the first of every month, for the month that just ended. */
+export const sendMonthlyReadingRecaps = onSchedule(
+  {
+    schedule: "0 10 1 * *",
+    timeZone: APP_DAY_TIMEZONE,
+    region: "us-central1",
+    timeoutSeconds: 540,
+  },
+  async () => {
+    const { year, month } = previousMonth(new Date());
+    await sendMonthlyRecaps({ year, month, dryRun: false, notify: true });
+  }
+);
+
+/**
+ * Founder-only manual trigger. `{ month?: "YYYY-MM", dryRun?: true, notify?: true, uid?: string }`.
+ * Defaults to last month as a dry run (reports who would get one). With `uid`
+ * it targets one member and re-sends even if their slot already holds the
+ * month, which is how the push and modal get verified end to end.
+ */
+export const runMonthlyRecapNow = onCall(
+  { region: "us-central1", timeoutSeconds: 540 },
+  async (request) => {
+    if (request.auth?.uid !== FOUNDER_UID) {
+      throw new HttpsError("permission-denied", "Founder only.");
+    }
+    const raw = (request.data?.month as string | undefined) ?? "";
+    const target = raw ? parseMonthKey(raw) : previousMonth(new Date());
+    if (!target) throw new HttpsError("invalid-argument", "month must be YYYY-MM");
+    const result = await sendMonthlyRecaps({
+      year: target.year,
+      month: target.month,
+      dryRun: request.data?.dryRun !== false,
+      notify: request.data?.notify !== false,
+      onlyUid: (request.data?.uid as string | undefined) || undefined,
+    });
+    return { ok: true, month: monthKey(target.year, target.month), ...result };
   }
 );
 
@@ -1783,9 +2173,24 @@ export const onClubWritten = onDocumentWritten(
       }
     }
 
+    // A vote called off by an admin: tell the room (the finalize path sends its
+    // own "votes are in" push, and never says the title).
+    const priorVote = before?.vote as DocumentData | undefined | null;
+    if (priorVote && !after.vote && priorVote.phase !== "revealed") {
+      for (const uid of memberIds) {
+        if (uid === actor) continue;
+        if (actor && !hiddenAccountCanNotify(actor, uid)) continue;
+        await notifyUser(uid, `${clubName}: vote called off`, "An admin cancelled the vote. Keep an eye out for the next one.", { type: "club_vote_cancelled", clubId }, actor);
+      }
+    }
+
     // Book / meeting changes.
     const pick = after.currentPick as DocumentData | undefined | null;
     const priorPick = before?.currentPick as DocumentData | undefined | null;
+    // A vote's winner is unveiled by the reveal flow, not by a push that spoils it.
+    if (pick && pick.id !== priorPick?.id && pick.chosenVia === "vote") {
+      return;
+    }
     if (pick && pick.id !== priorPick?.id) {
       const title = (pick.title as string | undefined) ?? "the next book";
       const author = (pick.author as string | undefined) ?? "";
@@ -1884,3 +2289,619 @@ export const sendClubMeetingReminders = onSchedule(
     if (sent > 0) logger.info("club meeting reminders", { sent });
   }
 );
+
+
+// ---------------------------------------------------------------------------
+// Club group vote
+// ---------------------------------------------------------------------------
+//
+// Two 24-hour windows. Picks: each member suggests one book (or sits out) into
+// clubs/{id}/voteSubmissions/{uid} (server-only). Voting: the shuffled,
+// deduplicated suggestions go on the club doc as anonymous candidates and each
+// member ranks them (instant-runoff with an optional veto) into
+// clubs/{id}/voteBallots/{uid} (server-only). Either window closes early once
+// every member has responded, otherwise the sweep closes it on the deadline.
+// The winner becomes currentPick (chosenVia "vote") and lands on every
+// member's Reading now shelf; the push says the votes are in, never the title.
+
+const CLUB_VOTE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const CLUB_VOTE_MAX_TITLE = 200;
+
+interface VoteCandidate {
+  id: string;
+  bookId: string;
+  title: string;
+  author: string;
+  coverURL: string;
+  pageCount: number | null;
+}
+
+interface VoteBallot {
+  ranking: string[];
+  veto: string | null;
+}
+
+interface VoteRound {
+  counts: Record<string, number>;
+  eliminatedCandidateId: string | null;
+}
+
+interface VoteResult {
+  winnerCandidateId: string;
+  runnerUpCandidateId: string | null;
+  vetoedCandidateIds: string[];
+  totalBallots: number;
+  rounds: VoteRound[];
+  drawnByFate: boolean;
+}
+
+function clubIsAdmin(club: DocumentData, uid: string): boolean {
+  if (club.everyoneIsAdmin === true) return true;
+  return ((club.adminIds as string[] | undefined) ?? []).includes(uid);
+}
+
+function clubMemberIds(club: DocumentData): string[] {
+  return (club.memberIds as string[] | undefined) ?? [];
+}
+
+function requireString(value: unknown, name: string, max = 400): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new HttpsError("invalid-argument", `${name} is required.`);
+  }
+  return value.trim().slice(0, max);
+}
+
+function shuffled<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
+function pickRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)]!;
+}
+
+/**
+ * Instant-runoff (the Alaska system): count first choices among the standing
+ * candidates; a majority wins, otherwise the last-place candidate is dropped
+ * and those ballots move to their next choice. Vetoed candidates are out
+ * before round one. If every candidate was vetoed by someone, the least-vetoed
+ * ones stand so the club still gets a book. Ties break on Borda score, then
+ * chance. Ballots that run out of standing candidates are exhausted.
+ */
+function tallyRankedChoice(candidateIds: string[], ballots: VoteBallot[]): VoteResult {
+  const vetoCount = new Map<string, number>(candidateIds.map((c) => [c, 0]));
+  for (const b of ballots) {
+    if (b.veto && vetoCount.has(b.veto)) vetoCount.set(b.veto, (vetoCount.get(b.veto) ?? 0) + 1);
+  }
+  const minVeto = Math.min(...candidateIds.map((c) => vetoCount.get(c) ?? 0));
+  let standing = candidateIds.filter((c) => (vetoCount.get(c) ?? 0) === minVeto);
+  const vetoedCandidateIds = candidateIds.filter((c) => !standing.includes(c));
+
+  const rounds: VoteRound[] = [];
+  const borda = (c: string): number =>
+    ballots.reduce((sum, b) => {
+      const idx = b.ranking.indexOf(c);
+      return idx < 0 ? sum : sum + (candidateIds.length - idx);
+    }, 0);
+
+  if (ballots.length === 0) {
+    return { winnerCandidateId: pickRandom(standing), runnerUpCandidateId: null, vetoedCandidateIds, totalBallots: 0, rounds, drawnByFate: true };
+  }
+
+  for (let guard = 0; guard < 64; guard += 1) {
+    const counts: Record<string, number> = {};
+    for (const c of standing) counts[c] = 0;
+    let active = 0;
+    for (const b of ballots) {
+      const first = b.ranking.find((c) => standing.includes(c));
+      if (!first) continue;
+      counts[first] = (counts[first] ?? 0) + 1;
+      active += 1;
+    }
+    if (active === 0) {
+      rounds.push({ counts, eliminatedCandidateId: null });
+      return { winnerCandidateId: pickRandom(standing), runnerUpCandidateId: null, vetoedCandidateIds, totalBallots: ballots.length, rounds, drawnByFate: true };
+    }
+    const ordered = [...standing].sort((a, b) => (counts[b] ?? 0) - (counts[a] ?? 0) || borda(b) - borda(a));
+    const leader = ordered[0]!;
+    const runnerUp = ordered[1] ?? null;
+    if ((counts[leader] ?? 0) * 2 > active || standing.length === 1) {
+      rounds.push({ counts, eliminatedCandidateId: null });
+      return { winnerCandidateId: leader, runnerUpCandidateId: runnerUp, vetoedCandidateIds, totalBallots: ballots.length, rounds, drawnByFate: false };
+    }
+    if (standing.length === 2) {
+      // Dead heat: Borda already ordered them; a true tie falls to chance.
+      const tied = (counts[leader] ?? 0) === (counts[runnerUp!] ?? 0) && borda(leader) === borda(runnerUp!);
+      const winner = tied ? pickRandom(standing) : leader;
+      const other = standing.find((c) => c !== winner) ?? null;
+      rounds.push({ counts, eliminatedCandidateId: null });
+      return { winnerCandidateId: winner, runnerUpCandidateId: other, vetoedCandidateIds, totalBallots: ballots.length, rounds, drawnByFate: false };
+    }
+    const lowest = Math.min(...standing.map((c) => counts[c] ?? 0));
+    const lowestSet = standing.filter((c) => (counts[c] ?? 0) === lowest);
+    const lowestBorda = Math.min(...lowestSet.map(borda));
+    const loser = pickRandom(lowestSet.filter((c) => borda(c) === lowestBorda));
+    rounds.push({ counts, eliminatedCandidateId: loser });
+    standing = standing.filter((c) => c !== loser);
+  }
+  return { winnerCandidateId: pickRandom(standing), runnerUpCandidateId: null, vetoedCandidateIds, totalBallots: ballots.length, rounds, drawnByFate: true };
+}
+
+/** Opens the 24-hour suggestion window. Admins only, one vote at a time. */
+export const startClubVote = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Sign in required");
+    const raw = request.data as { clubId?: unknown } | undefined;
+    const clubId = requireString(raw?.clubId, "clubId", 120);
+    const clubRef = db.collection("clubs").doc(clubId);
+    const roundId = randomUUID();
+    const now = Timestamp.now();
+
+    const memberIds = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(clubRef);
+      const club = snap.data();
+      if (!snap.exists || !club) throw new HttpsError("not-found", "That club no longer exists.");
+      const members = clubMemberIds(club);
+      if (!members.includes(uid)) throw new HttpsError("permission-denied", "Only members can start a vote.");
+      if (!clubIsAdmin(club, uid)) throw new HttpsError("permission-denied", "Only admins can start a vote.");
+      const vote = club.vote as DocumentData | undefined | null;
+      if (vote && vote.phase !== "revealed") throw new HttpsError("failed-precondition", "A vote is already running.");
+      if (members.length < 2) throw new HttpsError("failed-precondition", "Add at least one more member before starting a vote.");
+      tx.update(clubRef, {
+        vote: {
+          id: roundId,
+          phase: "picks",
+          startedBy: uid,
+          startedAt: now,
+          closesAt: Timestamp.fromMillis(now.toMillis() + CLUB_VOTE_WINDOW_MS),
+          respondedPickUids: [],
+          candidates: [],
+          votedUids: [],
+          result: null,
+          revealedUids: [],
+          closedAt: null,
+        },
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: uid,
+      });
+      return members;
+    });
+
+    // Stale submissions and ballots from earlier rounds are ignored by round id,
+    // but clear them so the subcollections never grow.
+    for (const sub of ["voteSubmissions", "voteBallots"]) {
+      const old = await clubRef.collection(sub).get();
+      if (old.empty) continue;
+      const batch = db.batch();
+      old.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    const clubSnap = await clubRef.get();
+    const clubName = (clubSnap.data()?.name as string | undefined) ?? "Your club";
+    for (const member of memberIds) {
+      if (member === uid) continue;
+      if (!hiddenAccountCanNotify(uid, member)) continue;
+      await notifyUser(
+        member,
+        `${clubName}: pick time`,
+        "Suggest the club's next book. It's anonymous, and you've got 24 hours.",
+        { type: "club_vote_picks", clubId, voteRound: roundId },
+        uid
+      );
+    }
+    logger.info("club vote started", { clubId, roundId, members: memberIds.length });
+    return { roundId };
+  }
+);
+
+/** Records one member's suggestion (or opt-out) and closes the window if that was the last one. */
+export const submitClubPick = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Sign in required");
+    const raw = request.data as { clubId?: unknown; roundId?: unknown; optOut?: unknown; book?: Record<string, unknown> } | undefined;
+    const clubId = requireString(raw?.clubId, "clubId", 120);
+    const roundId = requireString(raw?.roundId, "roundId", 120);
+    const optOut = raw?.optOut === true;
+    let book: VoteCandidate | null = null;
+    if (!optOut) {
+      const b = raw?.book ?? {};
+      const pages = typeof b.pageCount === "number" && Number.isFinite(b.pageCount) ? Math.round(b.pageCount) : null;
+      book = {
+        id: randomUUID(),
+        bookId: requireString(b.bookId, "book.bookId", 200),
+        title: requireString(b.title, "book.title", CLUB_VOTE_MAX_TITLE),
+        author: typeof b.author === "string" ? b.author.trim().slice(0, 200) : "",
+        coverURL: typeof b.coverURL === "string" ? b.coverURL.trim().slice(0, 1000) : "",
+        pageCount: pages,
+      };
+    }
+    const clubRef = db.collection("clubs").doc(clubId);
+
+    const { responded, total } = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(clubRef);
+      const club = snap.data();
+      if (!snap.exists || !club) throw new HttpsError("not-found", "That club no longer exists.");
+      const members = clubMemberIds(club);
+      if (!members.includes(uid)) throw new HttpsError("permission-denied", "Only members can suggest a book.");
+      const vote = club.vote as DocumentData | undefined | null;
+      if (!vote || vote.id !== roundId) throw new HttpsError("failed-precondition", "This vote has ended.");
+      if (vote.phase !== "picks") throw new HttpsError("failed-precondition", "Suggestions are closed. Time to vote.");
+      tx.set(clubRef.collection("voteSubmissions").doc(uid), {
+        roundId,
+        optOut,
+        book,
+        submittedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(clubRef, { "vote.respondedPickUids": FieldValue.arrayUnion(uid) });
+      const already = (vote.respondedPickUids as string[] | undefined) ?? [];
+      const responded = new Set([...already, uid]);
+      return { responded: members.filter((m) => responded.has(m)).length, total: members.length };
+    });
+
+    // Members' shelves join on books/{bookId}; make sure the doc exists even
+    // when the search result came from a source the app never persisted.
+    if (book) {
+      const bookRef = db.collection("books").doc(book.bookId);
+      const bookSnap = await bookRef.get();
+      if (!bookSnap.exists) {
+        await bookRef.set({
+          title: book.title,
+          author: book.author,
+          coverURL: book.coverURL,
+          pageCount: book.pageCount,
+          publishedDate: null,
+          description: null,
+          genres: [],
+        }, { merge: true }).catch((err) => logger.warn("club vote book upsert failed", { bookId: book?.bookId, err: String(err) }));
+      }
+    }
+
+    if (responded >= total) {
+      await openClubVoting(clubRef);
+    }
+    return { ok: true, responded, total };
+  }
+);
+
+/**
+ * Suggestions → anonymous candidates. Zero suggestions clears the vote and
+ * tells the admins; one suggestion skips straight to the reveal.
+ */
+async function openClubVoting(clubRef: FirebaseFirestore.DocumentReference): Promise<void> {
+  const clubId = clubRef.id;
+  // Claim the transition inside a transaction: two "last" submissions landing
+  // together must not open voting twice (double candidates, double pushes).
+  const claimed = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(clubRef);
+    const club = snap.data();
+    if (!snap.exists || !club) return null;
+    const vote = club.vote as DocumentData | undefined | null;
+    if (!vote || vote.phase !== "picks") return null;
+    const subs = await tx.get(clubRef.collection("voteSubmissions").where("roundId", "==", vote.id));
+    const byBook = new Map<string, VoteCandidate>();
+    for (const d of subs.docs) {
+      const data = d.data();
+      if (data.optOut === true) continue;
+      const b = data.book as VoteCandidate | undefined | null;
+      if (!b || !b.bookId || byBook.has(b.bookId)) continue;
+      byBook.set(b.bookId, { ...b, id: randomUUID() });
+    }
+    const candidates = shuffled([...byBook.values()]);
+    const now = Timestamp.now();
+    if (candidates.length === 0) {
+      tx.update(clubRef, { vote: null, updatedAt: FieldValue.serverTimestamp(), updatedBy: null });
+    } else if (candidates.length > 1) {
+      tx.update(clubRef, {
+        "vote.phase": "voting",
+        "vote.candidates": candidates,
+        "vote.closesAt": Timestamp.fromMillis(now.toMillis() + CLUB_VOTE_WINDOW_MS),
+        "vote.votedUids": [],
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: null,
+      });
+    }
+    return { club, vote, candidates };
+  });
+  if (!claimed) return;
+  const { club, vote, candidates } = claimed;
+  const clubName = (club.name as string | undefined) ?? "Your club";
+  const memberIds = clubMemberIds(club);
+
+  if (candidates.length === 0) {
+    const admins = club.everyoneIsAdmin === true ? memberIds : ((club.adminIds as string[] | undefined) ?? []);
+    for (const uid of admins) {
+      await notifyUser(uid, `${clubName}: no suggestions`, "Nobody suggested a book. Start another vote, or pick one yourself.", { type: "club_vote_empty", clubId }, null);
+    }
+    logger.info("club vote emptied", { clubId, roundId: vote.id });
+    return;
+  }
+
+  if (candidates.length === 1) {
+    const only = candidates[0]!;
+    await finalizeClubVote(clubRef, "picks", candidates, {
+      winnerCandidateId: only.id,
+      runnerUpCandidateId: null,
+      vetoedCandidateIds: [],
+      totalBallots: 0,
+      rounds: [],
+      drawnByFate: false,
+    });
+    return;
+  }
+
+  for (const uid of memberIds) {
+    await notifyUser(
+      uid,
+      `${clubName}: vote now`,
+      `${candidates.length} books are in. Rank your favorites before the polls close in 24 hours.`,
+      { type: "club_vote_open", clubId, voteRound: String(vote.id) },
+      null
+    );
+  }
+  logger.info("club vote voting opened", { clubId, roundId: vote.id, candidates: candidates.length });
+}
+
+/** Records one member's ranking (or opt-out) and tallies if that was the last ballot. */
+export const submitClubBallot = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Sign in required");
+    const raw = request.data as { clubId?: unknown; roundId?: unknown; optOut?: unknown; ranking?: unknown; veto?: unknown } | undefined;
+    const clubId = requireString(raw?.clubId, "clubId", 120);
+    const roundId = requireString(raw?.roundId, "roundId", 120);
+    const optOut = raw?.optOut === true;
+    const rankingRaw = Array.isArray(raw?.ranking) ? raw.ranking.filter((r): r is string => typeof r === "string") : [];
+    const vetoRaw = typeof raw?.veto === "string" ? raw.veto : null;
+    const clubRef = db.collection("clubs").doc(clubId);
+
+    const { voted, total } = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(clubRef);
+      const club = snap.data();
+      if (!snap.exists || !club) throw new HttpsError("not-found", "That club no longer exists.");
+      const members = clubMemberIds(club);
+      if (!members.includes(uid)) throw new HttpsError("permission-denied", "Only members can vote.");
+      const vote = club.vote as DocumentData | undefined | null;
+      if (!vote || vote.id !== roundId) throw new HttpsError("failed-precondition", "This vote has ended.");
+      if (vote.phase !== "voting") throw new HttpsError("failed-precondition", vote.phase === "picks" ? "Voting hasn't opened yet." : "Voting is closed.");
+      const candidateIds = ((vote.candidates as VoteCandidate[] | undefined) ?? []).map((c) => c.id);
+      const ranking = optOut ? [] : [...new Set(rankingRaw)].filter((c) => candidateIds.includes(c));
+      const veto = !optOut && vetoRaw && candidateIds.includes(vetoRaw) && !ranking.includes(vetoRaw) ? vetoRaw : null;
+      if (!optOut && ranking.length === 0) throw new HttpsError("invalid-argument", "Rank at least one book, or sit this one out.");
+      tx.set(clubRef.collection("voteBallots").doc(uid), {
+        roundId,
+        optOut,
+        ranking,
+        veto,
+        submittedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(clubRef, { "vote.votedUids": FieldValue.arrayUnion(uid) });
+      const already = (vote.votedUids as string[] | undefined) ?? [];
+      const votedSet = new Set([...already, uid]);
+      return { voted: members.filter((m) => votedSet.has(m)).length, total: members.length };
+    });
+
+    if (voted >= total) {
+      await closeClubVoting(clubRef);
+    }
+    return { ok: true, voted, total };
+  }
+);
+
+/** Tallies the ballots and crowns the winner. */
+async function closeClubVoting(clubRef: FirebaseFirestore.DocumentReference): Promise<void> {
+  const snap = await clubRef.get();
+  const club = snap.data();
+  if (!snap.exists || !club) return;
+  const vote = club.vote as DocumentData | undefined | null;
+  if (!vote || vote.phase !== "voting") return;
+  const candidates = (vote.candidates as VoteCandidate[] | undefined) ?? [];
+  if (candidates.length === 0) {
+    await clubRef.update({ vote: null, updatedAt: FieldValue.serverTimestamp(), updatedBy: null });
+    return;
+  }
+  const ballotDocs = await clubRef.collection("voteBallots").where("roundId", "==", vote.id).get();
+  const ballots: VoteBallot[] = [];
+  for (const d of ballotDocs.docs) {
+    const data = d.data();
+    if (data.optOut === true) continue;
+    const ranking = ((data.ranking as string[] | undefined) ?? []).filter((c) => candidates.some((k) => k.id === c));
+    const veto = typeof data.veto === "string" && candidates.some((k) => k.id === data.veto) ? (data.veto as string) : null;
+    if (ranking.length === 0 && !veto) continue;
+    ballots.push({ ranking, veto });
+  }
+  const result = tallyRankedChoice(candidates.map((c) => c.id), ballots);
+  await finalizeClubVote(clubRef, "voting", candidates, result);
+}
+
+/**
+ * Winner → currentPick (chosenVia "vote") and onto every member's Reading now.
+ * The push says the votes are in and nothing else: the reveal is in the app.
+ * Claims the phase change transactionally so a sweep and a last ballot can't
+ * both finalize.
+ */
+async function finalizeClubVote(
+  clubRef: FirebaseFirestore.DocumentReference,
+  fromPhase: "picks" | "voting",
+  candidates: VoteCandidate[],
+  result: VoteResult
+): Promise<void> {
+  const clubId = clubRef.id;
+  const winner = candidates.find((c) => c.id === result.winnerCandidateId);
+  if (!winner) {
+    logger.error("club vote winner missing", { clubId });
+    return;
+  }
+  const now = Timestamp.now();
+  const pick = {
+    id: randomUUID(),
+    bookId: winner.bookId,
+    title: winner.title,
+    author: winner.author,
+    coverURL: winner.coverURL,
+    pageCount: winner.pageCount,
+    chosenAt: now,
+    chosenBy: null,
+    meetingAt: null,
+    reminderSentAt: null,
+    chosenVia: "vote",
+  };
+
+  const claimed = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(clubRef);
+    const club = snap.data();
+    if (!snap.exists || !club) return null;
+    const vote = club.vote as DocumentData | undefined | null;
+    if (!vote || vote.phase !== fromPhase) return null;
+    const outgoing = club.currentPick as DocumentData | undefined | null;
+    let history = ((club.pastPicks as DocumentData[] | undefined) ?? []);
+    if (outgoing && outgoing.bookId !== winner.bookId) history = [outgoing, ...history];
+    history = history.slice(0, 60);
+    tx.update(clubRef, {
+      currentPick: pick,
+      pastPicks: history,
+      "vote.phase": "revealed",
+      "vote.candidates": candidates,
+      "vote.result": result,
+      "vote.closesAt": null,
+      "vote.closedAt": now,
+      "vote.revealedUids": [],
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: null,
+    });
+    return { club, vote };
+  });
+  if (!claimed) return;
+  const { club, vote } = claimed;
+
+  const memberIds = clubMemberIds(club);
+  for (const uid of memberIds) {
+    try {
+      await addBookToReadingNow(uid, winner);
+    } catch (err) {
+      logger.warn("club vote reading-now add failed", { clubId, uid, err: String(err) });
+    }
+  }
+  const clubName = (club.name as string | undefined) ?? "Your club";
+  for (const uid of memberIds) {
+    await notifyUser(uid, `${clubName}: the votes are in`, "The club has its next book. Tap for the reveal.", { type: "club_vote_result", clubId, voteRound: String(vote.id) }, null);
+  }
+  logger.info("club vote finalized", {
+    clubId,
+    roundId: vote.id,
+    winner: winner.bookId,
+    ballots: result.totalBallots,
+    rounds: result.rounds.length,
+    vetoed: result.vetoedCandidateIds.length,
+  });
+}
+
+/**
+ * Puts the book on a member's Reading now shelf. An existing queue row moves
+ * shelves; a book they have already read, set aside, or are reading is left alone.
+ */
+async function addBookToReadingNow(uid: string, book: VoteCandidate): Promise<void> {
+  const rows = await db.collection("userBooks")
+    .where("userId", "==", uid)
+    .where("bookId", "==", book.bookId)
+    .limit(5)
+    .get();
+  const now = Timestamp.now();
+  if (!rows.empty) {
+    for (const r of rows.docs) {
+      const d = r.data();
+      if (d.status !== "Queue") return;
+    }
+    const queued = rows.docs[0]!;
+    if (queued.data().queueShelf !== "readingNow") {
+      await queued.ref.update({ queueShelf: "readingNow", queueOrder: 0, updatedAt: now });
+    }
+    return;
+  }
+  // The app decodes the doc id as a UUID, so mint one in its uppercase form.
+  const id = randomUUID().toUpperCase();
+  await db.collection("userBooks").doc(id).set({
+    userId: uid,
+    bookId: book.bookId,
+    status: "Queue",
+    rating: null,
+    reviewText: null,
+    dateStarted: null,
+    dateFinished: null,
+    createdAt: now,
+    updatedAt: now,
+    recommendedTo: [],
+    tier: null,
+    tierOrder: null,
+    queueShelf: "readingNow",
+    queueOrder: 0,
+  });
+}
+
+/** Member has watched the reveal; the club page may now show the book to them. */
+export const ackClubVoteReveal = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Sign in required");
+    const raw = request.data as { clubId?: unknown; roundId?: unknown } | undefined;
+    const clubId = requireString(raw?.clubId, "clubId", 120);
+    const roundId = requireString(raw?.roundId, "roundId", 120);
+    const clubRef = db.collection("clubs").doc(clubId);
+    const snap = await clubRef.get();
+    const club = snap.data();
+    if (!snap.exists || !club) throw new HttpsError("not-found", "That club no longer exists.");
+    if (!clubMemberIds(club).includes(uid)) throw new HttpsError("permission-denied", "Members only.");
+    const vote = club.vote as DocumentData | undefined | null;
+    if (!vote || vote.id !== roundId || vote.phase !== "revealed") return { ok: true };
+    await clubRef.update({ "vote.revealedUids": FieldValue.arrayUnion(uid) });
+    return { ok: true };
+  }
+);
+
+/** Deadline sweep: closes suggestion and voting windows that ran out the slow way. */
+async function sweepClubVotes(): Promise<number> {
+  const snap = await db.collection("clubs").where("vote.closesAt", "<=", Timestamp.now()).get();
+  let closed = 0;
+  for (const doc of snap.docs) {
+    const vote = doc.data().vote as DocumentData | undefined | null;
+    if (!vote) continue;
+    try {
+      if (vote.phase === "picks") {
+        await openClubVoting(doc.ref);
+        closed += 1;
+      } else if (vote.phase === "voting") {
+        await closeClubVoting(doc.ref);
+        closed += 1;
+      }
+    } catch (err) {
+      logger.error("club vote sweep failed", { clubId: doc.id, phase: vote.phase, err: String(err) });
+    }
+  }
+  return closed;
+}
+
+export const sweepClubVoteDeadlines = onSchedule(
+  {
+    schedule: "every 10 minutes",
+    timeZone: APP_DAY_TIMEZONE,
+    region: "us-central1",
+  },
+  async () => {
+    const closed = await sweepClubVotes();
+    if (closed > 0) logger.info("club vote deadlines swept", { closed });
+  }
+);
+
+// MARK: - Apple Wallet library card (functions/src/wallet.ts)
+
+export { createWalletPass, updateWalletCardArt, walletPassWebService } from "./wallet";

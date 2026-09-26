@@ -28,7 +28,7 @@ final class ClubDetailStore: ObservableObject {
 
     func start() {
         if ClubsPreview.isActive {
-            club = .uiPreviewDemo
+            club = ClubsPreview.demoClubWithVote(.uiPreviewDemo)
             memberStates = BookClub.uiPreviewDemoProgress
             return
         }
@@ -98,6 +98,11 @@ struct ClubDetailView: View {
     @State private var showPicker = false
     @State private var showMeetingEditor = false
     @State private var showSettings = false
+    @State private var showVoteFlow = false
+    /// A vote push landed before the club doc did: open the flow once it's here.
+    @State private var wantsVoteFlow = false
+    /// Bumped when the flow closes so the local "watched the reveal" memo is re-read.
+    @State private var revealAckTick = 0
     @State private var selectedMember: SelectedMember?
     @State private var selectedBook: Book?
     @State private var busy = false
@@ -138,7 +143,12 @@ struct ClubDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         titleBlock(club)
-                        currentBookSection(club)
+                        if let vote = club.vote, let uid, vote.isOpen || pickHidden(club) {
+                            ClubVoteStatusCard(club: club, vote: vote, myUid: uid) { showVoteFlow = true }
+                        }
+                        if !pickHidden(club) {
+                            currentBookSection(club)
+                        }
                         membersSection(club)
                         if !club.pastPicks.isEmpty {
                             pastReadsSection(club)
@@ -187,6 +197,27 @@ struct ClubDetailView: View {
             if openInviteOnAppear, !didOpenInvite {
                 didOpenInvite = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showInvite = true }
+            }
+            if PushNotificationService.consumePendingClubVoteOpen() {
+                wantsVoteFlow = true
+                presentVoteFlowIfReady()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .spineOpenClub)) { note in
+            guard (note.userInfo?["clubId"] as? String) == clubId,
+                  (note.userInfo?["openVote"] as? Bool) == true else { return }
+            // Same stash MainTabView/ClubsView route on; this page owns the flow.
+            _ = PushNotificationService.consumePendingClubVoteOpen()
+            wantsVoteFlow = true
+            presentVoteFlowIfReady()
+        }
+        .onChange(of: store.club?.vote?.id) { _, _ in presentVoteFlowIfReady() }
+        .fullScreenCover(isPresented: $showVoteFlow) {
+            if let club, let uid {
+                ClubVoteFlowView(club: club, myUid: uid) {
+                    showVoteFlow = false
+                    revealAckTick += 1
+                }
             }
         }
         .onChange(of: store.vanished) { _, gone in
@@ -257,6 +288,30 @@ struct ClubDetailView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: action)
     }
 
+    /// A voted pick stays hidden until this member has watched the reveal.
+    private func pickHidden(_ club: BookClub) -> Bool {
+        _ = revealAckTick
+        guard let uid else { return false }
+        return club.pickHiddenPendingReveal(for: uid)
+    }
+
+    /// Opens the flow for a push tap once the club (and its vote) has loaded.
+    private func presentVoteFlowIfReady() {
+        guard wantsVoteFlow, club?.vote != nil, !showVoteFlow else { return }
+        wantsVoteFlow = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showVoteFlow = true }
+    }
+
+    private func startVote(_ club: BookClub) {
+        if ClubsPreview.isActive { showVoteFlow = true; return }
+        runBusy {
+            try await BookClubService.shared.startVote(clubId: club.id)
+            // The listener delivers the new round; the starter goes straight in.
+            wantsVoteFlow = true
+            presentVoteFlowIfReady()
+        }
+    }
+
     private func runBusy(_ work: @escaping () async throws -> Void) {
         busy = true
         Task {
@@ -325,9 +380,45 @@ struct ClubDetailView: View {
                         ClubSecondaryButton(title: "Change book", icon: "arrow.triangle.2.circlepath") { showPicker = true }
                         ClubSecondaryButton(title: pick.meetingAt == nil ? "Set meeting" : "Move meeting", icon: "calendar") { showMeetingEditor = true }
                     }
+                    if club.pickMode == .groupVote, !(club.vote?.isOpen ?? false) {
+                        ClubSecondaryButton(title: "Vote on the next book", icon: "checkmark.seal") { startVote(club) }
+                    }
+                }
+                if pick.wasVoted, club.vote?.phase == .revealed, !pickHidden(club) {
+                    Button { showVoteFlow = true } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "party.popper")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Chosen by group vote · Rewatch the reveal")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .foregroundStyle(Theme.textSecondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.springPress)
                 }
             }
             .hingeSectionCard(title: pick.meetingIsPast ? "Last meeting's book" : "Now reading")
+        } else if club.vote?.isOpen == true {
+            // The vote card above is the whole story while a vote runs.
+            EmptyView()
+        } else if club.pickMode == .groupVote {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Nothing picked yet.")
+                    .font(Theme.title2())
+                    .foregroundStyle(Theme.textPrimary)
+                Text(isAdmin
+                     ? "Everyone gets 24 hours to suggest a book, then 24 to rank them. Add your members first, then kick it off."
+                     : "Waiting on \(waitingOnCopy(club)) to start the group vote. You'll get a push when it's time to suggest a book.")
+                    .font(Theme.callout())
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if isAdmin {
+                    ClubPrimaryButton(title: "Start the group vote", icon: "checkmark.seal.fill", isLoading: busy) { startVote(club) }
+                    ClubSecondaryButton(title: "Pick it myself", icon: "book.fill") { showPicker = true }
+                }
+            }
+            .hingeSectionCard(title: "Next book")
         } else {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Nothing picked yet.")

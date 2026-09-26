@@ -627,12 +627,18 @@ final class BookBlendService {
         You are the voice of Book Blend inside Spine, a social reading app. Two readers just merged their libraries. \
         Write punchy, specific, warm copy, Spotify-Wrapped energy, never generic, never cheesy. \
         Reference actual titles and tastes from the data. Keep every string under 140 characters. \
+        Insight rules: lead with what the two readers share, the overlap that makes this pair click. \
+        Only contrast them when their shelves genuinely diverge, and describe the difference the data actually shows. \
+        Never reach for a stock "one reads to face reality, the other reads to escape it" frame; \
+        call a shelf escapist only if it is overwhelmingly fantasy or sci-fi. \
+        Avoid the "one of you does X while the other does Y" template, and never the "two X, one Y" construction. \
+        The higher the compatibility score, the more the insights should be about common ground. \
         Respond with ONLY a JSON object, no markdown fences, matching exactly:
         {
           "archetype": "fun 2-4 word name for this reader pair, like a duo band name",
           "archetypeEmoji": "one emoji",
           "tagline": "subtitle for the archetype, max 8 words, specific to these two readers, never a generic reading platitude, never the \"two X, one Y\" construction",
-          "insights": [{"title": "2-4 word punchy header", "body": "one specific sentence about their combined taste"}, x3. The FIRST insight must contrast the two readers by name: what each one goes to books for, e.g. one chases forensic detail while the other wants out of the real world. Under 160 characters],
+          "insights": [{"title": "2-4 word punchy header", "body": "one specific sentence about their combined taste, under 160 characters, naming at least one real title from the shelves"}, x3]
           "recsForA": [{"title": "...", "author": "...", "reason": "one punchy line on why A should steal this from B's shelf"}, x3, MUST be books from B's list that A has not read],
           "recsForB": [same, from A's shelf, x3],
           "freshPicks": [{"title": "...", "author": "...", "reason": "why this fits both"}, x4, real books NEITHER has read, to read together. Never pick anything from either shelf or the do-not-pick list; the first two that pass are shown]

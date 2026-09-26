@@ -24,6 +24,7 @@ struct ClubSettingsView: View {
     @State private var everyoneIsAdmin: Bool
     @State private var confirmLeave = false
     @State private var confirmDelete = false
+    @State private var confirmCancelVote = false
     @State private var memberToRemove: String?
     @State private var busy = false
     /// Drag-to-dismiss is off for the list itself, so a swipe down while reading
@@ -102,6 +103,42 @@ struct ClubSettingsView: View {
                     } header: {
                         Text("Who runs it")
                     }
+
+                    Section {
+                        ForEach(BookClub.PickMode.allCases, id: \.self) { mode in
+                            Button {
+                                guard mode != club.pickMode, let uid else { return }
+                                run { try await BookClubService.shared.setPickMode(clubId: club.id, actorUid: uid, mode: mode) }
+                            } label: {
+                                HStack(alignment: .top, spacing: 12) {
+                                    Image(systemName: club.pickMode == mode ? "largecircle.fill.circle" : "circle")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .foregroundStyle(club.pickMode == mode ? Theme.chrome : Theme.textTertiary)
+                                        .padding(.top, 1)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(mode.title)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(Theme.textPrimary)
+                                        Text(mode.blurb)
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(Theme.textSecondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if let vote = club.vote, vote.isOpen {
+                            Button(role: .destructive) { confirmCancelVote = true } label: {
+                                Label(vote.phase == .picks ? "Cancel the vote (suggesting)" : "Cancel the vote (ranking)", systemImage: "xmark.circle")
+                            }
+                        }
+                    } header: {
+                        Text("How books get picked")
+                    } footer: {
+                        Text("Admins can always swap the book by hand from the club page, even after a vote.")
+                    }
                 }
 
                 Section {
@@ -177,6 +214,14 @@ struct ClubSettingsView: View {
                 Button("Leave club", role: .destructive) { leave() }
             } message: {
                 Text(club.memberIds.count == 1 ? "You're the last member, so the club will be deleted." : "You can rejoin later with the club code.")
+            }
+            .confirmationDialog("Cancel the vote?", isPresented: $confirmCancelVote, titleVisibility: .visible) {
+                Button("Cancel the vote", role: .destructive) {
+                    guard let uid else { return }
+                    run { try await BookClubService.shared.cancelVote(clubId: club.id, actorUid: uid) }
+                }
+            } message: {
+                Text("Suggestions and ballots so far are thrown out. Everyone gets a heads-up.")
             }
             .confirmationDialog("Delete \(club.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete for everyone", role: .destructive) { deleteClub() }

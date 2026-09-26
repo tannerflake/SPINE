@@ -10,6 +10,7 @@ import SwiftUI
 import Combine
 import StoreKit
 import UIKit
+import FirebaseFunctions
 
 struct MainTabView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -54,6 +55,26 @@ struct MainTabView: View {
     /// Kept through dismissal so onDismiss can snooze the undecided invite
     /// (`incomingBlendInvite` is already nil by then).
     @State private var lastPresentedBlendInvite: BookBlend?
+    /// A stamp just earned: the celebration modal (once per stamp).
+    @State private var unlockedAchievement: AchievementKind?
+    /// Own card page opened in stamping mode for this stamp (from the modal's
+    /// "Stamp my card" or an achievement push tap).
+    @State private var stampCardKind: AchievementKind?
+    /// Refresh timers kicked off when the local ranked count crosses a stamp's
+    /// threshold, so the celebration lands seconds after the 25th book.
+    @State private var achievementRefreshGeneration = 0
+    /// Last month's reading is ready to share: the in-app twin of the
+    /// monthly recap push (once per recap; see `MonthlyRecap`).
+    @State private var monthlyRecapModal: MonthlyRecap?
+    /// The share hub opened on a month's floating shelf (from the recap
+    /// modal's button, the push, or the bell row).
+    @State private var monthlyRecapShare: MonthlyRecapShare?
+
+    /// A month whose reading the share hub should open on.
+    private struct MonthlyRecapShare: Identifiable {
+        let period: SharePeriod
+        var id: String { period.id }
+    }
 
     private struct DeepLinkUserProfile: Identifiable {
         let id: String
@@ -334,7 +355,7 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        tabContentWithSheets
+        monthlyRecapWiring(achievementWiring(tabContentWithSheets))
         .onReceive(NotificationCenter.default.publisher(for: .spineOpenFeed)) { _ in
             selectedTab = .feed
             appState.deepLinkFeedPostId = nil
@@ -516,6 +537,22 @@ struct MainTabView: View {
                     appState.pendingLinkImport = payload
                 }
             }
+            // `-uiPreviewAchievements`: the demo user holds an unseen "25 books
+            // ranked" stamp (seeded in RootView); fire its celebration here.
+            if ProcessInfo.processInfo.arguments.contains("-uiPreviewAchievements") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    AchievementStore.markSeen(.ranked25, appState: appState, uid: nil)
+                    unlockedAchievement = .ranked25
+                }
+            }
+            // `-uiPreviewMonthlyRecap`: the demo user holds an unseen recap
+            // (seeded in RootView); present it the way the launch check would.
+            if ProcessInfo.processInfo.arguments.contains("-uiPreviewMonthlyRecap") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    MonthlyRecapStore.markSeen(appState: appState, uid: nil)
+                    monthlyRecapModal = appState.currentUser?.monthlyRecap
+                }
+            }
             if ProcessInfo.processInfo.arguments.contains("-uiPreviewBlendInviteModal") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     blendInviteDecided = false
@@ -548,6 +585,16 @@ struct MainTabView: View {
                     NotificationCenter.default.post(name: .spineOpenQueue, object: nil)
                 }
             }
+            if let raw = PushNotificationService.consumePendingAchievementTap(), let kind = AchievementKind(rawValue: raw) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    openAchievement(kind)
+                }
+            }
+            if let monthKey = PushNotificationService.consumePendingMonthlyRecapTap() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    openMonthlyRecap(monthKey: monthKey)
+                }
+            }
             if appState.pendingGoodreadsImportRows != nil || appState.pendingGoodreadsImportError != nil || appState.pendingGoodreadsImportURL != nil {
                 selectedTab = .profile
             }
@@ -562,9 +609,17 @@ struct MainTabView: View {
                authService.appUser?.hasSeenPushNotificationPrompt == false {
                 schedulePostProfileOnboardingFlow()
             }
+            // A freshly earned stamp is the best news we have: it goes first.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                considerShowingAchievementModal()
+            }
             // Blend invite outranks the photo/push nudges — it's another person waiting.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                 considerShowingBlendInviteModal()
+            }
+            // Last month's reading, ready to share: ahead of the housekeeping nudges.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
+                considerShowingMonthlyRecapModal()
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                 considerShowingProfilePhotoNudge()
@@ -590,8 +645,14 @@ struct MainTabView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     PushNotificationService.syncFCMTokenToFirestoreIfSignedIn()
                 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    considerShowingAchievementModal()
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     considerShowingBlendInviteModal()
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                    considerShowingMonthlyRecapModal()
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     considerShowingPushNudgeModal()
@@ -704,6 +765,214 @@ struct MainTabView: View {
             || showCurrentlyReadingPrompt || showRateSpineModal
             || deepLinkProfile != nil || deepLinkBook != nil
             || incomingBlendInvite != nil || appState.pendingLinkImport != nil
+            || unlockedAchievement != nil || stampCardKind != nil
+            || monthlyRecapModal != nil || monthlyRecapShare != nil
+    }
+
+    /// Monthly recap sheets and observers, kept out of `body`'s modifier chain
+    /// for the same type-checker reason as `achievementWiring`.
+    private func monthlyRecapWiring<Content: View>(_ content: Content) -> some View {
+        content
+        .sheet(item: $monthlyRecapModal) { recap in
+            MonthlyRecapModal(
+                recap: recap,
+                books: recap.period.books(in: appState.userBooks),
+                onShare: {
+                    monthlyRecapModal = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        monthlyRecapShare = MonthlyRecapShare(period: recap.period)
+                    }
+                },
+                onNotNow: { monthlyRecapModal = nil }
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $monthlyRecapShare) { share in
+            ShareHubSheet(
+                user: appState.currentUser,
+                userBooks: appState.userBooks,
+                initialPage: .monthFloating,
+                initialPeriod: share.period,
+                promptsForPhotoOnOpen: true
+            )
+            .environmentObject(appState)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .spineOpenMonthlyRecap)) { note in
+            _ = PushNotificationService.consumePendingMonthlyRecapTap()
+            openMonthlyRecap(monthKey: (note.userInfo?["recapMonth"] as? String) ?? "")
+        }
+        // The user doc is not live-listened, but a refresh (foreground token
+        // sync, profile edits) can bring a new recap in; the library arriving
+        // after launch is the other late signal, since the modal waits for
+        // books it can show.
+        .onChange(of: appState.currentUser?.monthlyRecap) { _, _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                considerShowingMonthlyRecapModal()
+            }
+        }
+        .onChange(of: appState.userBooks.isEmpty) { _, isEmpty in
+            guard !isEmpty else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                considerShowingMonthlyRecapModal()
+            }
+        }
+    }
+
+    // MARK: - Monthly recap
+
+    /// A recap the function wrote that has not been shown → the modal. Marked
+    /// seen the moment it presents, so a swipe-down counts and it never nags
+    /// twice. Waits for the local library to hold that month's books: an
+    /// empty fan would undercut the "we made this for you" promise.
+    private func considerShowingMonthlyRecapModal() {
+        guard authService.appUser?.needsProfileCompletion == false else { return }
+        guard !isAnyLaunchModalUp, !isDeepLinkPending else { return }
+        guard let recap = appState.currentUser?.unseenMonthlyRecap else { return }
+        guard !recap.period.books(in: appState.userBooks).isEmpty else { return }
+        MonthlyRecapStore.markSeen(appState: appState, uid: authService.firebaseUser?.uid)
+        monthlyRecapModal = recap
+    }
+
+    /// Recap push or bell row tapped: straight to the share hub on that month
+    /// (the push was the prompt, so no modal in between). Any pending recap
+    /// counts as seen. An unparseable or missing month lands on the latest
+    /// month with reads, which the hub picks on its own.
+    private func openMonthlyRecap(monthKey: String) {
+        showProfilePhotoNudgeModal = false
+        showPhoneNumberNudgeModal = false
+        showPushNudgeModal = false
+        monthlyRecapModal = nil
+        MonthlyRecapStore.markSeen(appState: appState, uid: authService.firebaseUser?.uid)
+        let period: SharePeriod
+        if let ym = MonthlyRecap.parseMonthKey(monthKey) {
+            period = .month(year: ym.year, month: ym.month)
+        } else if let fallback = SharePeriod.defaultPeriod(in: appState.userBooks) {
+            period = fallback
+        } else {
+            let c = Calendar.current.dateComponents([.year, .month], from: Date())
+            period = .month(year: c.year ?? 2026, month: c.month ?? 1)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            monthlyRecapShare = MonthlyRecapShare(period: period)
+        }
+    }
+
+    /// Achievement sheets and observers, kept out of `body`'s modifier chain,
+    /// which is already long enough to time out the type checker.
+    private func achievementWiring<Content: View>(_ content: Content) -> some View {
+        content
+        .sheet(item: $unlockedAchievement) { kind in
+            AchievementUnlockedModal(
+                kind: kind,
+                onStamp: {
+                    unlockedAchievement = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        stampCardKind = kind
+                    }
+                },
+                onNotNow: { unlockedAchievement = nil }
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $stampCardKind) { kind in
+            if let me = authService.firebaseUser?.uid ?? appState.viewerUid, let user = appState.currentUser {
+                UserProfileCardSheet(userId: me, user: user, stampOnOpen: kind)
+                    .environmentObject(authService)
+                    .environmentObject(appState)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .spineOpenAchievement)) { note in
+            _ = PushNotificationService.consumePendingAchievementTap()
+            if let raw = note.userInfo?["achievementId"] as? String, let kind = AchievementKind(rawValue: raw) {
+                openAchievement(kind)
+            }
+        }
+        // The stamp is awarded server-side and the user doc is not live-listened,
+        // so once the local ranked count reaches a threshold, re-read the doc a
+        // few times over the next seconds; the celebration then fires from the
+        // achievements change below.
+        .onChange(of: rankedBookCount) { _, count in
+            scheduleAchievementRefreshIfDue(rankedCount: count)
+        }
+        .onChange(of: appState.currentUser?.achievements) { _, _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                considerShowingAchievementModal()
+            }
+        }
+    }
+
+    // MARK: - Achievements
+
+    private var rankedBookCount: Int {
+        appState.userBooks.filter { $0.normalizedTier != nil }.count
+    }
+
+    /// A stamp earned but never celebrated → the unlock modal. Marked seen the
+    /// moment it presents, so a swipe-down counts and it never nags twice; the
+    /// stamp itself waits in the bank on the card page.
+    private func considerShowingAchievementModal() {
+        guard authService.appUser?.needsProfileCompletion == false else { return }
+        guard !isAnyLaunchModalUp, !isDeepLinkPending else { return }
+        guard let stamp = appState.currentUser?.unseenAchievements.first else { return }
+        AchievementStore.markSeen(stamp.kind, appState: appState, uid: authService.firebaseUser?.uid)
+        unlockedAchievement = stamp.kind
+    }
+
+    /// Achievement push or bell row tapped. Unseen → the celebration; already
+    /// seen → straight to the card page, in stamping mode if it is not yet
+    /// pressed. A doc that does not carry the stamp yet (push beat the read)
+    /// gets one refresh before giving up.
+    private func openAchievement(_ kind: AchievementKind, retry: Bool = true) {
+        guard let stamp = appState.currentUser?.achievement(kind) else {
+            guard retry else { return }
+            Task {
+                await authService.refreshAppUser()
+                await MainActor.run { openAchievement(kind, retry: false) }
+            }
+            return
+        }
+        showProfilePhotoNudgeModal = false
+        showPhoneNumberNudgeModal = false
+        showPushNudgeModal = false
+        if stamp.seenAt == nil {
+            AchievementStore.markSeen(kind, appState: appState, uid: authService.firebaseUser?.uid)
+            unlockedAchievement = kind
+        } else {
+            stampCardKind = kind
+        }
+    }
+
+    /// Once the library holds enough ranked books for a stamp we do not have
+    /// yet, ask the server to award it (`claimRankedAchievements`: a no-op if
+    /// the userBooks trigger already did) and re-read the user doc. Covers both
+    /// the 25th book just ranked and a stamp released after the books were,
+    /// so a member who already qualifies is celebrated on their next launch
+    /// rather than after the daily sweep.
+    private func scheduleAchievementRefreshIfDue(rankedCount: Int) {
+        guard let user = appState.currentUser, authService.firebaseUser != nil else { return }
+        let due = AchievementKind.allCases.filter { kind in
+            guard let threshold = kind.rankedBooksThreshold else { return false }
+            return rankedCount >= threshold && user.achievement(kind) == nil
+        }
+        guard !due.isEmpty else { return }
+        achievementRefreshGeneration += 1
+        let generation = achievementRefreshGeneration
+        for (index, delay) in [2.5, 7.0, 20.0].enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard generation == achievementRefreshGeneration,
+                      let current = appState.currentUser,
+                      due.contains(where: { current.achievement($0) == nil }) else { return }
+                Task {
+                    if index == 0 {
+                        _ = try? await Functions.functions(region: "us-central1")
+                            .httpsCallable("claimRankedAchievements").call([:])
+                    }
+                    await authService.refreshAppUser()
+                }
+            }
+        }
     }
 
     /// Pending blend invite aimed at me that isn't snoozed/dismissed → surface the

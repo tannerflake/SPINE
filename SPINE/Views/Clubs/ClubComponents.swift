@@ -254,7 +254,7 @@ struct ClubFieldLabel: View {
 enum ClubsPreview {
     static var isActive: Bool {
         #if DEBUG
-        return ProcessInfo.processInfo.arguments.contains("-uiPreviewClubs") || startsEmpty || hasMultiple
+        return ProcessInfo.processInfo.arguments.contains("-uiPreviewClubs") || startsEmpty || hasMultiple || voteState != nil
         #else
         return false
         #endif

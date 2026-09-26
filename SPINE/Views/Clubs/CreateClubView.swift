@@ -18,6 +18,7 @@ struct CreateClubView: View {
 
     @State private var name = ""
     @State private var everyoneIsAdmin = false
+    @State private var pickMode: BookClub.PickMode = .groupVote
     @State private var selected: [ClubMemberPickerView.Selection] = []
     @State private var showPicker = false
     @State private var creating = false
@@ -55,6 +56,15 @@ struct CreateClubView: View {
                                     title: "Everyone's an admin",
                                     body: "Anyone in the club can pick the next book, move the meeting, or invite people."
                                 ) { everyoneIsAdmin = true }
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            ClubFieldLabel(text: "How are books picked?")
+                            VStack(spacing: 8) {
+                                ForEach(BookClub.PickMode.allCases, id: \.self) { mode in
+                                    governanceOption(selected: pickMode == mode, title: mode.title, body: mode.blurb) { pickMode = mode }
+                                }
                             }
                         }
 
@@ -182,6 +192,7 @@ struct CreateClubView: View {
                     creatorUid: uid,
                     creator: appState.currentUser,
                     everyoneIsAdmin: everyoneIsAdmin,
+                    pickMode: pickMode,
                     initialMembers: selected.map { (uid: $0.uid, user: $0.user) }
                 )
                 creating = false

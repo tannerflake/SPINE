@@ -41,12 +41,27 @@ struct ShareHubSheet: View {
     var user: User?
     let userBooks: [UserBook]
     var initialPage: SharePage = .tiers
+    /// Period the month graphics open on (the monthly recap hands in its
+    /// month). Nil picks the current month, or the latest with reads.
+    var initialPeriod: SharePeriod? = nil
+    /// Open the photo picker right away, once the sheet has settled: the
+    /// monthly recap's "customize" promise, kept without a second tap.
+    var promptsForPhotoOnOpen = false
 
-    init(details: LibraryCardDetails? = nil, user: User? = nil, userBooks: [UserBook], initialPage: SharePage = .tiers) {
+    init(
+        details: LibraryCardDetails? = nil,
+        user: User? = nil,
+        userBooks: [UserBook],
+        initialPage: SharePage = .tiers,
+        initialPeriod: SharePeriod? = nil,
+        promptsForPhotoOnOpen: Bool = false
+    ) {
         self.details = details
         self.user = user
         self.userBooks = userBooks
         self.initialPage = initialPage
+        self.initialPeriod = initialPeriod
+        self.promptsForPhotoOnOpen = promptsForPhotoOnOpen
         // The carousel must open on the right page in its very first layout:
         // a programmatic scrollPosition applied after the fact (or after the
         // page list changes underneath it) is unreliable and leaves the dots
@@ -74,8 +89,6 @@ struct ShareHubSheet: View {
     @State private var isExporting = false
     @State private var resultLine: (text: String, isError: Bool)?
     @State private var instagramAvailable = false
-    /// Drives the "Add Background Photo" chip's breathing pulse on the card page.
-    @State private var photoChipPulse = false
 
     // MARK: - Derived
 
@@ -267,7 +280,7 @@ struct ShareHubSheet: View {
             // under the card, in the clear space it will fill.
             .overlay(alignment: p == .card ? .top : .bottom) {
                 if exportsTransparent(p), canvasIsLoaded(p) {
-                    addPhotoChip(pulsing: true)
+                    AddPhotoChip { showPhotoPicker = true }
                         .padding(.top, p == .card ? height * 0.71 : 0)
                         .padding(.bottom, p == .card ? 0 : height * 0.10)
                         .transition(.opacity)
@@ -416,22 +429,6 @@ struct ShareHubSheet: View {
         }
     }
 
-    /// "Add Background Photo", breathing when asked so the reader notices it.
-    private func addPhotoChip(pulsing: Bool) -> some View {
-        chip(title: "Add Background Photo", systemImage: "photo") { showPhotoPicker = true }
-            // Body-scoped so only the scale breathes. A value-scoped
-            // `.animation(value:)` also caught the chip's first layout inside
-            // the presenting sheet and bounced it across the screen forever;
-            // `withAnimation(.repeatForever)` in onAppear would break the
-            // sheet's drag-to-dismiss.
-            .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { content in
-                content
-                    .scaleEffect(pulsing && photoChipPulse ? 1.06 : 1)
-                    .shadow(color: Theme.shadowInk.opacity(pulsing && photoChipPulse ? 0.22 : 0), radius: 10, y: 4)
-            }
-            .onAppear { if pulsing { photoChipPulse = true } }
-    }
-
     private var periodChip: some View {
         Menu {
             ForEach(periods) { candidate in
@@ -550,7 +547,20 @@ struct ShareHubSheet: View {
 
     private func start() {
         instagramAvailable = StoryExporter.canShareToInstagramStories
-        if period == nil { period = SharePeriod.defaultPeriod(in: userBooks) }
+        if period == nil {
+            if let initialPeriod, periods.contains(initialPeriod) {
+                period = initialPeriod
+            } else {
+                period = SharePeriod.defaultPeriod(in: userBooks)
+            }
+        }
+        if promptsForPhotoOnOpen, photo == nil, let p = currentPage, !isEmpty(p) {
+            // After the sheet's own presentation has finished: a picker asked
+            // for mid-transition is dropped silently.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                if photo == nil { showPhotoPicker = true }
+            }
+        }
         let peekBooks = peekRows.flatMap { $0.books.compactMap(\.book) }
         coverResolver.resolve(peekBooks + periodBooks.compactMap(\.book))
         if cardDetails == nil, let user {
@@ -625,6 +635,51 @@ struct ShareHubSheet: View {
                     resultLine = ("Could not save the image. Try again.", true)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Add photo chip
+
+/// "Add Background Photo", breathing so the reader notices it. Each page's
+/// chip owns its pulse: a shared flag flipped by the first chip to appear
+/// left the later ones (the month pages) frozen at rest, since they never saw
+/// the change that starts the animation.
+private struct AddPhotoChip: View {
+    let action: () -> Void
+    @State private var pulse = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "photo")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("Add Background Photo")
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Theme.textPrimary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(Capsule().fill(Theme.surface))
+            .overlay(Capsule().strokeBorder(Theme.textTertiary.opacity(0.35), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.springPress)
+        // Body-scoped so only the scale breathes. A value-scoped
+        // `.animation(value:)` also caught the chip's first layout inside
+        // the presenting sheet and bounced it across the screen forever;
+        // `withAnimation(.repeatForever)` in onAppear would break the
+        // sheet's drag-to-dismiss.
+        .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { content in
+            content
+                .scaleEffect(pulse ? 1.06 : 1)
+                .shadow(color: Theme.shadowInk.opacity(pulse ? 0.22 : 0), radius: 10, y: 4)
+        }
+        .onAppear {
+            // One tick later, so the first frame renders at rest and the flip
+            // is a change the animation can see.
+            DispatchQueue.main.async { pulse = true }
         }
     }
 }

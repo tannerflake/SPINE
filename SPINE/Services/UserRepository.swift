@@ -649,7 +649,36 @@ final class UserRepository {
             discoverCriteria: DiscoverCriteria(firestoreMap: data["discoverCriteria"] as? [String: Any]),
             // Missing field: grandfathered in as OG-eligible (see `User.ogIneligible`).
             ogIneligible: data["ogIneligible"] as? Bool ?? false,
-            dismissedRecommendedUids: data["dismissedRecommendedUids"] as? [String] ?? []
+            dismissedRecommendedUids: data["dismissedRecommendedUids"] as? [String] ?? [],
+            achievements: AchievementStamp.parse(firestoreMap: data["achievements"] as? [String: Any]),
+            monthlyRecap: MonthlyRecap(firestoreMap: data["monthlyRecap"] as? [String: Any])
         )
+    }
+
+    // MARK: - Monthly reading recap
+
+    /// The recap has been shown (modal presented or push tapped): never again
+    /// for this month. The function overwrites the whole map next month.
+    func markMonthlyRecapSeen(uid: String) async throws {
+        try await db.collection(users).document(uid).updateData([
+            "monthlyRecap.seenAt": FieldValue.serverTimestamp()
+        ])
+    }
+
+    // MARK: - Achievement stamps
+
+    /// Records where a stamp was pressed (or lifts it off the card with nil).
+    /// Only the placement is client-owned; `unlockedAt` comes from functions.
+    func setAchievementPlacement(uid: String, kind: AchievementKind, placement: StampPlacement?) async throws {
+        let field = "achievements.\(kind.rawValue).placement"
+        let value: Any = placement?.firestoreMap ?? FieldValue.delete()
+        try await db.collection("users").document(uid).updateData([field: value])
+    }
+
+    /// The unlock has been celebrated (modal shown or push tapped): never again.
+    func markAchievementSeen(uid: String, kind: AchievementKind) async throws {
+        try await db.collection("users").document(uid).updateData([
+            "achievements.\(kind.rawValue).seenAt": FieldValue.serverTimestamp()
+        ])
     }
 }

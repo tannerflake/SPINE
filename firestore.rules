@@ -151,6 +151,14 @@ service cloud.firestore {
         && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([uid]);
     }
 
+    // The group vote (`vote`) is server-authored: the only client write allowed
+    // is clearing it (an admin calling the vote off). Suggestions and ballots
+    // live in server-only subcollections so authorship never reaches a client.
+    function clubVoteWriteAllowed() {
+      return !('vote' in request.resource.data.diff(resource.data).affectedKeys())
+        || request.resource.data.get('vote', null) == null;
+    }
+
     match /clubs/{clubId} {
       allow read: if request.auth != null && request.auth.uid in resource.data.memberIds;
       allow create: if request.auth != null
@@ -166,11 +174,19 @@ service cloud.firestore {
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.inviteCode == resource.data.inviteCode
         && request.resource.data.memberIds.size() <= 50
+        && clubVoteWriteAllowed()
         && (isClubAdmin(resource.data, request.auth.uid) || clubLeaveOnly(request.auth.uid));
       allow delete: if request.auth != null && (
         isClubAdmin(resource.data, request.auth.uid)
         || resource.data.memberIds == [request.auth.uid]
       );
+
+      match /voteSubmissions/{uid} {
+        allow read, write: if false;
+      }
+      match /voteBallots/{uid} {
+        allow read, write: if false;
+      }
     }
 
     // Invite codes: `{CODE}` → { clubId, createdBy, createdAt }. Create-only

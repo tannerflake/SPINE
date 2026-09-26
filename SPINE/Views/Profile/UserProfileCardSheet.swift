@@ -15,6 +15,9 @@ import SwiftUI
 struct UserProfileCardSheet: View {
     let userId: String
     let user: User
+    /// Open straight into stamping mode with this stamp selected (the unlock
+    /// modal's "Stamp my card", or the push tap). Own card only.
+    var stampOnOpen: AchievementKind? = nil
 
     @EnvironmentObject private var authService: AuthService
     @EnvironmentObject private var appState: AppState
@@ -39,6 +42,17 @@ struct UserProfileCardSheet: View {
     @State private var selectedRosterUserId: String?
     /// Holding the card's photo blows it up over a dimmed screen.
     @State private var showAvatarZoom = false
+    /// Stamping mode, presented full screen over the card page.
+    @State private var stampingSession: StampingSession?
+    /// A placed stamp tapped in the bank: re-stamp or remove.
+    @State private var restampCandidate: AchievementStamp?
+    /// A locked stamp tapped in the bank: what it takes to earn it.
+    @State private var lockedExplainer: AchievementKind?
+
+    private struct StampingSession: Identifiable {
+        let id = UUID()
+        let kind: AchievementKind?
+    }
 
     enum RosterTab: String, CaseIterable {
         case following = "Following"
@@ -86,9 +100,13 @@ struct UserProfileCardSheet: View {
                     VStack(spacing: 22) {
                         cardPager
                         if isSelf, let details {
-                            LibraryCardDownloadButton(details: details, prominent: false)
-                                .padding(.horizontal, 24)
+                            HStack(spacing: 10) {
+                                LibraryCardDownloadButton(details: details, prominent: false)
+                                AddToWalletButton(details: details)
+                            }
+                            .padding(.horizontal, 24)
                         }
+                        stampBank
                         rosterPicker
                         rosterList
                     }
@@ -131,14 +149,76 @@ struct UserProfileCardSheet: View {
                     .environmentObject(authService)
                     .environmentObject(appState)
             }
+            .fullScreenCover(item: $stampingSession) { session in
+                if let details {
+                    CardStampingView(details: details, initialSelection: session.kind)
+                        .environmentObject(authService)
+                        .environmentObject(appState)
+                }
+            }
+            .confirmationDialog(
+                restampCandidate.map { "\($0.kind.title) is on your card." } ?? "",
+                isPresented: Binding(
+                    get: { restampCandidate != nil },
+                    set: { if !$0 { restampCandidate = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let candidate = restampCandidate {
+                    Button("Re-stamp") {
+                        restampCandidate = nil
+                        AchievementStore.setPlacement(nil, for: candidate.kind, appState: appState, uid: myUid)
+                        stampingSession = StampingSession(kind: candidate.kind)
+                    }
+                    Button("Remove from card", role: .destructive) {
+                        restampCandidate = nil
+                        AchievementStore.setPlacement(nil, for: candidate.kind, appState: appState, uid: myUid)
+                    }
+                    Button("Cancel", role: .cancel) { restampCandidate = nil }
+                }
+            } message: {
+                Text("Lift it off to press it somewhere else, or take it off the card.")
+            }
+            .alert(
+                lockedExplainer?.title ?? "",
+                isPresented: Binding(
+                    get: { lockedExplainer != nil },
+                    set: { if !$0 { lockedExplainer = nil } }
+                ),
+                presenting: lockedExplainer
+            ) { _ in
+                Button("Got it") { lockedExplainer = nil }
+            } message: { kind in
+                Text(kind.howToUnlock)
+            }
         }
         .task { await load() }
         // A profile edit from settings changes the card's fields: rebuild it.
-        .onChange(of: appState.currentUser) { _, _ in
+        // A stamp moving is just the stamps: patch them in place so the card
+        // does not flash back to its spinner every time one lands.
+        .onChange(of: appState.currentUser) { old, new in
             guard isSelf else { return }
+            if let new, var current = details, Self.differOnlyInAchievements(old, new) {
+                current.stamps = new.achievements
+                details = current
+                return
+            }
             details = nil
             Task { await loadCard() }
         }
+        .onChange(of: details) { _, new in
+            guard isSelf, new != nil, let kind = stampOnOpen, stampingSession == nil,
+                  new?.stamps.contains(where: { $0.kind == kind && !$0.isPlaced }) == true else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                stampingSession = StampingSession(kind: kind)
+            }
+        }
+    }
+
+    private static func differOnlyInAchievements(_ old: User?, _ new: User) -> Bool {
+        guard var old else { return false }
+        old.achievements = new.achievements
+        return old == new
     }
 
     private var navTitle: String {
@@ -176,7 +256,7 @@ struct UserProfileCardSheet: View {
                 // its rounded corners off.
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { frontHeight = $0 }
 
-                LibraryCardBackFace(name: details?.name ?? displayUser.displayName)
+                LibraryCardBackFace(name: details?.name ?? displayUser.displayName, stamps: details?.stamps ?? [])
                     .containerRelativeFrame(.horizontal) { width, _ in width - 64 }
                     .frame(height: frontHeight)
             }
@@ -187,6 +267,71 @@ struct UserProfileCardSheet: View {
         .scrollTargetBehavior(.viewAligned)
         .scrollIndicators(.hidden)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: - Stamps
+
+    /// Every stamp this member has earned, placed or not. Yours are tappable:
+    /// an unplaced one opens stamping mode, a placed one offers re-stamp or
+    /// remove. Your own bank also lists the stamps still to earn, blurred
+    /// under a lock; tapping one says what it takes. Other members' cards show
+    /// only what they have. The OG mark is printed on the card, not a stamp,
+    /// so it is not listed here.
+    @ViewBuilder
+    private var stampBank: some View {
+        let stamps = details?.stamps ?? displayUser.achievements
+        let locked = isSelf ? AchievementKind.allCases.filter { kind in !stamps.contains { $0.kind == kind } } : []
+        if !stamps.isEmpty || !locked.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text(isSelf ? "YOUR STAMPS" : "STAMPS")
+                        .font(.system(size: 11, weight: .heavy))
+                        .tracking(1.6)
+                        .foregroundStyle(Theme.textTertiary)
+                    Spacer()
+                    if isSelf, stamps.contains(where: { !$0.isPlaced }) {
+                        Button {
+                            stampingSession = StampingSession(kind: stamps.first(where: { !$0.isPlaced })?.kind)
+                        } label: {
+                            Label("Stamp my card", systemImage: "seal")
+                        }
+                        .buttonStyle(.spine(.secondary, size: .small, fullWidth: false))
+                    }
+                }
+                .padding(.horizontal, 24)
+                ScrollView(.horizontal) {
+                    HStack(spacing: 12) {
+                        ForEach(stamps) { stamp in
+                            if isSelf {
+                                Button {
+                                    if stamp.isPlaced {
+                                        restampCandidate = stamp
+                                    } else {
+                                        stampingSession = StampingSession(kind: stamp.kind)
+                                    }
+                                } label: {
+                                    StampBankTile(stamp: stamp)
+                                }
+                                .buttonStyle(.springPress)
+                            } else {
+                                StampBankTile(stamp: stamp)
+                            }
+                        }
+                        ForEach(locked) { kind in
+                            Button {
+                                lockedExplainer = kind
+                            } label: {
+                                StampBankTile(locked: kind)
+                            }
+                            .buttonStyle(.springPress)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 4)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
     }
 
     // MARK: - Roster
@@ -379,10 +524,13 @@ struct UserProfileCardSheet: View {
 
 // MARK: - Card back
 
-/// The reverse of the card: ruled lines and nothing else, waiting on stamps.
+/// The reverse of the card: ruled lines, and every stamp pressed on the back.
+/// The whole back is stampable; there is nothing printed to protect.
 struct LibraryCardBackFace: View {
     let name: String
     var palette: LibraryCardPalette = .adaptive
+    var stamps: [AchievementStamp] = []
+    var liftedStampKind: AchievementKind? = nil
 
     var body: some View {
         VStack(spacing: 26) {
@@ -397,6 +545,10 @@ struct LibraryCardBackFace: View {
         .background(
             RoundedRectangle(cornerRadius: 18)
                 .fill(palette.page)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+        )
+        .overlay(
+            CardStampsLayer(stamps: stamps, side: .back, liftedKind: liftedStampKind)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
         )
         .overlay(

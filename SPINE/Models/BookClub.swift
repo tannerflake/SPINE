@@ -37,6 +37,12 @@ struct BookClub: Identifiable, Equatable {
     var currentPick: Pick?
     /// Most recent first.
     var pastPicks: [Pick]
+    /// How the next book gets chosen. Group vote is the default for new clubs;
+    /// admins can still swap the book by hand in either mode.
+    var pickMode: PickMode = .groupVote
+    /// The vote in flight (or just finished). Written only by Cloud Functions,
+    /// so nothing here ever says who suggested or ranked what.
+    var vote: Vote? = nil
 
     static let maxMembers = 50
     static let maxNameLength = 40
@@ -104,6 +110,10 @@ struct BookClub: Identifiable, Equatable {
         var meetingAt: Date?
         /// Set once the day-before reminder went out, so the hourly sweep never repeats it.
         var reminderSentAt: Date?
+        /// "vote" when a group vote chose it; nil/"admin" when a person did.
+        var chosenVia: String?
+
+        var wasVoted: Bool { chosenVia == "vote" }
 
         init(id: String = UUID().uuidString, book: Book, chosenBy: String?, meetingAt: Date?, chosenAt: Date = Date()) {
             self.id = id
@@ -118,7 +128,8 @@ struct BookClub: Identifiable, Equatable {
             self.reminderSentAt = nil
         }
 
-        init(id: String, bookId: String, title: String, author: String, coverURL: String, pageCount: Int?, chosenAt: Date, chosenBy: String?, meetingAt: Date?, reminderSentAt: Date? = nil) {
+        init(id: String, bookId: String, title: String, author: String, coverURL: String, pageCount: Int?, chosenAt: Date, chosenBy: String?, meetingAt: Date?, reminderSentAt: Date? = nil, chosenVia: String? = nil) {
+            self.chosenVia = chosenVia
             self.id = id
             self.bookId = bookId
             self.title = title
@@ -213,9 +224,11 @@ struct BookClub: Identifiable, Equatable {
             "inviteCode": inviteCode,
             "members": members.mapValues { $0.firestoreData },
             "pastPicks": pastPicks.map { $0.firestoreData },
+            "pickMode": pickMode.rawValue,
         ]
         data["updatedBy"] = updatedBy ?? NSNull()
         data["currentPick"] = currentPick?.firestoreData ?? NSNull()
+        data["vote"] = NSNull()
         return data
     }
 
@@ -246,7 +259,9 @@ struct BookClub: Identifiable, Equatable {
             members: members,
             inviteCode: (data["inviteCode"] as? String) ?? "",
             currentPick: (data["currentPick"] as? [String: Any]).flatMap { Pick.from(data: $0) },
-            pastPicks: pastPicks
+            pastPicks: pastPicks,
+            pickMode: (data["pickMode"] as? String).flatMap(PickMode.init(rawValue:)) ?? .groupVote,
+            vote: (data["vote"] as? [String: Any]).flatMap { Vote.from(data: $0) }
         )
     }
 }
@@ -289,6 +304,7 @@ extension BookClub.Pick {
         d["chosenBy"] = chosenBy ?? NSNull()
         d["meetingAt"] = meetingAt.map { Timestamp(date: $0) } ?? NSNull()
         d["reminderSentAt"] = reminderSentAt.map { Timestamp(date: $0) } ?? NSNull()
+        d["chosenVia"] = chosenVia ?? NSNull()
         return d
     }
 
@@ -305,7 +321,8 @@ extension BookClub.Pick {
             chosenAt: (data["chosenAt"] as? Timestamp)?.dateValue() ?? Date(),
             chosenBy: data["chosenBy"] as? String,
             meetingAt: (data["meetingAt"] as? Timestamp)?.dateValue(),
-            reminderSentAt: (data["reminderSentAt"] as? Timestamp)?.dateValue()
+            reminderSentAt: (data["reminderSentAt"] as? Timestamp)?.dateValue(),
+            chosenVia: data["chosenVia"] as? String
         )
     }
 }

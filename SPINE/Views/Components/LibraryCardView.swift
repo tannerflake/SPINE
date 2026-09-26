@@ -32,6 +32,9 @@ struct LibraryCardDetails: Equatable {
     /// from `cardNumber` here — a live comparison would strip the stamp from
     /// members who already had it once real growth pushes past the cutoff.
     var isOGEligible: Bool
+    /// Achievement stamps, placed or not. Placed ones print on the card; the
+    /// rest wait in the bank under it.
+    var stamps: [AchievementStamp] = []
 
     static func from(user: User, cardNumber: Int, photo: UIImage?) -> LibraryCardDetails {
         let first = user.firstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -46,7 +49,8 @@ struct LibraryCardDetails: Equatable {
             goalText: Self.goalText(user.readingGoal),
             photo: photo,
             monogramInitial: String((name.isEmpty ? "R" : name).prefix(1)),
-            isOGEligible: !user.ogIneligible
+            isOGEligible: !user.ogIneligible,
+            stamps: user.achievements
         )
     }
 
@@ -108,6 +112,14 @@ struct LibraryCardFace: View {
     /// `AvatarZoomOverlay`). Left nil for the exported image, which is rendered
     /// by ImageRenderer and has nothing to gesture on.
     var onPhotoLongPress: (() -> Void)? = nil
+    /// The stamping screen lifts one stamp off the card while re-placing it.
+    var liftedStampKind: AchievementKind? = nil
+    /// Set by the stamping screen: every printed element's frame in the face's
+    /// own coordinate space, so stamps are kept off the name, photo, and number.
+    var onProtectedZonesChange: (([CardZone]) -> Void)? = nil
+
+    /// Named coordinate space the `cardZone` modifier measures against.
+    static let coordinateSpace = "libraryCardFace"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -118,6 +130,7 @@ struct LibraryCardFace: View {
             identityRow
             goalStamp
                 .rotationEffect(.degrees(-1.8))
+                .cardZone("goal")
             Rectangle()
                 .fill(palette.ink.opacity(0.18))
                 .frame(height: 1)
@@ -131,10 +144,20 @@ struct LibraryCardFace: View {
                 .overlay(watermark)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
         )
+        // Stamps print over the paper and the type, like a real rubber stamp,
+        // but under the border so a stamp near the edge still looks framed.
+        .overlay(
+            CardStampsLayer(stamps: details.stamps, side: .front, liftedKind: liftedStampKind)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 18)
                 .stroke(palette.ink, lineWidth: 2)
         )
+        .coordinateSpace(name: Self.coordinateSpace)
+        .onPreferenceChange(CardZonesPreferenceKey.self) { zones in
+            onProtectedZonesChange?(zones)
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "Library card number \(details.cardNumber). \(details.name), at \(details.handle). Member since \(details.memberSinceText)."
@@ -160,12 +183,14 @@ struct LibraryCardFace: View {
                 .font(.system(size: 15, weight: .heavy))
                 .tracking(4)
                 .foregroundStyle(palette.ink)
+                .cardZone("brand")
             Spacer()
             Text("CARD № \(details.cardNumber)")
                 .font(.system(size: 10.5, weight: .bold))
                 .monospacedDigit()
                 .tracking(1.4)
                 .foregroundStyle(palette.tertiary)
+                .cardZone("number")
         }
     }
 
@@ -181,6 +206,8 @@ struct LibraryCardFace: View {
                     }
                 }
                 .zIndex(1)
+                // The OG mark overhangs the photo's top-left corner.
+                .cardZone("photo", inset: -12)
             // Long names have to shrink rather than push the card wider: in a
             // fixed-width frame the overflow clips the card's own border.
             VStack(alignment: .leading, spacing: 3) {
@@ -197,6 +224,7 @@ struct LibraryCardFace: View {
                     .minimumScaleFactor(0.7)
                     .rotationEffect(.degrees(-1.4))
             }
+            .cardZone("name")
             Spacer(minLength: 0)
         }
     }
@@ -263,6 +291,7 @@ struct LibraryCardFace: View {
                 .foregroundStyle(palette.tertiary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .cardZone("memberSince")
             Spacer()
         }
         .frame(minHeight: 16)

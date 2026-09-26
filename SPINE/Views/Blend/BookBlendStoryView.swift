@@ -896,7 +896,9 @@ private struct BlendBookRevealPage: View {
     private var showCover: Bool { progress > 0.03 }
     private var showMine: Bool { progress > 0.22 }
     private var showTheirs: Bool { progress > 0.50 }
-    private var showStamp: Bool { progress > 0.72 }
+    /// The stamp lands right on the heels of their verdict (~0.35s, one spring
+    /// later). A longer pause read as lag, not suspense.
+    private var showStamp: Bool { progress > 0.58 }
 
     private enum Stamp { case agreed, hardDisagree }
 

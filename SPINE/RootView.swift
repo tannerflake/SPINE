@@ -21,6 +21,10 @@ struct RootView: View {
     /// Delays the "trouble connecting" copy in `connectingView` so a brief
     /// stall just looks like loading.
     @State private var showConnectingTrouble = false
+    /// The cold-start splash stays up at least `LaunchSplashView.minimumDisplayTime`
+    /// so its entrance always finishes; auth usually resolves from the keychain
+    /// and Firestore's cache faster than that.
+    @State private var splashHoldDone = false
 
     #if DEBUG
     /// Launch with `-uiPreviewOnboardingWizard` to walk the wizard with no
@@ -57,6 +61,22 @@ struct RootView: View {
         appState.isAuthenticated = true
         let now = Date()
         let uid = "ui-preview"
+        // `-uiPreviewAchievements`: an earned, uncelebrated, unplaced stamp, so
+        // the unlock modal fires and the card page shows the bank.
+        if ProcessInfo.processInfo.arguments.contains("-uiPreviewAchievements") {
+            appState.currentUser?.achievements = [
+                AchievementStamp(kind: .ranked25, unlockedAt: now, seenAt: nil, placement: nil)
+            ]
+        }
+        // `-uiPreviewMonthlyRecap`: an unseen recap for the month the demo
+        // library's recent finishes fall in, so the recap modal fires on launch
+        // and its button opens the share hub on that month.
+        if ProcessInfo.processInfo.arguments.contains("-uiPreviewMonthlyRecap") {
+            let c = Calendar.current.dateComponents([.year, .month], from: now.addingTimeInterval(-86400 * 10))
+            appState.currentUser?.monthlyRecap = MonthlyRecap(
+                year: c.year ?? 2026, month: c.month ?? 1, bookCount: 4, createdAt: now, seenAt: nil
+            )
+        }
         appState.seedPreviewAuth(uid: uid)
         func book(_ id: String, _ title: String, _ author: String, pages: Int? = nil) -> Book {
             Book(id: id, title: title, author: author, coverURL: "", pageCount: pages, publishedDate: nil, description: nil, genres: [])
@@ -165,6 +185,7 @@ struct RootView: View {
             #endif
         }
         .animation(.easeInOut(duration: 0.25), value: authService.isLoading)
+        .animation(.easeInOut(duration: 0.25), value: splashHoldDone)
         .animation(.easeInOut(duration: 0.25), value: authService.firebaseUser?.uid)
         .animation(.easeInOut(duration: 0.25), value: authService.appUser?.id)
         .animation(.easeInOut(duration: 0.25), value: authService.appUserIsProvisional)
@@ -209,13 +230,16 @@ struct RootView: View {
 
     @ViewBuilder
     private var authGatedRoot: some View {
-        if authService.isLoading {
+        // One branch (so one view identity) for the whole cold-start load: auth
+        // restoring, then the member document. Two separate splash branches
+        // used to cross-fade into a fresh splash mid-entrance, restarting it.
+        if !splashHoldDone
+            || authService.isLoading
+            || (authService.firebaseUser != nil && authService.appUser == nil) {
             loadingView
         } else if authService.firebaseUser == nil {
             OnboardingFlowView()
                 .onAppear { onboardingWizardActive = false }
-        } else if authService.appUser == nil {
-            loadingView
         } else if onboardingWizardActive {
             OnboardingWizardView(onFinished: { onboardingWizardActive = false })
         } else if authService.appUserIsProvisional {
@@ -274,5 +298,11 @@ struct RootView: View {
     /// so there is no spinner between the system launch screen and the app.
     private var loadingView: some View {
         LaunchSplashView()
+            .task {
+                guard !splashHoldDone else { return }
+                let nanos = UInt64(LaunchSplashView.minimumDisplayTime * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: nanos)
+                splashHoldDone = true
+            }
     }
 }

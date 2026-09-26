@@ -17,13 +17,13 @@ struct OnboardingFlowView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showReviewerLogin = false
 
-    // Welcome entrance choreography. The mark starts exactly where the
-    // cold-start splash (and the static launch image) drew it, centered in the
-    // safe area, and lifts to its resting spot; then the wordmark and buttons
-    // ease in; once landed the mark breathes on a slow loop. Starting from the
-    // splash position keeps the hand-off seamless: one mark, no cross-fade.
+    // Welcome entrance choreography. The mark and wordmark start exactly where
+    // the cold-start splash left them (safe-area center, lifted by
+    // `LaunchSplashView.logoLift`) and rise to their resting spot; then the
+    // buttons ease in; once landed the mark breathes on a slow loop. Starting
+    // from the splash position keeps the hand-off seamless: one lockup, no
+    // cross-fade.
     @State private var logoLifted = false
-    @State private var wordmarkRevealed = false
     @State private var buttonsRevealed = false
     @State private var logoBreathing = false
     @State private var entranceStarted = false
@@ -37,7 +37,8 @@ struct OnboardingFlowView: View {
     /// frames have been measured (the mark stays hidden for that first frame).
     private var logoStartOffset: CGFloat? {
         guard let safeAreaMidY, let logoRestingMidY else { return nil }
-        return safeAreaMidY - logoRestingMidY
+        // The splash has already lifted the lockup above safe-area center.
+        return safeAreaMidY - LaunchSplashView.logoLift - logoRestingMidY
     }
 
     var body: some View {
@@ -94,8 +95,10 @@ struct OnboardingFlowView: View {
                 .padding(.top, 28)
                 // Optical centering: tracking adds trailing space after the last glyph.
                 .offset(x: 5)
-                .opacity(wordmarkRevealed ? 1 : 0)
-                .offset(y: wordmarkRevealed ? 0 : 12)
+                // Hidden with the mark until measured, then travels with it:
+                // the splash hands off a finished lockup, nothing re-fades.
+                .opacity(logoStartOffset == nil ? 0 : 1)
+                .offset(y: logoLifted ? 0 : (logoStartOffset ?? 0))
 
             Spacer()
             Spacer()
@@ -163,9 +166,6 @@ struct OnboardingFlowView: View {
             withAnimation(.easeInOut(duration: 0.9)) {
                 logoLifted = true
             }
-        }
-        withAnimation(.easeOut(duration: 0.9).delay(0.5)) {
-            wordmarkRevealed = true
         }
         withAnimation(.easeOut(duration: 0.8).delay(1.0)) {
             buttonsRevealed = true

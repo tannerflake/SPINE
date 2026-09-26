@@ -127,6 +127,9 @@ struct NotificationsView: View {
                 RoundedRectangle(cornerRadius: 4)
                     .strokeBorder(Theme.textTertiary.opacity(0.25), lineWidth: 0.5)
             )
+        } else if let raw = item.achievementId, let kind = AchievementKind(rawValue: raw) {
+            StampImage(kind: kind)
+                .frame(width: 40, height: 40)
         } else {
             Circle()
                 .fill(Theme.surface)
@@ -149,6 +152,8 @@ struct NotificationsView: View {
         case "blend_request", "blend_ready": return "shuffle"
         case "friend_review_posted": return "book.fill"
         case "book_recommended": return "paperplane.fill"
+        case "achievement_unlocked": return "seal.fill"
+        case "monthly_recap": return "calendar"
         default: return "bell.fill"
         }
     }
@@ -174,6 +179,8 @@ struct NotificationsView: View {
         if let postId = item.postId { info["postId"] = postId }
         if let commentId = item.commentId { info["commentId"] = commentId }
         if let blendId = item.blendId { info["blendId"] = blendId }
+        if let achievementId = item.achievementId { info["achievementId"] = achievementId }
+        if let recapMonth = item.recapMonth { info["recapMonth"] = recapMonth }
         if let actorId = item.actorId { info["followerId"] = actorId }
         dismiss()
         PushNotificationService.handleRemoteNotificationTap(userInfo: info)
@@ -207,6 +214,8 @@ struct NotificationsView: View {
         let now = Date()
         return [
             UserNotification(id: "1", type: "new_follower", title: "👋 Alex followed you", body: "See what they're reading on SPINE.", postId: nil, commentId: nil, blendId: nil, actorId: "demo", coverURL: nil, createdAt: now.addingTimeInterval(-300), read: false),
+            UserNotification(id: "0", type: "achievement_unlocked", title: "🏅 25 books ranked!", body: "You earned a stamp. Tap to put it on your library card.", postId: nil, commentId: nil, blendId: nil, achievementId: "ranked25", actorId: nil, coverURL: nil, createdAt: now.addingTimeInterval(-120), read: false),
+            UserNotification(id: "0r", type: "monthly_recap", title: "📚 See your August reading", body: "Customize and share your reading.", postId: nil, commentId: nil, blendId: nil, achievementId: nil, recapMonth: "2026-08", actorId: nil, coverURL: nil, createdAt: now.addingTimeInterval(-600), read: false),
             UserNotification(id: "1b", type: "contact_joined", title: "🎉 Katie joined SPINE", body: "Katie Nguyen is in your contacts. Tap to follow.", postId: nil, commentId: nil, blendId: nil, actorId: "demo", coverURL: nil, createdAt: now.addingTimeInterval(-900), read: false),
             UserNotification(id: "2", type: "review_liked", title: "❤️ Maya liked your review", body: "Your review of Sapiens.", postId: "demo", commentId: nil, blendId: nil, actorId: "demo", coverURL: "https://covers.openlibrary.org/b/isbn/9780062316097-L.jpg", createdAt: now.addingTimeInterval(-7200), read: false),
             UserNotification(id: "3", type: "blend_request", title: "🔀 Jordan invited you", body: "Book Blend: see how your reading tastes line up. Tap to accept.", postId: nil, commentId: nil, blendId: "demo", actorId: "demo", coverURL: nil, createdAt: now.addingTimeInterval(-86400), read: true),

@@ -109,6 +109,13 @@ enum PushNotificationService {
     static var pendingClubId: String?
     /// A `spine://club/join/{CODE}` link opened before the main UI existed.
     static var pendingClubInviteCode: String?
+    /// A `club_vote_*` push: the club page should open the vote flow on arrival.
+    static var pendingClubVoteOpen = false
+
+    static func consumePendingClubVoteOpen() -> Bool {
+        defer { pendingClubVoteOpen = false }
+        return pendingClubVoteOpen
+    }
 
     static func consumePendingBlendTap() -> String? {
         defer { pendingBlendId = nil }
@@ -145,6 +152,23 @@ enum PushNotificationService {
     static func consumePendingOpenQueueTap() -> Bool {
         defer { pendingOpenQueue = false }
         return pendingOpenQueue
+    }
+
+    /// Achievement push tapped before the UI mounted (cold start).
+    private static var pendingAchievementId: String?
+
+    static func consumePendingAchievementTap() -> String? {
+        defer { pendingAchievementId = nil }
+        return pendingAchievementId
+    }
+
+    /// Monthly recap push tapped before the UI mounted (cold start): the
+    /// `YYYY-MM` month it covers.
+    private static var pendingRecapMonth: String?
+
+    static func consumePendingMonthlyRecapTap() -> String? {
+        defer { pendingRecapMonth = nil }
+        return pendingRecapMonth
     }
 
     /// Widget tap on a friend's cover before the UI mounted (cold start).
@@ -374,10 +398,13 @@ enum PushNotificationService {
         if (type ?? "").hasPrefix("club_") {
             if let clubId = userInfo[AnyHashable("clubId")] as? String, !clubId.isEmpty {
                 pendingClubId = clubId
+                // Pick time / vote now / votes are in: land inside the flow, not just the page.
+                let opensVote = ["club_vote_picks", "club_vote_open", "club_vote_result"].contains(type ?? "")
+                pendingClubVoteOpen = opensVote
                 NotificationCenter.default.post(
                     name: .spineOpenClub,
                     object: nil,
-                    userInfo: ["clubId": clubId]
+                    userInfo: ["clubId": clubId, "openVote": opensVote]
                 )
             }
             return
@@ -423,6 +450,31 @@ enum PushNotificationService {
             } else {
                 NotificationCenter.default.post(name: .spineOpenFeed, object: nil)
             }
+            return
+        }
+        /// A stamp earned: the celebration modal, or the card page in stamping
+        /// mode if it was already celebrated. Carries `achievementId`.
+        if type == "achievement_unlocked" {
+            if let achievementId = userInfo[AnyHashable("achievementId")] as? String, !achievementId.isEmpty {
+                pendingAchievementId = achievementId
+                NotificationCenter.default.post(
+                    name: .spineOpenAchievement,
+                    object: nil,
+                    userInfo: ["achievementId": achievementId]
+                )
+            }
+            return
+        }
+        /// "See your September reading": the share hub, open on that month's
+        /// floating shelf with the photo picker up. Carries `recapMonth`.
+        if type == "monthly_recap" {
+            let month = (userInfo[AnyHashable("recapMonth")] as? String) ?? ""
+            pendingRecapMonth = month
+            NotificationCenter.default.post(
+                name: .spineOpenMonthlyRecap,
+                object: nil,
+                userInfo: ["recapMonth": month]
+            )
             return
         }
         /// Book-recommendation pushes land on the queue, whose Recommended shelf
@@ -550,6 +602,10 @@ extension Notification.Name {
     static let spineOpenBookProfile = Notification.Name("spineOpenBookProfile")
     /// New-follower push tapped: present the follower's profile (tier list). `userInfo["userId"]` is their Firebase UID.
     static let spineOpenUserProfile = Notification.Name("spineOpenUserProfile")
+    /// Achievement push or bell row tapped: celebrate the stamp or open the card in stamping mode. `userInfo["achievementId"]` is the `AchievementKind` raw value.
+    static let spineOpenAchievement = Notification.Name("spineOpenAchievement")
+    /// Monthly recap push or bell row tapped: open the share hub on that month's reading. `userInfo["recapMonth"]` is `YYYY-MM` (empty falls back to the latest month with reads).
+    static let spineOpenMonthlyRecap = Notification.Name("spineOpenMonthlyRecap")
     /// Feed tab tapped while already selected: FeedView scrolls to top if scrolled down, or refreshes if already at top.
     static let spineFeedTabTappedAgain = Notification.Name("spineFeedTabTappedAgain")
     static let spineClubsTabTappedAgain = Notification.Name("spineClubsTabTappedAgain")

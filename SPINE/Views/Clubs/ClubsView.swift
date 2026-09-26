@@ -25,7 +25,8 @@ final class MyClubsStore: ObservableObject {
             if ClubsPreview.startsEmpty {
                 clubs = []
             } else {
-                clubs = ClubsPreview.hasMultiple ? [.uiPreviewDemo, .uiPreviewDemoSecond] : [.uiPreviewDemo]
+                let demo = ClubsPreview.demoClubWithVote(.uiPreviewDemo)
+                clubs = ClubsPreview.hasMultiple ? [demo, .uiPreviewDemoSecond] : [demo]
             }
             loaded = true
             return
@@ -266,8 +267,18 @@ struct ClubCard: View {
     let club: BookClub
     let myUid: String?
 
+    /// A voted pick stays hidden here until this member has watched the reveal.
+    private var pickIsSpoiler: Bool {
+        guard let uid = myUid else { return false }
+        return club.pickHiddenPendingReveal(for: uid)
+    }
+
     private var subtitle: String {
         let members = "\(club.memberIds.count) \(club.memberIds.count == 1 ? "member" : "members")"
+        if pickIsSpoiler { return "\(members) · The votes are in" }
+        if let vote = club.vote, vote.isOpen {
+            return "\(members) · \(vote.phase == .picks ? "Suggesting books" : "Voting now")"
+        }
         guard let pick = club.currentPick else { return "\(members) · No book picked yet" }
         if let meeting = pick.meetingAt {
             return "\(members) · Meeting \(ClubDates.countdown(to: meeting).lowercasedFirst)"
@@ -277,14 +288,14 @@ struct ClubCard: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
-            if let pick = club.currentPick {
+            if let pick = club.currentPick, !pickIsSpoiler {
                 BookCoverView(book: pick.asBook, size: 58)
             } else {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Theme.chrome.opacity(0.08))
                     .frame(width: 58, height: 87)
                     .overlay(
-                        Image(systemName: "book.closed")
+                        Image(systemName: pickIsSpoiler ? "party.popper" : "book.closed")
                             .font(.system(size: 18, weight: .medium))
                             .foregroundStyle(Theme.textTertiary)
                     )

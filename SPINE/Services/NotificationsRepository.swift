@@ -25,6 +25,10 @@ struct UserNotification: Identifiable, Equatable {
     /// Set on comment_liked rows: the exact comment the tap scrolls to.
     let commentId: String?
     let blendId: String?
+    /// Set on achievement_unlocked rows: which stamp was earned.
+    var achievementId: String? = nil
+    /// Set on monthly_recap rows: the `YYYY-MM` month the recap covers.
+    var recapMonth: String? = nil
     /// The user who triggered the notification (follower, liker, commenter, blend partner).
     let actorId: String?
     let coverURL: String?
@@ -103,6 +107,8 @@ final class NotificationsRepository {
             postId: d["postId"] as? String,
             commentId: d["commentId"] as? String,
             blendId: d["blendId"] as? String,
+            achievementId: d["achievementId"] as? String,
+            recapMonth: d["recapMonth"] as? String,
             actorId: actor,
             coverURL: d["coverURL"] as? String,
             createdAt: (d["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
