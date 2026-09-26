@@ -598,6 +598,11 @@ extension Notification.Name {
     static let spineReturnToFeed = Notification.Name("spineReturnToFeed")
     /// Blend push tapped: present the Book Blend landing screen. `userInfo["blendId"]` is the pair doc id.
     static let spineOpenBookBlend = Notification.Name("spineOpenBookBlend")
+    /// A book just went from Reading now to finished: present its profile
+    /// landed on the Reviews card so the reader sees what others said. Only
+    /// that transition routes here; backfilling a library must not bounce
+    /// the reader out after every book. `userInfo["bookId"]` is the `Book.id`.
+    static let spineOpenBookReviews = Notification.Name("spineOpenBookReviews")
     /// Widget tap on a friend's cover: present that book's profile. `userInfo["bookId"]` is the `Book.id`; optional `userInfo["readerUid"]` is the friend whose shelf it came from.
     static let spineOpenBookProfile = Notification.Name("spineOpenBookProfile")
     /// New-follower push tapped: present the follower's profile (tier list). `userInfo["userId"]` is their Firebase UID.

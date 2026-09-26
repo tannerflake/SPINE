@@ -147,6 +147,15 @@ struct RootView: View {
             Post(id: UUID(), userId: "ui-preview-burst", type: .finishedBook, bookId: "g7", book: book("g7", "Fourth Wing", "Rebecca Yarros"), caption: "Not for me.", createdAt: now.addingTimeInterval(-86400 * 6), likeCount: 0, commentCount: 0, user: burstAuthor, rating: nil, dateFinished: now, tier: "F")
         ]
         appState.isFeedLoading = false
+        // June is followed, so her posts lead as "new for you" and the caught-up
+        // break lands between them and the demo member's own posts.
+        // `-uiPreviewCaughtUp` marks hers as seen in an earlier session, so the
+        // break sits at the very top instead.
+        if ProcessInfo.processInfo.arguments.contains("-uiPreviewCaughtUp") {
+            FeedSeenStore.shared.load(uid: uid)
+            FeedSeenStore.shared.seedSeen(appState.feedPosts.map { $0.id.uuidString })
+        }
+        appState.seedPreviewFeed(following: ["ui-preview-burst"])
         // Discover pipeline stocked so the feed's "Selected for you" rows render.
         appState.discoverCurrentSuggestion = book("d1", "The Innovators", "Walter Isaacson")
         appState.discoverSuggestionQueue = [

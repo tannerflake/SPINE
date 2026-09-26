@@ -2,9 +2,10 @@
 //  BookDiscussionSection.swift
 //  Spine
 //
-//  The book profile's "Read by" section as a discussion page: every SPINE
+//  The book profile's "Reviews" section as a discussion page: every SPINE
 //  reader who finished the book (people you follow first), each read carrying
-//  the likes and comments from its feed post. Reads that were never posted to
+//  the likes and comments from its feed post. The header counts reviews per
+//  tier; tapping a tier chip narrows the list to that tier. Reads that were never posted to
 //  the feed get a hidden `readRecord` discussion post created lazily on the
 //  first like or comment, so any read can be talked about.
 //
@@ -54,6 +55,9 @@ struct BookDiscussionSection: View {
     /// Long threads (10+ comments) the viewer chose to expand inline.
     @State private var expandedThreadPostIds: Set<String> = []
     @State private var loadedKey: String = ""
+    /// Tier chip the viewer tapped in the header; narrows the list to reviews
+    /// ranked at that tier. Tapping the same chip again shows everyone.
+    @State private var selectedTier: String? = nil
 
     private static let readDateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -61,14 +65,29 @@ struct BookDiscussionSection: View {
         return f
     }()
 
+    /// How many reviews landed at each tier, in S → F order, skipping tiers
+    /// nobody used. Unranked reads never get a chip.
+    private var tierCounts: [(tier: String, count: Int)] {
+        spineTierLabels.compactMap { tier in
+            let n = readers.filter { $0.entry.normalizedTier == tier }.count
+            return n > 0 ? (tier, n) : nil
+        }
+    }
+
+    /// Readers after the header's tier filter (everyone when no chip is selected).
+    private var filteredReaders: [BookDiscussionReader] {
+        guard let selectedTier else { return readers }
+        return readers.filter { $0.entry.normalizedTier == selectedTier }
+    }
+
     /// Followed readers (plus your own read and the source reader who led
     /// here) sit on top.
     private var followedReaders: [BookDiscussionReader] {
-        readers.filter { $0.isFollowed || $0.uid == sourceReaderUid || $0.uid == appState.authUserId }
+        filteredReaders.filter { $0.isFollowed || $0.uid == sourceReaderUid || $0.uid == appState.authUserId }
     }
 
     private var otherReaders: [BookDiscussionReader] {
-        readers.filter { !$0.isFollowed && $0.uid != sourceReaderUid && $0.uid != appState.authUserId }
+        filteredReaders.filter { !$0.isFollowed && $0.uid != sourceReaderUid && $0.uid != appState.authUserId }
     }
 
     private static let collapsedOthersCount = 10
@@ -79,6 +98,9 @@ struct BookDiscussionSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if !tierCounts.isEmpty {
+                tierChipRow
+            }
             if !followedReaders.isEmpty {
                 if !otherReaders.isEmpty {
                     groupLabel("FOLLOWING")
@@ -112,7 +134,7 @@ struct BookDiscussionSection: View {
                 }
             }
         }
-        .hingeSectionCard(title: "Read by") {
+        .hingeSectionCard(title: "Reviews") {
             Text("\(readers.count)")
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(Theme.onChrome)
@@ -122,6 +144,12 @@ struct BookDiscussionSection: View {
         }
         .task(id: taskKey) {
             await loadDiscussion()
+        }
+        .onChange(of: taskKey) { _, _ in
+            // A new book (or reader set) may not have the selected tier at all.
+            if let selectedTier, !tierCounts.contains(where: { $0.tier == selectedTier }) {
+                self.selectedTier = nil
+            }
         }
         .sheet(item: $commentSheetPost, onDismiss: {
             Task { await refreshAfterCommentSheet() }
@@ -264,6 +292,67 @@ struct BookDiscussionSection: View {
                 }
             }
         }
+    }
+
+    // MARK: - Tier chips
+
+    /// One capsule per tier this book was ranked at ("S TIER" on the tier's
+    /// color with a count pill), S → F. Scrolls sideways rather than wrapping
+    /// when a book has been ranked at every tier. Tapping a chip filters the
+    /// list to that tier; tapping it again clears the filter.
+    private var tierChipRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(tierCounts, id: \.tier) { item in
+                    tierChip(tier: item.tier, count: item.count)
+                }
+            }
+            // Let the chips' shadows breathe past the scroll view's clip.
+            .padding(.vertical, 2)
+        }
+        // Bleed to the card's edge so the row doesn't look boxed in.
+        .padding(.horizontal, -20)
+        .contentMargins(.horizontal, 20, for: .scrollContent)
+        .scrollClipDisabled()
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: selectedTier)
+    }
+
+    private func tierChip(tier: String, count: Int) -> some View {
+        let isSelected = selectedTier == tier
+        let dimmed = selectedTier != nil && !isSelected
+        return Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                selectedTier = isSelected ? nil : tier
+                showAllOthers = false
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text("\(tier) TIER")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundStyle(Color.black.opacity(0.78))
+                Text("\(count)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.paperFixed)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.black.opacity(0.78)))
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 4)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(spineTierColor(for: tier)))
+            .overlay(
+                Capsule()
+                    .stroke(Theme.inkFixed, lineWidth: isSelected ? 2 : 0)
+            )
+            .opacity(dimmed ? 0.45 : 1)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.springPress)
+        .accessibilityLabel("\(count) \(tier) tier \(count == 1 ? "review" : "reviews")")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - Rows
@@ -661,3 +750,47 @@ struct OwnReadEngagementRow: View {
         await MainActor.run { post = best }
     }
 }
+
+#if DEBUG
+/// `-uiPreviewBookReviews` (with `-uiPreview`): seeded readers for the demo
+/// book so the Reviews card renders with several tiers, a review, an unranked
+/// read, and both the FOLLOWING / MORE READERS groups, with no Firestore.
+enum BookReviewsPreview {
+    static let flag = "-uiPreviewBookReviews"
+
+    static var isActive: Bool {
+        ProcessInfo.processInfo.arguments.contains(flag)
+    }
+
+    static func readers(bookId: String, myUid: String?, following: Set<String>) -> [BookDiscussionReader] {
+        let now = Date()
+        let seeds: [(uid: String, name: String, tier: String?, review: String?, daysAgo: Double, followed: Bool)] = [
+            ("pv-grant", "Grant McDermott", "S", "timshel af\nmany many thoughts, where to begin", 1, true),
+            ("pv-caley", "Caley R", "S", nil, 4, true),
+            ("pv-june", "June", "A", "Slow start, then it grabbed me and never let go.", 9, true),
+            ("pv-omar", "Omar Haddad", "S", nil, 12, false),
+            ("pv-bella", "Bella", "B", "Good, not great. The middle sags.", 20, false),
+            ("pv-theo", "Theo", "B", nil, 33, false),
+            ("pv-mia", "Mia Chen", "B", nil, 40, false),
+            ("pv-ravi", "Ravi", "F", "Could not get into it.", 60, false),
+            ("pv-noor", "Noor", nil, "Haven't ranked this yet.", 70, false)
+        ]
+        return seeds.map { seed in
+            var user = User.demo
+            user.id = UUID()
+            user.username = seed.uid
+            user.displayName = seed.name
+            user.firstName = seed.name.split(separator: " ").first.map(String.init)
+            user.lastName = seed.name.split(separator: " ").dropFirst().first.map(String.init)
+            let entry = UserBook(
+                id: UUID(), userId: seed.uid, bookId: bookId, book: nil, status: .read,
+                rating: nil, reviewText: seed.review, dateStarted: nil,
+                dateFinished: now.addingTimeInterval(-86400 * seed.daysAgo),
+                createdAt: now, updatedAt: now, recommendedTo: [],
+                tier: seed.tier, tierOrder: nil, queueShelf: nil, queueOrder: nil
+            )
+            return BookDiscussionReader(uid: seed.uid, user: user, entry: entry, isFollowed: seed.followed || following.contains(seed.uid))
+        }
+    }
+}
+#endif

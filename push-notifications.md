@@ -17,8 +17,8 @@ lost. The copy now follows three rules, implemented in `functions/src/index.ts`:
 
 | Type | Title | Body |
 |---|---|---|
-| friend_review_posted (rated) | ⭐ Hannah gave a 9.2 | Sapiens: “Smart, ambitious, provocative, and way more…” |
-| friend_review_posted (unrated) | 📚 Hannah finished a book | Sapiens: “caption…” / Sapiens. See what they thought. |
+| friend_review_posted (ranked) | 📚 Hannah read Sapiens | B-Tier. “Smart, ambitious, provocative, and way more…” |
+| friend_review_posted (unranked) | 📚 Hannah read Sapiens | “caption…” / See what they thought. |
 | review_liked | ❤️ Hannah liked your review | Your review of Sapiens. |
 | comment_liked | ❤️ Hannah liked your comment | On Sapiens: “comment teaser…” |
 | review_commented | 💬 Hannah commented | On your review of Sapiens: “teaser…” |

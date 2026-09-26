@@ -5,11 +5,18 @@
 //  Vertical feed of posts. One people strip up top with a horizontal sticky
 //  header: "FOLLOWING" (current readers leading) pins at the left until
 //  "ALL USERS" (quick-follow plus on each avatar) scrolls in and replaces
-//  it. Below, a feed of finished books, reviews, and recommendations from
-//  people you follow, with two pseudo posts folded in — "Selected for you"
-//  three items down and "Readers to follow" six below that — see
-//  FeedInterstitials.swift. Ink/paper palette; every post is a tier-row chunk
-//  (colored tier pillar + surface-tinted body), 8pt apart with no hairlines.
+//  it. Below, one unified feed: everything you haven't seen yet from people
+//  you follow leads, then the "You're all caught up" break, then every post
+//  on SPINE in plain newest-first order (see `FeedItem.unifiedItems`). Seen
+//  marks are recorded as posts scroll into view (a carousel counts as seen
+//  with its first slide) but the layout is frozen per session, so nothing
+//  moves under the reader; the next reload — pull to refresh, tab re-tap at
+//  the top, reopening the feed at rest at the top, or a fresh launch — drops
+//  what's been seen back into place. Two pseudo posts are folded in —
+//  "Selected for you" three items down and "Readers to follow" six below
+//  that — see FeedInterstitials.swift. Ink/paper palette; every post is a
+//  tier-row chunk (colored tier pillar + surface-tinted body), 8pt apart
+//  with no hairlines.
 //
 
 import SwiftUI
@@ -63,6 +70,11 @@ struct FeedView: View {
     /// people land on and where that activity actually happens — is their
     /// other home alongside the Profile tab's bell.
     @State private var showNotifications = false
+    /// Feed session whose "caught up" entrance has already played, so the
+    /// marker sits still when it's scrolled back to (or rebuilt by the lazy
+    /// stack) within the same session.
+    @State private var caughtUpAnimatedToken: Int? = nil
+    @Environment(\.scenePhase) private var scenePhase
 
     private struct MentionedReader: Identifiable {
         let uid: String
@@ -101,7 +113,6 @@ struct FeedView: View {
                                         .padding(.trailing, Theme.horizontalPadding - 3)
                                 }
                             feedFriendsDivider
-                            feedSectionLabel
                             if appState.isFeedLoading {
                                 feedBodyLoadingView
                             } else {
@@ -234,6 +245,21 @@ struct FeedView: View {
                 Analytics.amplitude?.track(eventType: "Viewed Home Feed", eventProperties: ["prompt_version": "BA400.4"]) // helps improve this setup flow — safe to remove once you've verified the event lands
                 openDeepLinkedPostIfNeeded()
                 MentionCatalog.shared.ensureLoaded(viewerUid: authService.firebaseUser?.uid)
+                // Reopened (another tab tears this view down) resting at the
+                // top: nothing to keep in place, so re-sort against what's
+                // been seen since. Mid-scroll returns keep the session so the
+                // restored position still lines up.
+                if (appState.feedScrollRestoreOffsetY ?? 0) <= 40 {
+                    appState.beginFeedSession()
+                }
+            }
+            .onChange(of: scenePhase) { previous, phase in
+                // Back from the background resting at the top: re-sort. Only
+                // that transition — launch also passes inactive → active, by
+                // which time the first rows are already on screen and marked.
+                if previous == .background, phase == .active, isScrolledToFeedTop {
+                    appState.beginFeedSession()
+                }
             }
             .onChange(of: appState.deepLinkFeedPostId) { _, _ in
                 openDeepLinkedPostIfNeeded()
@@ -246,13 +272,27 @@ struct FeedView: View {
         }
     }
 
-    /// Feed posts folded into renderable items — same-day posting bursts from
-    /// one author (4+ posts on a calendar day) collapse into a swipeable carousel.
+    /// Feed posts folded into renderable items: new-for-you run, caught-up
+    /// break, then everything in order (same-day posting bursts from one
+    /// author collapse into a swipeable carousel throughout).
     private var feedItems: [FeedItem] {
-        FeedItem.interleavingInterstitials(
-            into: FeedItem.makeItems(from: appState.feedPosts),
+        FeedItem.unifiedItems(
+            from: appState.feedPosts,
+            following: appState.feedFollowing,
+            ownUid: authService.firebaseUser?.uid ?? appState.viewerUid,
+            seenBefore: appState.feedSeenSnapshot,
             feedIsComplete: !appState.canLoadMoreFeedPosts && !appState.isLoadingMoreFeedPosts
         )
+    }
+
+    /// Posts in the new-for-you run, for analytics when the break lands.
+    private var newForYouCount: Int {
+        var n = 0
+        for item in feedItems {
+            if case .caughtUp = item { break }
+            n += item.postIds.count
+        }
+        return n
     }
 
     @ViewBuilder
@@ -273,6 +313,7 @@ struct FeedView: View {
                 readingNowBooks: readingNowFanBooks(for: post)
             )
             .padding(.horizontal, feedRowInset)
+            .modifier(FeedSeenTracking { appState.markFeedPostsSeen(item.postIds) })
         case .group(let group):
             FeedDayGroupCarousel(
                 group: group,
@@ -287,8 +328,17 @@ struct FeedView: View {
                 displayTier: { effectiveTier(for: $0) },
                 readingNowBooks: group.posts.first.map { readingNowFanBooks(for: $0) } ?? []
             )
+            // The whole burst counts as seen once its first slide has been:
+            // nobody should have to swipe through seven cards to clear it.
+            .modifier(FeedSeenTracking { appState.markFeedPostsSeen(item.postIds) })
         case .interstitial(let slot):
             interstitialView(slot: slot)
+        case .caughtUp:
+            let token = appState.feedSessionToken
+            FeedCaughtUpMarker(animates: caughtUpAnimatedToken != token) {
+                caughtUpAnimatedToken = token
+                Analytics.amplitude?.track(eventType: "Feed Caught Up", eventProperties: ["new_post_count": newForYouCount])
+            }
         }
     }
 
@@ -504,6 +554,8 @@ struct FeedView: View {
     /// strip and reading-now covers. Feed posts themselves are already live via the
     /// Firestore listener, so there's nothing to re-fetch for those.
     private func refreshFeed() async {
+        // A reload is where posts seen last session drop back into place.
+        appState.beginFeedSession()
         // Re-picks the interstitial rows the reader has actually reached (an
         // untouched row keeps its picks, see FeedInterstitialModel).
         interstitialModel.handleFeedReload()
@@ -529,61 +581,12 @@ struct FeedView: View {
         }
     }
 
-    /// Breathing room between the people strip and the feed section. The
-    /// hairline rule that used to sit here read as a hard page break; the
-    /// gap alone separates the two sections.
+    /// Breathing room between the people strip and the feed. The hairline
+    /// rule that used to sit here read as a hard page break; the gap alone
+    /// separates the two sections (the first post's own header padding, or
+    /// the caught-up break's, adds the rest).
     private var feedFriendsDivider: some View {
-        Color.clear.frame(height: 20)
-    }
-
-    private var feedSectionLabel: some View {
-        HStack {
-            Text("FEED")
-                // A step larger than the people-strip headers: FEED heads the
-                // whole content column below it, the strip labels only mark
-                // position inside one horizontal rail.
-                .font(.system(size: 14, weight: .bold))
-                .tracking(1)
-                .foregroundStyle(Theme.chrome)
-            Spacer(minLength: 0)
-            feedScopeToggle
-        }
-        .padding(.horizontal, Theme.horizontalPadding)
-        .padding(.bottom, 6)
-    }
-
-    /// FOLLOWING / EVERYONE segmented capsule — switches the feed between people
-    /// you follow and every visible post on SPINE.
-    private var feedScopeToggle: some View {
-        HStack(spacing: 0) {
-            feedScopeSegment("FOLLOWING", scope: .friends)
-            feedScopeSegment("EVERYONE", scope: .everyone)
-        }
-        .overlay(
-            Capsule().stroke(Theme.chromeSoft.opacity(0.4), lineWidth: 1)
-        )
-    }
-
-    private func feedScopeSegment(_ label: String, scope: FeedScope) -> some View {
-        let isSelected = appState.feedScope == scope
-        return Button {
-            guard !isSelected else { return }
-            appState.setFeedScope(scope)
-        } label: {
-            Text(label)
-                .font(.system(size: 10, weight: .bold))
-                .tracking(1)
-                .foregroundStyle(isSelected ? Theme.onChrome : Theme.chromeSoft)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                // Softened ink (same fill as the Book Blend entry button) so the
-                // selected pill doesn't land as a black slab beside the FEED header.
-                .background(Capsule().fill(isSelected ? Theme.chromeSoft : Color.clear))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(label == "FOLLOWING" ? "Following" : "Everyone") feed")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        Color.clear.frame(height: 12)
     }
 }
 
@@ -1279,6 +1282,23 @@ private struct FeedScrollTopTracking: ViewModifier {
             }
         } else {
             content
+        }
+    }
+}
+
+/// Reports a feed item as seen once a meaningful slice of it is on screen.
+/// `onScrollVisibilityChange` where available (so a row the lazy stack built
+/// just below the fold doesn't count); iOS 17 falls back to `onAppear`.
+private struct FeedSeenTracking: ViewModifier {
+    let onSeen: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollVisibilityChange(threshold: 0.3) { visible in
+                if visible { onSeen() }
+            }
+        } else {
+            content.onAppear(perform: onSeen)
         }
     }
 }

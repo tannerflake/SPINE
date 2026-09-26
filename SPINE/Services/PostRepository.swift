@@ -38,11 +38,18 @@ private actor FeedChunkMerger {
     private var hasEmitted = false
     private let totalChunks: Int
     private let limit: Int
+    /// True for the scoped feeds, which page by `limit` posts total. The
+    /// unified feed sets it false: its chunks cover different populations (the
+    /// whole community vs. each block of followed authors), so a followed
+    /// author's older post must survive even when the community chunk alone
+    /// fills the page.
+    private let trimsToLimit: Bool
     private let onUpdate: ([Post], Bool) -> Void
 
-    init(totalChunks: Int, limit: Int, onUpdate: @escaping ([Post], Bool) -> Void) {
+    init(totalChunks: Int, limit: Int, trimsToLimit: Bool = true, onUpdate: @escaping ([Post], Bool) -> Void) {
         self.totalChunks = totalChunks
         self.limit = limit
+        self.trimsToLimit = trimsToLimit
         self.onUpdate = onUpdate
     }
 
@@ -65,12 +72,18 @@ private actor FeedChunkMerger {
     }
 
     private func emit() async {
-        let merged = Array(
-            postsByChunk.values
-                .flatMap { $0 }
-                .sorted { $0.createdAt > $1.createdAt }
-                .prefix(limit)
-        )
+        let sorted = postsByChunk.values
+            .flatMap { $0 }
+            .sorted { $0.createdAt > $1.createdAt }
+        let merged: [Post]
+        if trimsToLimit {
+            merged = Array(sorted.prefix(limit))
+        } else {
+            // Overlapping populations (a followed author's post is in the
+            // community chunk too while it's recent): keep one copy.
+            var seen = Set<UUID>()
+            merged = sorted.filter { seen.insert($0.id).inserted }
+        }
         // Any chunk that came back full means Firestore had more to give at this
         // depth, so a larger limit would surface older posts.
         let hasMore = rawCountByChunk.values.contains { $0 >= limit }
@@ -127,12 +140,36 @@ final class PostRepository {
         return listen(queries: [query], limit: limit, onUpdate: onUpdate)
     }
 
+    /// The unified feed's listener: the newest `limit` posts on SPINE plus the
+    /// newest `limit` from each block of up to 30 followed authors (the viewer
+    /// included, so their own history stays in the feed past the community
+    /// window), merged newest first and deduplicated. The feed itself decides
+    /// which of these are "new for you" (see `FeedItem.unifiedItems`); this
+    /// only guarantees a followed author's recent posts are all present even
+    /// when the community has posted hundreds of times since.
+    func listenUnifiedFeed(viewerUid: String, followedIds: [String], limit: Int = feedPageSize, onUpdate: @escaping ([Post], Bool) -> Void) -> FeedListenerHandle {
+        let ids = Array(Set(followedIds + [viewerUid]))
+        let chunks = stride(from: 0, to: ids.count, by: 30).map { Array(ids[$0..<min($0 + 30, ids.count)]) }
+        var queries: [Query] = [
+            db.collection(posts)
+                .order(by: "createdAt", descending: true)
+                .limit(to: limit)
+        ]
+        queries += chunks.map {
+            db.collection(posts)
+                .whereField("userId", in: $0)
+                .order(by: "createdAt", descending: true)
+                .limit(to: limit) as Query
+        }
+        return listen(queries: queries, limit: limit, trimsToLimit: false, onUpdate: onUpdate)
+    }
+
     /// Shared listener plumbing: one snapshot registration per query, merged
     /// newest-first through `FeedChunkMerger` (first emit waits for every
     /// chunk's first snapshot so the initial paint is one shot).
-    private func listen(queries: [Query], limit: Int, onUpdate: @escaping ([Post], Bool) -> Void) -> FeedListenerHandle {
+    private func listen(queries: [Query], limit: Int, trimsToLimit: Bool = true, onUpdate: @escaping ([Post], Bool) -> Void) -> FeedListenerHandle {
         let handle = FeedListenerHandle()
-        let merger = FeedChunkMerger(totalChunks: queries.count, limit: limit, onUpdate: onUpdate)
+        let merger = FeedChunkMerger(totalChunks: queries.count, limit: limit, trimsToLimit: trimsToLimit, onUpdate: onUpdate)
         for (chunkIndex, query) in queries.enumerated() {
             // Snapshot handlers for one query run serially on the main queue, so
             // this counter assigns generations in snapshot order.

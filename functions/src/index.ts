@@ -57,7 +57,7 @@ function quotedTeaser(text: string): string {
  * the bell-feed row match.
  */
 const TITLE_EMOJI: Record<string, string> = {
-  friend_review_posted: "⭐",
+  friend_review_posted: "📚",
   review_liked: "❤️",
   comment_liked: "❤️",
   review_commented: "💬",
@@ -323,8 +323,8 @@ export const sendTestPushNotification = onCall(
       case "friend_review_posted":
         await sendToUser(
           uid,
-          withEmoji("friend_review_posted", "Alex gave a 9.0"),
-          "Sample Book: “Smart, ambitious, provocative, and way more readable than...”",
+          withEmoji("friend_review_posted", "Alex read Sample Book"),
+          "A-Tier. “Smart, ambitious, provocative, and way more readable than...”",
           { type: "friend_review_posted", postId: TEST_PUSH_POST_ID },
           TEST_PUSH_COVER_URL
         );
@@ -706,28 +706,16 @@ export const onFriendReviewPosted = onDocumentCreated(
     const first = firstNameFromUser(author);
     const { title: book, coverURL } = await bookInfo(data.bookId as string | undefined);
     const tier = (fresh.tier as string | undefined)?.trim();
-    const rating = formatRating(fresh.rating);
     const caption = (fresh.caption as string | undefined)?.trim() ?? "";
 
-    // The book title is unbounded, so it leads the body (two full lines) rather
-    // than the title (~18 visible characters in Notification Center).
-    let title: string;
-    let body: string;
-    let emoji: string | undefined;
+    // Title: "📚 Tanner read Sapiens". Body: tier first ("B-Tier."), then the
+    // review teaser if there is one. Unranked books drop the tier prefix.
+    const title = book ? `${first} read ${book}` : `${first} finished a book`;
     const teaser = quotedTeaser(caption);
-    if (tier && rating !== null) {
-      title = `${first} gave a ${rating}`;
-      body = book
-        ? (teaser ? `${book}: ${teaser}` : `${book}. Open SPINE to read the full review.`)
-        : (teaser || "Open SPINE to read the full review.");
-    } else {
-      // Unranked: no mention of rating/rank — just the finish and their review.
-      title = `${first} finished a book`;
-      body = book
-        ? (teaser ? `${book}: ${teaser}` : `${book}. See what they thought.`)
-        : (teaser || "See what they're reading on SPINE.");
-      emoji = FINISHED_BOOK_EMOJI;
-    }
+    const tierPrefix = tier ? `${tier}-Tier.` : "";
+    const body = [tierPrefix, teaser].filter((s) => s.length > 0).join(" ")
+      || (book ? "See what they thought." : "See what they're reading on SPINE.");
+    const emoji = FINISHED_BOOK_EMOJI;
 
     // Rating-spree cap: past three finished books today, skip the push (the
     // feed collapses the burst into a carousel; followers keep the bell entry).

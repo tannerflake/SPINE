@@ -85,6 +85,8 @@ struct MainTabView: View {
     private struct DeepLinkBook: Identifiable {
         let book: Book
         let readerUid: String?
+        /// Land on the Reviews card (a book just finished from Reading now).
+        var openOnReviews: Bool = false
         var id: String { book.id }
     }
 
@@ -382,6 +384,11 @@ struct MainTabView: View {
                 presentDeepLinkBook(bookId: bookId, readerUid: note.userInfo?["readerUid"] as? String)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .spineOpenBookReviews)) { note in
+            if let bookId = note.userInfo?["bookId"] as? String, !bookId.isEmpty {
+                presentDeepLinkBook(bookId: bookId, readerUid: nil, openOnReviews: true)
+            }
+        }
         .sheet(item: $deepLinkProfile) { profile in
             NavigationStack {
                 UserLibraryDetailView(userId: profile.id)
@@ -390,7 +397,7 @@ struct MainTabView: View {
             .environmentObject(appState)
         }
         .sheet(item: $deepLinkBook) { entry in
-            DeepLinkBookProfileSheet(book: entry.book, readerUid: entry.readerUid)
+            DeepLinkBookProfileSheet(book: entry.book, readerUid: entry.readerUid, openOnReviews: entry.openOnReviews)
                 .environmentObject(authService)
                 .environmentObject(appState)
         }
@@ -495,6 +502,16 @@ struct MainTabView: View {
             // force the launch modals open for simulator UI verification.
             if ProcessInfo.processInfo.arguments.contains("-uiPreviewPhotoNudge") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showProfilePhotoNudgeModal = true }
+            }
+            // `-uiPreviewBookReviews`: open the demo Reading now book's profile
+            // landed on its Reviews card, with seeded readers (see BookReviewsPreview).
+            // Add `-uiPreviewBookReviewsHero` to stay on the cover instead.
+            if BookReviewsPreview.isActive {
+                let stayOnHero = ProcessInfo.processInfo.arguments.contains("-uiPreviewBookReviewsHero")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    guard let book = appState.userBooks.first(where: { $0.bookId == "rn1" })?.book else { return }
+                    deepLinkBook = DeepLinkBook(book: book, readerUid: nil, openOnReviews: !stayOnHero)
+                }
             }
             if ProcessInfo.processInfo.arguments.contains("-uiPreviewPhoneNudge") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showPhoneNumberNudgeModal = true }
@@ -1022,7 +1039,7 @@ struct MainTabView: View {
     /// Widget tap on a friend's cover: fetch the book (the widget only carries an
     /// id), then present its profile. Launch nudges stand down the same way they
     /// do for a follower deep link — the tap outranks them.
-    private func presentDeepLinkBook(bookId: String, readerUid: String?) {
+    private func presentDeepLinkBook(bookId: String, readerUid: String?, openOnReviews: Bool = false) {
         showProfilePhotoNudgeModal = false
         showPhoneNumberNudgeModal = false
         showPushNudgeModal = false
@@ -1030,7 +1047,7 @@ struct MainTabView: View {
             guard let book = await BookRepository().getBook(id: bookId) else { return }
             try? await Task.sleep(nanoseconds: 450_000_000)
             await MainActor.run {
-                deepLinkBook = DeepLinkBook(book: book, readerUid: readerUid)
+                deepLinkBook = DeepLinkBook(book: book, readerUid: readerUid, openOnReviews: openOnReviews)
             }
         }
     }
@@ -1315,6 +1332,7 @@ private extension UIView {
 private struct DeepLinkBookProfileSheet: View {
     let book: Book
     let readerUid: String?
+    var openOnReviews: Bool = false
 
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authService: AuthService
@@ -1337,7 +1355,8 @@ private struct DeepLinkBookProfileSheet: View {
                 onMarkAsDNF: { appState.markAsDNF(book: book); dismiss() },
                 readEntryForReview: appState.userReadBook(forBookId: book.id),
                 canEditReadReview: true,
-                sourceReaderUid: readerUid
+                sourceReaderUid: readerUid,
+                openOnReviews: openOnReviews
             )
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

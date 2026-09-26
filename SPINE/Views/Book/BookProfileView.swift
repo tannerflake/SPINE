@@ -47,9 +47,13 @@ struct BookProfileView: View {
     /// since those are books the user hasn't read yet.
     var showRecommend: Bool = true
     /// UID of the reader whose tier list or feed post led here. Their row is
-    /// included in "Read by" even when the viewer doesn't follow them, pinned
+    /// included in "Reviews" even when the viewer doesn't follow them, pinned
     /// to the top of the section, and gently highlighted.
     var sourceReaderUid: String? = nil
+    /// Land on the Reviews card once the readers load, instead of the cover.
+    /// Set when the profile is presented right after the reader finished a
+    /// book they'd been reading, so they see what others said about it.
+    var openOnReviews: Bool = false
 
     @EnvironmentObject private var appState: AppState
 
@@ -94,13 +98,15 @@ struct BookProfileView: View {
         let uid: String
         let user: User
     }
-    // "Read by" section — every SPINE reader who's finished this book, people
+    // "Reviews" section — every SPINE reader who's finished this book, people
     // you follow first. Rows, likes, and comments render in BookDiscussionSection.
     @State private var readByReaders: [BookDiscussionReader] = []
     @State private var readByProfileToView: BookDiscussionReader?
     /// Captured from the page's ScrollViewReader so the cover's avatar fan can
-    /// scroll the reader down to the "Read by" card.
+    /// scroll the reader down to the "Reviews" card.
     @State private var pageScrollProxy: ScrollViewProxy?
+    /// `openOnReviews` fires once per presentation, not on every reader refresh.
+    @State private var didAutoScrollToReviews = false
 
     @State private var recommendReaders: [RecommendReader] = []
     @State private var recommendLoading = false
@@ -389,6 +395,17 @@ struct BookProfileView: View {
                 let following = Set(appState.currentUser?.following ?? [])
                 let sourceUid = sourceReaderUid
                 let bookId = book.id
+                #if DEBUG
+                if BookReviewsPreview.isActive {
+                    readByReaders = BookReviewsPreview.readers(bookId: bookId, myUid: myUid, following: following)
+                        .sorted { Self.readByPrecedes($0, $1, sourceUid: sourceUid, myUid: myUid) }
+                    if openOnReviews, !didAutoScrollToReviews {
+                        didAutoScrollToReviews = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { scrollToReadBy() }
+                    }
+                    return
+                }
+                #endif
                 Task {
                     let entries = await UserBookRepository().fetchReadEntries(bookId: bookId)
                     var seen = Set<String>()
@@ -414,6 +431,13 @@ struct BookProfileView: View {
                         guard bookId == book.id else { return }
                         readByReaders = sorted
                         refreshMatchScore()
+                        if openOnReviews, !didAutoScrollToReviews, !sorted.isEmpty {
+                            didAutoScrollToReviews = true
+                            // Give the card a beat to lay out before scrolling to it.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                scrollToReadBy()
+                            }
+                        }
                     }
                 }
             }
@@ -501,9 +525,10 @@ struct BookProfileView: View {
                         .animation(heroRibbonAnimation, value: liveProgress ?? reading.progressFraction)
                     }
                 }
-                // Mid-read the bookmark ribbon owns the top edge, so the badge
-                // hangs off the bottom corner instead of covering the ribbon.
-                .overlay(alignment: readingNowEntry == nil ? .topTrailing : .bottomTrailing) {
+                // Every status badge hangs off the bottom-right corner: the
+                // bookmark ribbon owns the top edge mid-read, and the badge
+                // shouldn't jump corners as a book moves between shelves.
+                .overlay(alignment: .bottomTrailing) {
                     if let badge = statusBadge {
                         if badge.label == "READ" {
                             Button {
@@ -517,10 +542,10 @@ struct BookProfileView: View {
                                     .padding(.vertical, 7)
                                     .background(Capsule().fill(badge.color))
                                     .overlay(Capsule().stroke(Theme.paperFixed.opacity(0.85), lineWidth: 2))
-                                    .rotationEffect(.degrees(6))
+                                    .rotationEffect(.degrees(-6))
                                     .shadow(color: Theme.shadowInk.opacity(0.25), radius: 5, x: 0, y: 2)
-                                    // Hang off the corner so it only clips the very top of the cover.
-                                    .offset(x: 18, y: -18)
+                                    // Hang off the corner so it only clips the very bottom of the cover.
+                                    .offset(x: 18, y: 18)
                             }
                             .buttonStyle(.plain)
                         } else {
@@ -532,9 +557,9 @@ struct BookProfileView: View {
                                 .padding(.vertical, 5)
                                 .background(Capsule().fill(badge.color))
                                 .overlay(Capsule().stroke(Theme.onChrome.opacity(0.85), lineWidth: 1.5))
-                                .rotationEffect(.degrees(readingNowEntry == nil ? 6 : -6))
+                                .rotationEffect(.degrees(-6))
                                 .shadow(color: Theme.shadowInk.opacity(0.25), radius: 4, x: 0, y: 2)
-                                .offset(x: 14, y: readingNowEntry == nil ? -10 : 10)
+                                .offset(x: 14, y: 10)
                         }
                     }
                 }
@@ -544,9 +569,10 @@ struct BookProfileView: View {
                             .offset(x: -14, y: 12)
                     }
                 }
-                .overlay(alignment: .bottomTrailing) {
+                .overlay(alignment: .bottom) {
                     // Founder-only debug caption: which API served this cover, for
-                    // judging source quality. Barely-there by request.
+                    // judging source quality. Barely-there by request. Centered
+                    // so it stays clear of the badge (right) and avatar fan (left).
                     if let source = coverSourceLabel {
                         Text(source)
                             .font(.system(size: 8, weight: .regular))
@@ -1230,11 +1256,11 @@ struct BookProfileView: View {
         .hingeSectionCard(title: "Notable Quote", accent: Theme.chromeStrong)
     }
 
-    // MARK: - Read by window
+    // MARK: - Reviews window
 
     /// Fanned avatars hanging off the cover's bottom-left corner — the readers
     /// the user follows who've finished this book. Mirrors ReadingNowFanStack.
-    /// The whole stack is one tap target: it's a jump link to the "Read by"
+    /// The whole stack is one tap target: it's a jump link to the "Reviews"
     /// card below, not a per-person profile link (each row down there already
     /// opens its own profile).
     private var readByAvatarFan: some View {
@@ -1267,7 +1293,7 @@ struct BookProfileView: View {
         .buttonStyle(.plain)
     }
 
-    /// Anchor id for the "Read by" card, the fan's scroll destination.
+    /// Anchor id for the "Reviews" card, the fan's scroll destination.
     private static let readBySectionAnchor = "book-profile-read-by"
 
     private func scrollToReadBy() {
@@ -1277,7 +1303,7 @@ struct BookProfileView: View {
         }
     }
 
-    /// "Read by" ordering: the source reader (whose tier list or feed post led
+    /// "Reviews" ordering: the source reader (whose tier list or feed post led
     /// here) pins to the top, then your own read, then people you follow, then
     /// best-ranked first (S → F, unranked last), most recently finished
     /// breaking ties.
@@ -1524,7 +1550,9 @@ struct BookProfileView: View {
                 .buttonStyle(.spine(.secondary, size: .regular, fullWidth: false))
                 .accessibilityLabel("Pass on this book")
             }
-            if onStartReading != nil {
+            // Already on the Reading Now shelf: READING would be a no-op, so the
+            // row is just DNF and FINISHED.
+            if onStartReading != nil, !isReadingNowShelf {
                 Button(action: { onStartReading?() }) {
                     actionLabel("READING")
                 }

@@ -26,13 +26,79 @@ enum FeedItem: Identifiable {
     /// `FeedInterstitials.swift`). `slot` counts interstitials from the top of
     /// the feed and keys which books or readers it shows.
     case interstitial(slot: Int)
+    /// The "You're all caught up" break between the new-for-you run and the
+    /// rest of the feed (see `FeedCaughtUpMarker`).
+    case caughtUp
 
     var id: String {
         switch self {
         case .single(let post): return post.id.uuidString
         case .group(let group): return group.id
         case .interstitial(let slot): return "interstitial-\(slot)"
+        case .caughtUp: return "caught-up"
         }
+    }
+
+    /// Ids of the posts a feed item carries (none for pseudo posts).
+    var postIds: [String] {
+        switch self {
+        case .single(let post): return [post.id.uuidString]
+        case .group(let group): return group.posts.map { $0.id.uuidString }
+        case .interstitial, .caughtUp: return []
+        }
+    }
+
+    // MARK: Unified layout
+
+    /// A followed author's post older than this is never "new for you", even
+    /// if it has never been on screen — following someone with a deep history
+    /// shouldn't march their whole backlog to the top of the feed.
+    static let freshWindow: TimeInterval = 30 * 86400
+
+    /// The unified feed: everything new from people you follow first, the
+    /// "caught up" break, then every post (community and already-seen followed
+    /// ones alike) in plain newest-first order. "New" is decided against
+    /// `seenBefore`, the seen set frozen when the session began, so a post
+    /// scrolling into view now doesn't move until the next reload. A day-group
+    /// carousel leads if any of its slides is new. Own posts are never new.
+    /// With nothing new the break sits at the top, Instagram-style; with no
+    /// posts at all there's nothing to be caught up on and no break.
+    static func unifiedItems(
+        from posts: [Post],
+        following: Set<String>,
+        ownUid: String?,
+        seenBefore: Set<String>,
+        feedIsComplete: Bool,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [FeedItem] {
+        let items = makeItems(from: posts, calendar: calendar)
+        func isNew(_ post: Post) -> Bool {
+            post.userId != ownUid
+                && following.contains(post.userId)
+                && !seenBefore.contains(post.id.uuidString)
+                && now.timeIntervalSince(post.createdAt) < freshWindow
+        }
+        var fresh: [FeedItem] = []
+        var rest: [FeedItem] = []
+        for item in items {
+            switch item {
+            case .single(let post):
+                if isNew(post) { fresh.append(item) } else { rest.append(item) }
+            case .group(let group):
+                if group.posts.contains(where: isNew) { fresh.append(item) } else { rest.append(item) }
+            case .interstitial, .caughtUp:
+                rest.append(item)
+            }
+        }
+        var out = interleavingInterstitials(into: fresh + rest, feedIsComplete: feedIsComplete)
+        guard !items.isEmpty else { return out }
+        if let lastFresh = fresh.last, let idx = out.firstIndex(where: { $0.id == lastFresh.id }) {
+            out.insert(.caughtUp, at: idx + 1)
+        } else {
+            out.insert(.caughtUp, at: 0)
+        }
+        return out
     }
 
     /// Feed items above the first pseudo post.

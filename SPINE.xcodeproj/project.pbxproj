@@ -51,6 +51,7 @@
 		B0010023 /* BookRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010023 /* BookRepository.swift */; };
 		B0010024 /* UserBookRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010024 /* UserBookRepository.swift */; };
 		B0010025 /* PostRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010025 /* PostRepository.swift */; };
+		B00F3C11 /* FeedSeenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3C11 /* FeedSeenStore.swift */; };
 		B0010026 /* CommentRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010026 /* CommentRepository.swift */; };
 		B0010027 /* ApiKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010027 /* ApiKeys.swift */; };
 		B0010028 /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010028 /* ClaudeService.swift */; };
@@ -182,6 +183,7 @@
 		B00D8E3 /* LinkBookExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E3 /* LinkBookExtractionService.swift */; };
 		B00D8E4 /* LinkImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E4 /* LinkImportView.swift */; };
 		B00E7A01 /* FeedInterstitials.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7A01 /* FeedInterstitials.swift */; };
+		B00F3C12 /* FeedCaughtUpMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3C12 /* FeedCaughtUpMarker.swift */; };
 		B00E7C31 /* UserAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7C31 /* UserAvatarView.swift */; };
 		B00E9A01 /* StoryExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A01 /* StoryExporter.swift */; };
 		B00E9A02 /* ShareCoverResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A02 /* ShareCoverResolver.swift */; };
@@ -282,6 +284,7 @@
 		F0010023 /* BookRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRepository.swift; sourceTree = "<group>"; };
 		F0010024 /* UserBookRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserBookRepository.swift; sourceTree = "<group>"; };
 		F0010025 /* PostRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostRepository.swift; sourceTree = "<group>"; };
+		F00F3C11 /* FeedSeenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSeenStore.swift; sourceTree = "<group>"; };
 		F0010026 /* CommentRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentRepository.swift; sourceTree = "<group>"; };
 		F0010027 /* ApiKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiKeys.swift; sourceTree = "<group>"; };
 		F0010028 /* ClaudeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeService.swift; sourceTree = "<group>"; };
@@ -413,6 +416,7 @@
 		F00D8E3 /* LinkBookExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkBookExtractionService.swift; sourceTree = "<group>"; };
 		F00D8E4 /* LinkImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportView.swift; sourceTree = "<group>"; };
 		F00E7A01 /* FeedInterstitials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInterstitials.swift; sourceTree = "<group>"; };
+		F00F3C12 /* FeedCaughtUpMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCaughtUpMarker.swift; sourceTree = "<group>"; };
 		F00E7C31 /* UserAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAvatarView.swift; sourceTree = "<group>"; };
 		F00E9A01 /* StoryExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryExporter.swift; sourceTree = "<group>"; };
 		F00E9A02 /* ShareCoverResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCoverResolver.swift; sourceTree = "<group>"; };
@@ -620,6 +624,7 @@
 				F0010023 /* BookRepository.swift */,
 				F0010024 /* UserBookRepository.swift */,
 				F0010025 /* PostRepository.swift */,
+				F00F3C11 /* FeedSeenStore.swift */,
 				F0010026 /* CommentRepository.swift */,
 				F001002A /* LocalLibraryCache.swift */,
 				F001002C /* BookProfileService.swift */,
@@ -735,6 +740,7 @@
 				F00D2A19 /* FeedDayGroupCarousel.swift */,
 				F00D2A1B /* PeopleStrip.swift */,
 				F00E7A01 /* FeedInterstitials.swift */,
+				F00F3C12 /* FeedCaughtUpMarker.swift */,
 				F07E4D21 /* UserFeedView.swift */,
 				F0010030 /* CommentsView.swift */,
 			);
@@ -1138,6 +1144,7 @@
 				B0010023 /* BookRepository.swift in Sources */,
 				B0010024 /* UserBookRepository.swift in Sources */,
 				B0010025 /* PostRepository.swift in Sources */,
+				B00F3C11 /* FeedSeenStore.swift in Sources */,
 				B0010026 /* CommentRepository.swift in Sources */,
 				B0010027 /* ApiKeys.swift in Sources */,
 				B0010028 /* ClaudeService.swift in Sources */,
@@ -1170,6 +1177,7 @@
 				B00B7C01 /* MonthlyRecap.swift in Sources */,
 				B00D2A1B /* PeopleStrip.swift in Sources */,
 				B00E7A01 /* FeedInterstitials.swift in Sources */,
+				B00F3C12 /* FeedCaughtUpMarker.swift in Sources */,
 				B07E4D21 /* UserFeedView.swift in Sources */,
 				B00D2A1C /* ProfileSettingsView.swift in Sources */,
 				B0010C47 /* CircularPhotoCropView.swift in Sources */,

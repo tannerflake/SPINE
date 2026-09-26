@@ -9,12 +9,6 @@ import SwiftUI
 import Combine
 import FirebaseFirestore
 
-/// Whose posts the feed shows: everyone on Spine (default) or people you follow.
-enum FeedScope: String {
-    case friends
-    case everyone
-}
-
 final class AppState: ObservableObject {
     @Published var isAuthenticated: Bool = false
     @Published var currentUser: User?
@@ -23,9 +17,17 @@ final class AppState: ObservableObject {
     /// True until the feed listener delivers its first complete, server-confirmed
     /// merge — the Feed tab shows the brand spinner instead of a partial feed.
     @Published var isFeedLoading = true
-    /// Feed scope toggle (friends vs everyone). Defaults to everyone; persisted
-    /// per account once the user switches. Set via `setFeedScope`.
-    @Published private(set) var feedScope: FeedScope = .everyone
+    /// Uids whose posts count as "from people you follow" in the unified feed
+    /// (the follow graph the listener was started with).
+    @Published private(set) var feedFollowing: Set<String> = []
+    /// Post ids that had already been seen when the current feed session
+    /// began. The feed lays itself out against this frozen set (new-for-you
+    /// run on top, everything else in order) so marks landing mid-scroll never
+    /// reshuffle it; `beginFeedSession` retakes it on a reload.
+    @Published private(set) var feedSeenSnapshot: Set<String> = []
+    /// Bumps on every `beginFeedSession` — the "caught up" marker plays its
+    /// entrance once per token.
+    @Published private(set) var feedSessionToken = 0
     /// True while a deeper page of feed posts is loading (footer spinner).
     @Published private(set) var isLoadingMoreFeedPosts = false
     /// Whether Firestore still has older posts past what's loaded. Starts false so
@@ -116,7 +118,7 @@ final class AppState: ObservableObject {
     private var currentUserId: String?
     /// Read-only uid for views that must work under `-uiPreview` (no Firebase user).
     var viewerUid: String? { currentUserId }
-    /// Uids the signed-in user follows, kept for feed-listener restarts on scope switches.
+    /// Uids the signed-in user follows, kept for feed-listener restarts (paging, follow changes).
     private var currentFollowing: [String] = []
 
     /// Firebase Auth uid for the current user (use for Firestore writes).
@@ -144,15 +146,15 @@ final class AppState: ObservableObject {
             isFeedLoading = true
         }
         if uid != currentUserId {
-            // Feed scope is session-only: a fresh sign-in or cold launch always
-            // starts on Everyone. A follow/unfollow restart keeps the toggle.
-            feedScope = .everyone
             // A follow/unfollow restart keeps the reader's paging depth; only a
             // different account starts back at page one.
             feedLimit = feedPageSize
+            FeedSeenStore.shared.load(uid: uid)
+            beginFeedSession()
         }
         currentUserId = uid
         currentFollowing = following
+        feedFollowing = Set(following)
         dismissedBookIdsLoaded = false
         userBooksLoaded = false
         refreshGoodreadsWizardResumeState()
@@ -291,20 +293,34 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Switches the feed between friends-only and everyone for the current
-    /// session (not persisted) and restarts the feed listener under the new scope.
-    func setFeedScope(_ scope: FeedScope) {
-        guard scope != feedScope else { return }
-        feedScope = scope
-        guard let uid = currentUserId else { return }
-        feedListener?.remove()
-        isFeedLoading = true
-        feedPosts = []
-        feedLimit = feedPageSize
-        canLoadMoreFeedPosts = false
-        isLoadingMoreFeedPosts = false
-        feedListener = makeFeedListener(uid: uid)
+    // MARK: - Unified feed sessions
+
+    /// Starts a feed session: freezes the set of already-seen posts the feed
+    /// lays itself out against. Called on sign-in, pull to refresh, a Feed tab
+    /// re-tap at the top, and whenever the feed is reopened resting at the top,
+    /// so posts seen last time fall back into their place in the feed and only
+    /// what's still unseen from people you follow leads.
+    func beginFeedSession() {
+        feedSeenSnapshot = FeedSeenStore.shared.seenIds()
+        feedSessionToken += 1
     }
+
+    /// Posts that have scrolled into view. Recorded immediately (so they never
+    /// lead again after the next session begins) without touching the current
+    /// layout.
+    func markFeedPostsSeen(_ postIds: [String]) {
+        FeedSeenStore.shared.markSeen(postIds)
+    }
+
+    #if DEBUG
+    /// `-uiPreview` runs have no listener; set the follow graph the feed
+    /// should treat as "people you follow".
+    func seedPreviewFeed(following: [String]) {
+        FeedSeenStore.shared.load(uid: currentUserId ?? "ui-preview")
+        feedFollowing = Set(following)
+        beginFeedSession()
+    }
+    #endif
 
     /// Refreshes the shared unread-notifications badge. Call whenever a bell
     /// appears on screen (both Feed and Profile do this on `.task`) and after
@@ -352,8 +368,8 @@ final class AppState: ObservableObject {
         feedListener = makeFeedListener(uid: uid)
     }
 
-    /// Feed listener for the current scope — friends queries the follow graph,
-    /// everyone streams the global posts collection.
+    /// The unified feed listener: community posts plus everything recent from
+    /// the follow graph, merged (see `PostRepository.listenUnifiedFeed`).
     private func makeFeedListener(uid: String) -> FeedListenerHandle {
         let onUpdate: ([Post], Bool) -> Void = { [weak self] list, hasMore in
             guard let self = self else { return }
@@ -362,12 +378,7 @@ final class AppState: ObservableObject {
             self.isLoadingMoreFeedPosts = false
             self.canLoadMoreFeedPosts = hasMore
         }
-        switch feedScope {
-        case .friends:
-            return postRepo.listenFeed(authorIds: currentFollowing + [uid], limit: feedLimit, onUpdate: onUpdate)
-        case .everyone:
-            return postRepo.listenAllPosts(limit: feedLimit, onUpdate: onUpdate)
-        }
+        return postRepo.listenUnifiedFeed(viewerUid: uid, followedIds: currentFollowing, limit: feedLimit, onUpdate: onUpdate)
     }
 
     /// Call when user signs out to stop listeners and clear state.
@@ -413,6 +424,9 @@ final class AppState: ObservableObject {
         stopFirestoreListeners()
         currentUserId = nil
         currentFollowing = []
+        feedFollowing = []
+        feedSeenSnapshot = []
+        FeedSeenStore.shared.unload()
         currentUser = nil
         isAuthenticated = false
         userBooks = []
@@ -456,10 +470,29 @@ final class AppState: ObservableObject {
     }
 
     /// Switch to the Profile tab → Read segment, then pulse-glow this book in Unranked. Cleared once the user assigns a tier.
-    func startTierHighlight(forBookId bookId: String) {
+    /// `switchTab: false` arms the glow for the next library visit without
+    /// leaving the current screen (used when the reader is being sent to the
+    /// book's Reviews instead).
+    func startTierHighlight(forBookId bookId: String, switchTab: Bool = true) {
         pendingTierHighlightBookId = bookId
         tierHighlightScrollPending = true
+        guard switchTab else { return }
         NotificationCenter.default.post(name: .spineHighlightTierBook, object: nil, userInfo: ["bookId": bookId])
+    }
+
+    /// A book the reader was actively reading was just marked finished: take
+    /// them to its profile, landed on the Reviews card. Waits a beat for the
+    /// confirm flow's own sheet to start closing, then clears whatever is
+    /// still presented (the profile sheet, a fullScreenCover behind it) before
+    /// the root presents the book. Deliberately NOT called for marks from any
+    /// other flow: someone backfilling their library one book at a time would
+    /// be bounced out after every entry.
+    private func openReviewsAfterFinishingReading(bookId: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            PushNotificationService.routeAfterClearingPresentedModals {
+                NotificationCenter.default.post(name: .spineOpenBookReviews, object: nil, userInfo: ["bookId": bookId])
+            }
+        }
     }
 
     func addUserBook(_ userBook: UserBook) {
@@ -674,8 +707,15 @@ final class AppState: ObservableObject {
         updated.queueOrder = nil
         updated.updatedAt = Date()
         updateUserBook(updated)
+        // Reading now → finished is the one transition that lands the reader
+        // on the book's Reviews. Every other mark stays put (an unranked one
+        // still hops to the tier list to be ranked).
+        let wasReading = userBook.queueShelf == .readingNow
         if validTier == nil {
-            startTierHighlight(forBookId: userBook.bookId)
+            startTierHighlight(forBookId: userBook.bookId, switchTab: !wasReading)
+        }
+        if wasReading {
+            openReviewsAfterFinishingReading(bookId: userBook.bookId)
         }
         let readTitle = userBook.book?.title ?? "Book"
         Task { @MainActor in ToastCenter.shared.show(.markedAsRead(bookTitle: readTitle, sharedToFeed: postToFeed)) }
