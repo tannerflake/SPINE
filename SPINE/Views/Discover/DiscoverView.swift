@@ -2,11 +2,29 @@
 //  DiscoverView.swift
 //  SPINE
 //
-//  Full-screen Hinge-style discovery: one book at a time with three actions.
+//  Full-screen Tinder-style discovery: one book at a time, two decisions.
+//  Swipe left (or tap X) to skip, swipe right (or tap +) to queue; the
+//  DiscoverSwipeDeck owns the gesture and the stamps.
 //  Suggestions are prefetched when the tab bar appears so the first suggestion is ready when user taps Discover.
 //
 
 import SwiftUI
+
+/// How a visit to Discover started, for analytics ("Entered Discover" and the
+/// `entry_point` property on every Discover event).
+enum DiscoverEntryPoint: String {
+    /// A book in the feed's "Selected for you" row.
+    case feedBookPick = "feed_book_pick"
+    /// The "Discover more" tile at the end of that row.
+    case feedSeeMore = "feed_see_more"
+    /// The Discover tab in the tab bar (tap or lens drag).
+    case tabBar = "tab_bar"
+    /// Anything else (the spineOpenDiscover route, debug launch flags).
+    case other
+
+    /// userInfo key on `.spineOpenDiscoverFromFeed`.
+    static let userInfoKey = "discoverEntryPoint"
+}
 
 struct DiscoverView: View {
     @EnvironmentObject var appState: AppState
@@ -21,6 +39,26 @@ struct DiscoverView: View {
     /// First visit to Discover ever: the mood sheet opens itself a beat after
     /// the page settles so the very first suggestions are ones they asked for.
     @AppStorage("discoverMoodSheetAutoShown") private var hasAutoShownMoodSheet = false
+    /// The last swipe's outcome, flashed as a badge over the deck for a beat
+    /// after the card is gone. The token lets a quick second decision replace
+    /// the first badge instead of being cut short by its auto-dismiss.
+    @State private var decisionBadge: (decision: DiscoverSwipeDecision, token: UUID)?
+    /// One-time coach for the swipe deck. Waits until a book is on the deck
+    /// and the first-visit mood sheet is out of the way.
+    @AppStorage("discoverSwipeCoachShown") private var hasShownSwipeCoach = false
+    @State private var showSwipeCoach = false
+    /// Dismissed during this launch (lets the debug force flag act once).
+    @State private var swipeCoachDismissed = false
+    /// True between the first-visit arrival and the mood sheet actually opening.
+    @State private var moodSheetAutoOpenPending = false
+    /// Discover is on screen (it is torn down on tab switch, so appear and
+    /// disappear bracket the visit). Suggestions prefetch before the first
+    /// visit, so a new current suggestion alone doesn't mean anyone saw it.
+    @State private var isOnScreen = false
+    /// Last book logged as "Shown Discover Book". Static so leaving the tab
+    /// and coming back to the same card isn't a second impression; an undo
+    /// brings back a different book, so that one does log again.
+    private static var lastShownBookId: String?
 
     var body: some View {
         NavigationStack {
@@ -33,7 +71,7 @@ struct DiscoverView: View {
                         criteria: appState.discoverCriteria,
                         interestTagsCount: appState.currentUser?.readingInterestTags.count ?? 0,
                         onRemove: { appState.setDiscoverCriteria($0) },
-                        onEdit: { showCriteriaEditor = true },
+                        onEdit: { openCriteriaEditor(source: "criteria_strip") },
                         bookForSeed: { seed in
                             appState.userBooks.first(where: { $0.bookId == seed.bookId })?.book
                         }
@@ -41,9 +79,10 @@ struct DiscoverView: View {
                     // Keep the tune-callout bubble (which hangs below the strip) above the content underneath.
                     .zIndex(1)
 
-                    Group {
+                    ZStack {
                         if appState.isLoadingDiscoverSuggestions && appState.discoverCurrentSuggestion == nil {
                             loadingView
+                                .transition(.spinnerFadeOut)
                         } else if let book = appState.discoverCurrentSuggestion {
                             suggestionCardFullScreen(book: book)
                         } else {
@@ -65,6 +104,19 @@ struct DiscoverView: View {
                         returnToFeed()
                     }
                 )
+
+                // Whole-page coach (header and criteria strip included), once.
+                if showSwipeCoach {
+                    DiscoverSwipeCoachOverlay {
+                        // Any dismissal ("Got it!" or a tap on the scrim) is
+                        // final: never shown again on this install.
+                        hasShownSwipeCoach = true
+                        swipeCoachDismissed = true
+                        withAnimation(.easeOut(duration: 0.25)) { showSwipeCoach = false }
+                    }
+                    .transition(.opacity)
+                    .zIndex(2)
+                }
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -74,13 +126,13 @@ struct DiscoverView: View {
                     book: book,
                     readBooksForSimilar: appState.readBooks,
                     onNotInterested: { selectedBookForProfile = nil },
-                    onWantToRead: { appState.addToWantToRead(book: book); selectedBookForProfile = nil },
-                    onStartReading: { appState.addToQueue(book: book, shelf: .readingNow); selectedBookForProfile = nil },
+                    onWantToRead: { appState.addToWantToRead(book: book) },
+                    onStartReading: { appState.addToQueue(book: book, shelf: .readingNow) },
                     onConfirmRead: { date, rating, post, caption, tier in appState.addAsRead(book: book, dateFinished: date, rating: rating, postToFeed: post, caption: caption, tier: tier); selectedBookForProfile = nil },
                     isOnReadList: appState.isBookOnReadList(bookId: book.id),
                     isInQueue: appState.isBookInQueue(bookId: book.id),
-                    onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
-                    onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
+                    onRemoveFromQueue: { appState.removeFromQueue(book: book) },
+                    onMarkAsDNF: { appState.markAsDNF(book: book) },
                     readEntryForReview: appState.userReadBook(forBookId: book.id),
                     canEditReadReview: true,
                     showRecommend: false
@@ -99,6 +151,13 @@ struct DiscoverView: View {
                     }
                 }
             }
+            // The feed handed over a specific book (a "Selected for you" cover
+            // or the "Discover more" tile): make sure the deck is what's showing,
+            // not a book profile pushed on an earlier visit.
+            .onReceive(NotificationCenter.default.publisher(for: .spineOpenDiscoverFromFeed)) { _ in
+                bookWeCameFrom = nil
+                selectedBookForProfile = nil
+            }
             .onReceive(NotificationCenter.default.publisher(for: .spineDiscoverTabTappedAgain)) { _ in
                 // Re-tap on the Discover tab item: pop back to the suggestion root,
                 // restoring the suggestion the user navigated away from (same as
@@ -116,7 +175,20 @@ struct DiscoverView: View {
                     appState.loadDiscoverSuggestionsIfNeeded()
                 }
                 autoShowMoodSheetOnFirstVisit()
+                showSwipeCoachIfDue()
+                isOnScreen = true
+                logShownBookIfVisible()
             }
+            .onDisappear { isOnScreen = false }
+            .onChange(of: appState.discoverCurrentSuggestion?.id) { _, _ in
+                showSwipeCoachIfDue()
+                logShownBookIfVisible()
+            }
+            .onChange(of: showCriteriaEditor) { _, _ in
+                showSwipeCoachIfDue()
+                logShownBookIfVisible()
+            }
+            .onChange(of: selectedBookForProfile) { _, _ in logShownBookIfVisible() }
             .sheet(isPresented: $showCriteriaEditor) {
                 DiscoverCriteriaEditorSheet(initial: appState.discoverCriteria)
                     .environmentObject(appState)
@@ -181,12 +253,7 @@ struct DiscoverView: View {
         // reads as screen-centered despite the header eating the top ~180pt.
         VStack(spacing: 0) {
             Spacer()
-            VStack(spacing: 20) {
-                SpinningSpineLogo()
-                Text("Finding your next read…")
-                    .font(Theme.title2())
-                    .foregroundStyle(Theme.textSecondary)
-            }
+            SpinningSpineLogo(size: 288)
             Spacer()
             Spacer()
         }
@@ -198,16 +265,16 @@ struct DiscoverView: View {
         return VStack(spacing: 24) {
             Spacer(minLength: 0)
             DiscoverSpineLogo()
-            Text(cameUpEmpty ? "Nothing new that time" : "Find my next read")
+            Text(cameUpEmpty ? "Nothing came up" : "Find my next read")
                 .font(Theme.title())
                 .foregroundStyle(Theme.textPrimary)
-            Text(cameUpEmpty
-                 ? "Every pick came back as a book you've already read, queued, or passed on. Try again, or steer with different tiers, tags, or books."
-                 : "Every pick is tailored to the books in your library and your interests. Steer it with tiers, tags, or books you loved.")
-                .font(Theme.body())
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+            if !cameUpEmpty {
+                Text("Every pick is tailored to the books in your library and your interests. Steer it with tiers, tags, or books you loved.")
+                    .font(Theme.body())
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
             Button(cameUpEmpty ? "Try again" : "Start") {
                 appState.loadDiscoverSuggestionsIfNeeded()
             }
@@ -220,26 +287,70 @@ struct DiscoverView: View {
     }
 
     private func suggestionCardFullScreen(book: Book) -> some View {
-        BookProfileView(
-            book: book,
-            readBooksForSimilar: appState.readBooks,
-            onNotInterested: { performNotInterested(book) },
-            onWantToRead: { performWantToRead(book) },
-            onStartReading: { performStartReading(book) },
-            onConfirmRead: { date, rating, post, caption, tier in performHaveRead(book, dateFinished: date, rating: rating, postToFeed: post, caption: caption, tier: tier) },
-            onBookTap: { tappedBook in
-                bookWeCameFrom = appState.discoverCurrentSuggestion
-                selectedBookForProfile = tappedBook
+        DiscoverSwipeDeck(
+            current: book,
+            next: appState.discoverSuggestionQueue.first,
+            showsSwipeHint: actionedBookCount < 5,
+            hidesButtons: showSwipeCoach,
+            badge: decisionBadge,
+            onCommit: { decision, input in
+                flashDecision(decision)
+                logDecision(decision, book: book, input: input)
             },
-            isOnReadList: appState.isBookOnReadList(bookId: book.id),
-            isInQueue: appState.isBookInQueue(bookId: book.id),
-            onRemoveFromQueue: { appState.removeFromQueue(book: book) },
-            onMarkAsDNF: { appState.markAsDNF(book: book) },
-            readEntryForReview: appState.userReadBook(forBookId: book.id),
-            canEditReadReview: true,
-            showRecommend: false
+            onDecision: { decision in
+                switch decision {
+                case .skip: performNotInterested(book)
+                case .queue: performWantToRead(book)
+                }
+            },
+            card: { cardBook in
+                // No action bar: the deck's X and + are the only two decisions
+                // here. Everything else (Reading, Finished) waits until the
+                // book is queued and opened from the Queue. The next book's
+                // card is built (and starts loading) while it waits underneath,
+                // so it arrives already filled in.
+                BookProfileView(
+                    book: cardBook,
+                    readBooksForSimilar: appState.readBooks,
+                    onBookTap: { tappedBook in
+                        bookWeCameFrom = appState.discoverCurrentSuggestion
+                        selectedBookForProfile = tappedBook
+                    },
+                    isOnReadList: appState.isBookOnReadList(bookId: cardBook.id),
+                    isInQueue: appState.isBookInQueue(bookId: cardBook.id),
+                    readEntryForReview: appState.userReadBook(forBookId: cardBook.id),
+                    canEditReadReview: true,
+                    showRecommend: false,
+                    reservesActionBarSpace: true,
+                    showsCoverFix: false
+                )
+            },
+            placeholder: { refillingCard }
         )
-        .id(book.id)
+    }
+
+    /// Fills the back-card slot while the batch refills: the Spine mark and a
+    /// line of copy, in place of the next book.
+    private var refillingCard: some View {
+        VStack(spacing: 14) {
+            DiscoverSpineLogo()
+            Text("Finding more…")
+                .font(Theme.title2())
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    /// Flash the outcome over the deck for a second.
+    private func flashDecision(_ decision: DiscoverSwipeDecision) {
+        let token = UUID()
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.65)) {
+            decisionBadge = (decision, token)
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard decisionBadge?.token == token else { return }
+            withAnimation(.easeOut(duration: 0.25)) { decisionBadge = nil }
+        }
     }
 
     /// Back to the Feed tab, at the offset the reader left it (MainTabView
@@ -255,23 +366,104 @@ struct DiscoverView: View {
     private func autoShowMoodSheetOnFirstVisit() {
         guard !hasAutoShownMoodSheet else { return }
         hasAutoShownMoodSheet = true
+        moodSheetAutoOpenPending = true
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            guard selectedBookForProfile == nil, !showCriteriaEditor else { return }
-            showCriteriaEditor = true
+            moodSheetAutoOpenPending = false
+            guard selectedBookForProfile == nil, !showCriteriaEditor else {
+                showSwipeCoachIfDue()
+                return
+            }
+            openCriteriaEditor(source: "auto_first_visit")
+        }
+    }
+
+    private func openCriteriaEditor(source: String) {
+        var props = discoverCriteriaProperties
+        props["source"] = source
+        Analytics.amplitude?.track(eventType: "Opened Discover Preferences", eventProperties: props)
+        showCriteriaEditor = true
+    }
+
+    // MARK: - Analytics
+
+    /// Log an impression for the book on the deck, but only once it is
+    /// actually in front of the reader: Discover on screen, no book profile
+    /// pushed over it, no preferences sheet covering it.
+    private func logShownBookIfVisible() {
+        guard isOnScreen, selectedBookForProfile == nil, !showCriteriaEditor,
+              let book = appState.discoverCurrentSuggestion,
+              book.id != Self.lastShownBookId else { return }
+        Self.lastShownBookId = book.id
+        Analytics.amplitude?.track(eventType: "Shown Discover Book", eventProperties: discoverBookProperties(book))
+    }
+
+    private func logDecision(_ decision: DiscoverSwipeDecision, book: Book, input: DiscoverDecisionInput) {
+        var props = discoverBookProperties(book)
+        props["input"] = input.rawValue
+        Analytics.amplitude?.track(
+            eventType: decision == .queue ? "Queued Discover Book" : "Skipped Discover Book",
+            eventProperties: props
+        )
+    }
+
+    private func discoverBookProperties(_ book: Book) -> [String: Any] {
+        var props = discoverCriteriaProperties
+        props["book_id"] = book.id
+        props["book_title"] = book.title
+        props["book_author"] = book.author
+        return props
+    }
+
+    /// How this visit started and which steering is active, so skip/queue
+    /// rates can be split by either.
+    private var discoverCriteriaProperties: [String: Any] {
+        let c = appState.discoverCriteria
+        return [
+            "entry_point": appState.discoverEntryPoint,
+            "has_custom_preferences": !c.isDefault,
+            "seed_book_count": c.seedBooks.count,
+            "tier_count": c.tiers.count,
+            "tag_count": c.tags.count,
+            "has_free_text": !c.trimmedFreeText.isEmpty,
+        ]
+    }
+
+    /// First time there's a book on the deck with nothing on top of it: coach
+    /// the swipe. Once per install. The mood sheet auto-opens on the very
+    /// first visit, so this usually lands as that sheet closes.
+    private func showSwipeCoachIfDue() {
+        #if DEBUG
+        let forced = ProcessInfo.processInfo.arguments.contains("-uiPreviewSwipeCoach") && !swipeCoachDismissed
+        #else
+        let forced = false
+        #endif
+        guard forced || !hasShownSwipeCoach, !showSwipeCoach else { return }
+        guard appState.discoverCurrentSuggestion != nil, !showCriteriaEditor, selectedBookForProfile == nil else { return }
+        // First visit: the mood sheet is about to open; the coach follows it.
+        guard !moodSheetAutoOpenPending else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !showCriteriaEditor, !moodSheetAutoOpenPending, selectedBookForProfile == nil, appState.discoverCurrentSuggestion != nil else { return }
+            withAnimation(.easeOut(duration: 0.3)) { showSwipeCoach = true }
         }
     }
 
     private func performNotInterested(_ book: Book) {
-        appState.addDismissedBookId(book.id)
+        appState.addDismissed(book: book)
         appState.discoverPassedBooks.append(book)
         actionedBookCount += 1
-        appState.advanceDiscoverSuggestion()
+        withAnimation(.easeInOut(duration: 0.35)) {
+            appState.advanceDiscoverSuggestion()
+        }
     }
 
     /// Undo the last Pass, putting that book back on screen.
     private func undoLastPass() {
-        Analytics.amplitude?.track(eventType: "Undid Discover Pass")
+        // Event name predates the skip/queue events; kept so history lines up.
+        if let book = appState.discoverPassedBooks.last {
+            Analytics.amplitude?.track(eventType: "Undid Discover Pass", eventProperties: discoverBookProperties(book))
+        }
         actionedBookCount = max(0, actionedBookCount - 1)
         withAnimation(.easeOut(duration: 0.2)) {
             appState.undoLastDiscoverPass()
@@ -281,19 +473,9 @@ struct DiscoverView: View {
     private func performWantToRead(_ book: Book) {
         appState.addToWantToRead(book: book)
         actionedBookCount += 1
-        appState.advanceDiscoverSuggestion()
-    }
-
-    private func performStartReading(_ book: Book) {
-        appState.addToQueue(book: book, shelf: .readingNow)
-        actionedBookCount += 1
-        appState.advanceDiscoverSuggestion()
-    }
-
-    private func performHaveRead(_ book: Book, dateFinished: Date, rating: Double?, postToFeed: Bool, caption: String?, tier: String?) {
-        appState.addAsRead(book: book, dateFinished: dateFinished, rating: rating, postToFeed: postToFeed, caption: caption, tier: tier)
-        actionedBookCount += 1
-        appState.advanceDiscoverSuggestion()
+        withAnimation(.easeInOut(duration: 0.35)) {
+            appState.advanceDiscoverSuggestion()
+        }
     }
 }
 
@@ -339,6 +521,9 @@ struct SpinningSpineLogo: View {
     )
     private static let ghostCount = 6
 
+    /// Quick fade-in so the spinner doesn't pop onto the screen.
+    @State private var appeared = false
+
     var body: some View {
         TimelineView(.animation) { context in
             let elapsed = context.date.timeIntervalSinceReferenceDate
@@ -362,6 +547,10 @@ struct SpinningSpineLogo: View {
                     .blur(radius: 1.5 * trailStrength)
             }
         }
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.15)) { appeared = true }
+        }
         .accessibilityHidden(true)
     }
 
@@ -372,6 +561,16 @@ struct SpinningSpineLogo: View {
             .scaledToFit()
             .frame(width: size, height: size)
             .foregroundStyle(Theme.accent)
+    }
+}
+
+extension AnyTransition {
+    /// Quick fade-out for a SpinningSpineLogo loading view as content replaces it.
+    /// Carries its own animation, so the loading flag needn't flip inside
+    /// withAnimation. The swap site must overlap the two branches (ZStack), or the
+    /// fading spinner holds its space and shoves the content down mid-fade.
+    static var spinnerFadeOut: AnyTransition {
+        .asymmetric(insertion: .identity, removal: .opacity.animation(.easeOut(duration: 0.15)))
     }
 }
 

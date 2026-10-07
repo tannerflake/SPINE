@@ -180,7 +180,7 @@ struct SmallWidgetView: View {
         Group {
             if let snapshot, snapshot.isSignedIn {
                 if snapshot.myBooks.isEmpty {
-                    MessageCard(title: "Nothing on deck", subtitle: "Start a book in SPINE")
+                    MessageCard(title: "Nothing on deck", subtitle: "Start a book in Spine")
                 } else {
                     VStack(alignment: .leading, spacing: 5) {
                         // The label costs ~11pt of cover height; a shelf of three
@@ -192,7 +192,7 @@ struct SmallWidgetView: View {
                     }
                 }
             } else {
-                MessageCard(title: "SPINE", subtitle: "Open the app to sign in")
+                MessageCard(title: "Spine", subtitle: "Open the app to sign in")
             }
         }
         .containerBackground(SpinePalette.paper, for: .widget)
@@ -224,7 +224,7 @@ struct MediumWidgetView: View {
                         .frame(maxWidth: .infinity)
                 }
             } else {
-                MessageCard(title: "SPINE", subtitle: "Open the app to sign in")
+                MessageCard(title: "Spine", subtitle: "Open the app to sign in")
             }
         }
         .containerBackground(SpinePalette.paper, for: .widget)

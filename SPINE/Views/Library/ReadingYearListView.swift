@@ -193,16 +193,16 @@ struct ReadingYearListView: View {
                 book: book,
                 readBooksForSimilar: appState.readBooks,
                 onNotInterested: nil,
-                onWantToRead: { appState.addToWantToRead(book: book); selectedBook = nil },
-                onStartReading: { appState.addToQueue(book: book, shelf: .readingNow); selectedBook = nil },
+                onWantToRead: { appState.addToWantToRead(book: book) },
+                onStartReading: { appState.addToQueue(book: book, shelf: .readingNow) },
                 onConfirmRead: { date, rating, post, caption, tier in
                     appState.addAsRead(book: book, dateFinished: date, rating: rating, postToFeed: post, caption: caption, tier: tier)
                     selectedBook = nil
                 },
                 isOnReadList: appState.isBookOnReadList(bookId: book.id),
                 isInQueue: appState.isBookInQueue(bookId: book.id),
-                onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBook = nil },
-                onMarkAsDNF: { appState.markAsDNF(book: book); selectedBook = nil },
+                onRemoveFromQueue: { appState.removeFromQueue(book: book) },
+                onMarkAsDNF: { appState.markAsDNF(book: book) },
                 // Their library: the owner's review shows pinned in "Read by"
                 // rather than as a top card you could edit.
                 readEntryForReview: sourceReaderUid == nil ? appState.userReadBook(forBookId: book.id) : nil,

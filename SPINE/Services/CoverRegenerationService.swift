@@ -132,7 +132,7 @@ final class CoverRegenerationService {
         if host.contains("books.google") || host.contains("googleusercontent") { return "Google" }
         if host.contains("openlibrary.org") { return "Open Library" }
         if host.contains("mzstatic.com") || host.contains("itunes.apple.com") { return "iTunes" }
-        if host.contains("firebasestorage") { return "SPINE upload" }
+        if host.contains("firebasestorage") { return "Spine upload" }
         return host.isEmpty ? "unknown" : host
     }
 

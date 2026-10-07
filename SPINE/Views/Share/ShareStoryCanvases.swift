@@ -168,7 +168,7 @@ struct StoryCTABlock: View {
     private var color: Color { palette.hasPhoto ? Color.white.opacity(0.95) : Theme.inkFixed.opacity(0.8) }
 
     var body: some View {
-        Text(handle.isEmpty ? "Follow me on SPINE" : "Follow me @\(handle)")
+        Text(handle.isEmpty ? "Follow me on Spine" : "Follow me @\(handle)")
             .font(.system(size: 13, weight: .semibold))
             .tracking(0.3)
             .foregroundStyle(color)
@@ -210,9 +210,9 @@ struct StoryWordmark: View {
     var size: CGFloat = 15
 
     var body: some View {
-        Text("SPINE")
+        Text(BrandWordmark.text)
             .font(.system(size: size, weight: .heavy))
-            .tracking(size * 0.27)
+            .tracking(BrandWordmark.tracking(size * 0.27))
             .foregroundStyle(palette.ink)
             .shadow(color: palette.textShadow, radius: 3, y: 1)
     }

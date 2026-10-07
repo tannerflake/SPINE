@@ -38,6 +38,7 @@ final class BookClubService {
     private let db = FirestoreDatabase.firestore
     private let clubsCollection = "clubs"
     private let codesCollection = "clubInviteCodes"
+    private let invitesCollection = "clubInvites"
     private let functions = Functions.functions(region: "us-central1")
 
     private init() {}
@@ -83,7 +84,7 @@ final class BookClubService {
         creator: User?,
         everyoneIsAdmin: Bool,
         pickMode: BookClub.PickMode = .groupVote,
-        initialMembers: [(uid: String, user: User)]
+        visibility: BookClub.Visibility = .private
     ) async throws -> BookClub {
         let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(BookClub.maxNameLength))
         let now = Date()
@@ -93,12 +94,8 @@ final class BookClubService {
         } else {
             members[creatorUid] = BookClub.Member(firstName: "You", displayName: "You", username: "", photoURL: nil, joinedAt: now)
         }
-        var memberIds = [creatorUid]
-        for entry in initialMembers where entry.uid != creatorUid && !memberIds.contains(entry.uid) {
-            guard memberIds.count < BookClub.maxMembers else { break }
-            memberIds.append(entry.uid)
-            members[entry.uid] = BookClub.Member(user: entry.user, joinedAt: now)
-        }
+        // Just the creator: everyone else gets an invite to accept (`inviteMembers`).
+        let memberIds = [creatorUid]
 
         let clubRef = db.collection(clubsCollection).document()
         for _ in 0..<5 {
@@ -117,7 +114,8 @@ final class BookClubService {
                 inviteCode: code,
                 currentPick: nil,
                 pastPicks: [],
-                pickMode: pickMode
+                pickMode: pickMode,
+                visibility: visibility
             )
             let codeRef = db.collection(codesCollection).document(code)
             do {
@@ -144,7 +142,7 @@ final class BookClubService {
                     "club_id": club.id,
                     "everyone_is_admin": everyoneIsAdmin,
                     "pick_mode": pickMode.rawValue,
-                    "initial_member_count": memberIds.count,
+                    "visibility": visibility.rawValue,
                 ])
                 return club
             } catch let error as NSError where error.domain == "BookClubService" && error.code == 409 {
@@ -156,19 +154,57 @@ final class BookClubService {
 
     // MARK: - Membership
 
-    func addMembers(clubId: String, actorUid: String, users: [(uid: String, user: User)]) async throws {
-        guard !users.isEmpty else { return }
-        var update: [String: Any] = [
-            "memberIds": FieldValue.arrayUnion(users.map(\.uid)),
-            "updatedAt": FieldValue.serverTimestamp(),
-            "updatedBy": actorUid,
-        ]
-        let now = Date()
-        for entry in users {
-            update["members.\(entry.uid)"] = BookClub.Member(user: entry.user, joinedAt: now).firestoreData
-        }
-        try await db.collection(clubsCollection).document(clubId).updateData(update)
-        Analytics.amplitude?.track(eventType: "Added Club Members", eventProperties: ["club_id": clubId, "count": users.count])
+    /// Sends each reader an invite (push + bell row + launch modal). Nobody is
+    /// added until they accept. Returns how many invites went out.
+    @discardableResult
+    func inviteMembers(clubId: String, uids: [String]) async throws -> Int {
+        guard !uids.isEmpty else { return 0 }
+        let result = try await callClubFunction("inviteToClub", ["clubId": clubId, "uids": uids])
+        let count = ((result as? [String: Any])?["count"] as? Int) ?? uids.count
+        Analytics.amplitude?.track(eventType: "Invited Club Members", eventProperties: ["club_id": clubId, "count": count])
+        return count
+    }
+
+    /// Takes back an unanswered invite.
+    func cancelInvite(clubId: String, uid: String) async throws {
+        _ = try await callClubFunction("cancelClubInvite", ["clubId": clubId, "uid": uid])
+        Analytics.amplitude?.track(eventType: "Cancelled Club Invite", eventProperties: ["club_id": clubId])
+    }
+
+    /// Yes or no to an invite. Accepting makes the reader a member.
+    func respondToInvite(clubId: String, accept: Bool) async throws {
+        _ = try await callClubFunction("respondToClubInvite", ["clubId": clubId, "accept": accept])
+        Analytics.amplitude?.track(eventType: accept ? "Accepted Club Invite" : "Declined Club Invite", eventProperties: ["club_id": clubId])
+    }
+
+    /// Open invites aimed at the reader. Only `inviteeUid` is filtered server
+    /// side (the query the rules can prove); status is checked here.
+    func listenMyInvites(uid: String, onUpdate: @escaping ([ClubInvite]) -> Void) -> ListenerRegistration {
+        db.collection(invitesCollection)
+            .whereField("inviteeUid", isEqualTo: uid)
+            .addSnapshotListener { snapshot, _ in
+                guard let snapshot else { return }
+                let invites = snapshot.documents
+                    .compactMap { ClubInvite.from(data: $0.data(), docId: $0.documentID) }
+                    .filter(\.isPending)
+                    .sorted { $0.createdAt > $1.createdAt }
+                DispatchQueue.main.async { onUpdate(invites) }
+            }
+    }
+
+    func fetchPendingInvites(uid: String) async -> [ClubInvite] {
+        guard let snapshot = try? await db.collection(invitesCollection).whereField("inviteeUid", isEqualTo: uid).getDocuments() else { return [] }
+        return snapshot.documents
+            .compactMap { ClubInvite.from(data: $0.data(), docId: $0.documentID) }
+            .filter(\.isPending)
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    func fetchInvite(clubId: String, uid: String) async -> ClubInvite? {
+        let id = "\(clubId)_\(uid)"
+        guard let snapshot = try? await db.collection(invitesCollection).document(id).getDocument(),
+              let data = snapshot.data() else { return nil }
+        return ClubInvite.from(data: data, docId: id)
     }
 
     func removeMember(clubId: String, actorUid: String, uid: String) async throws {
@@ -205,6 +241,15 @@ final class BookClubService {
             "updatedAt": FieldValue.serverTimestamp(),
             "updatedBy": actorUid,
         ])
+    }
+
+    func setVisibility(clubId: String, actorUid: String, visibility: BookClub.Visibility) async throws {
+        try await db.collection(clubsCollection).document(clubId).updateData([
+            "visibility": visibility.rawValue,
+            "updatedAt": FieldValue.serverTimestamp(),
+            "updatedBy": actorUid,
+        ])
+        Analytics.amplitude?.track(eventType: "Set Club Visibility", eventProperties: ["club_id": clubId, "visibility": visibility.rawValue])
     }
 
     func rename(clubId: String, actorUid: String, name: String) async throws {
@@ -344,15 +389,21 @@ final class BookClubService {
     }
 
     private func callVote(_ name: String, _ payload: [String: Any]) async throws {
+        _ = try await callClubFunction(name, payload)
+    }
+
+    /// Callable wrapper that maps Functions errors onto friendly copy.
+    private func callClubFunction(_ name: String, _ payload: [String: Any]) async throws -> Any? {
         do {
-            _ = try await functions.httpsCallable(name).call(payload)
+            return try await functions.httpsCallable(name).call(payload).data
         } catch let error as NSError where error.domain == FunctionsErrorDomain {
             let message = error.localizedDescription
             switch FunctionsErrorCode(rawValue: error.code) {
             case .unauthenticated: throw BookClubError.notSignedIn
             case .notFound: throw BookClubError.server("That club is gone.")
             case .failedPrecondition: throw BookClubError.server(message)
-            case .permissionDenied: throw BookClubError.server("Only admins can do that.")
+            case .permissionDenied: throw BookClubError.server(message.isEmpty ? "You can't do that." : message)
+            case .resourceExhausted: throw BookClubError.clubFull
             default: throw BookClubError.server(message)
             }
         }
@@ -385,11 +436,37 @@ final class BookClubService {
         }
     }
 
+    // MARK: - Public clubs
+
+    /// Public clubs for Browse, busiest first. Equality-only query (no composite
+    /// index); sorted here.
+    func fetchPublicClubs(viewerUid: String?) async -> [BookClub] {
+        guard let snapshot = try? await db.collection(clubsCollection)
+            .whereField("visibility", isEqualTo: BookClub.Visibility.public.rawValue)
+            .limit(to: 100)
+            .getDocuments() else { return [] }
+        return snapshot.documents
+            .compactMap { BookClub.from(data: $0.data(), docId: $0.documentID) }
+            .filter { !HiddenAccounts.isHidden(uid: $0.createdBy, viewerUid: viewerUid) }
+            .sorted { a, b in
+                if a.memberIds.count != b.memberIds.count { return a.memberIds.count > b.memberIds.count }
+                return a.updatedAt > b.updatedAt
+            }
+    }
+
+    /// Joins a public club; returns its id.
+    @discardableResult
+    func joinPublicClub(clubId: String) async throws -> String {
+        _ = try await callClubFunction("joinPublicClub", ["clubId": clubId])
+        Analytics.amplitude?.track(eventType: "Joined Book Club", eventProperties: ["club_id": clubId, "via": "public"])
+        return clubId
+    }
+
     // MARK: - Phone invites
 
     /// The server only ever sees a hash of the last ten digits, the same key the
     /// on-device contact matcher uses. When someone later joins SPINE with that
-    /// number they are dropped straight into the club.
+    /// number they get an in-app invite to the club.
     static func phoneInviteHash(_ rawPhone: String) -> String? {
         let digits = ContactSyncService.normalizePhoneNumber(rawPhone)
         guard digits.count >= 10 else { return nil }

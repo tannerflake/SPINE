@@ -68,6 +68,7 @@ struct ClubAvatarStack: View {
         HStack(spacing: -size * 0.32) {
             ForEach(Array(shown.enumerated()), id: \.offset) { _, m in
                 UserAvatarView(urlString: m.photoURL, displayName: m.displayName, firstName: m.firstName, lastName: nil, size: size)
+                    .avatarZoomOnHold(urlString: m.photoURL, displayName: m.displayName, firstName: m.firstName)
             }
             if overflow > 0 {
                 Text("+\(overflow)")
@@ -128,6 +129,11 @@ struct ClubMemberRow: View {
                     firstName: progress.member.firstName,
                     lastName: nil,
                     size: 40
+                )
+                .avatarZoomOnHold(
+                    urlString: progress.member.photoURL,
+                    displayName: progress.member.displayName,
+                    firstName: progress.member.firstName
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
@@ -254,7 +260,7 @@ struct ClubFieldLabel: View {
 enum ClubsPreview {
     static var isActive: Bool {
         #if DEBUG
-        return ProcessInfo.processInfo.arguments.contains("-uiPreviewClubs") || startsEmpty || hasMultiple || voteState != nil
+        return ProcessInfo.processInfo.arguments.contains("-uiPreviewClubs") || startsEmpty || hasMultiple || voteState != nil || showsInvite
         #else
         return false
         #endif
@@ -265,6 +271,15 @@ enum ClubsPreview {
     static var hasMultiple: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.arguments.contains("-uiPreviewClubsMulti")
+        #else
+        return false
+        #endif
+    }
+
+    /// `-uiPreviewClubInvite`: a pending invite (Clubs tab card + launch modal).
+    static var showsInvite: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("-uiPreviewClubInvite")
         #else
         return false
         #endif

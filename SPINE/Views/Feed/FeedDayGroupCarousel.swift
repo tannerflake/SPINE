@@ -26,7 +26,7 @@ enum FeedItem: Identifiable {
     /// `FeedInterstitials.swift`). `slot` counts interstitials from the top of
     /// the feed and keys which books or readers it shows.
     case interstitial(slot: Int)
-    /// The "You're all caught up" break between the new-for-you run and the
+    /// The "You're caught up" break between the new-for-you run and the
     /// rest of the feed (see `FeedCaughtUpMarker`).
     case caughtUp
 
@@ -52,22 +52,31 @@ enum FeedItem: Identifiable {
 
     /// A followed author's post older than this is never "new for you", even
     /// if it has never been on screen — following someone with a deep history
-    /// shouldn't march their whole backlog to the top of the feed.
-    static let freshWindow: TimeInterval = 30 * 86400
+    /// shouldn't march their whole backlog to the top of the feed. Also the
+    /// window the listener's followed-author queries reach back over.
+    static let freshWindow: TimeInterval = 14 * 86400
+
+    /// Most posts the new-for-you run holds. A safety rail, not a feature:
+    /// only a member who follows hundreds of people and stays away for two
+    /// weeks gets near it, and past it the oldest new posts just take their
+    /// chronological place.
+    static let maxNewForYouPosts = 150
 
     /// The unified feed: everything new from people you follow first, the
     /// "caught up" break, then every post (community and already-seen followed
     /// ones alike) in plain newest-first order. "New" is decided against
     /// `seenBefore`, the seen set frozen when the session began, so a post
     /// scrolling into view now doesn't move until the next reload. A day-group
-    /// carousel leads if any of its slides is new. Own posts are never new.
-    /// With nothing new the break sits at the top, Instagram-style; with no
-    /// posts at all there's nothing to be caught up on and no break.
+    /// carousel leads if any of its slides is new. Own posts are never new,
+    /// nor is anything from before `seenBaseline` (the account's first launch
+    /// with seen tracking). The break only exists when there was something
+    /// new to get through: a feed with nothing new is just the feed.
     static func unifiedItems(
         from posts: [Post],
         following: Set<String>,
         ownUid: String?,
         seenBefore: Set<String>,
+        seenBaseline: Date = .distantPast,
         feedIsComplete: Bool,
         now: Date = Date(),
         calendar: Calendar = .current
@@ -76,27 +85,31 @@ enum FeedItem: Identifiable {
         func isNew(_ post: Post) -> Bool {
             post.userId != ownUid
                 && following.contains(post.userId)
+                && post.createdAt > seenBaseline
                 && !seenBefore.contains(post.id.uuidString)
                 && now.timeIntervalSince(post.createdAt) < freshWindow
         }
         var fresh: [FeedItem] = []
         var rest: [FeedItem] = []
+        var freshPostCount = 0
         for item in items {
+            let leads: Bool
             switch item {
-            case .single(let post):
-                if isNew(post) { fresh.append(item) } else { rest.append(item) }
-            case .group(let group):
-                if group.posts.contains(where: isNew) { fresh.append(item) } else { rest.append(item) }
-            case .interstitial, .caughtUp:
+            case .single(let post): leads = isNew(post)
+            case .group(let group): leads = group.posts.contains(where: isNew)
+            case .interstitial, .caughtUp: leads = false
+            }
+            // Items arrive newest first, so the cap keeps the newest new posts.
+            if leads, freshPostCount < maxNewForYouPosts {
+                fresh.append(item)
+                freshPostCount += item.postIds.count
+            } else {
                 rest.append(item)
             }
         }
         var out = interleavingInterstitials(into: fresh + rest, feedIsComplete: feedIsComplete)
-        guard !items.isEmpty else { return out }
         if let lastFresh = fresh.last, let idx = out.firstIndex(where: { $0.id == lastFresh.id }) {
             out.insert(.caughtUp, at: idx + 1)
-        } else {
-            out.insert(.caughtUp, at: 0)
         }
         return out
     }

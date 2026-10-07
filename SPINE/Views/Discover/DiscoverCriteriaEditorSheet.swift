@@ -89,6 +89,14 @@ struct DiscoverCriteriaEditorSheet: View {
             SpineTagCatalog.shared.allTags.filter { selectedTags.contains($0) }
         )
         final.freeText = String(final.trimmedFreeText.prefix(Self.freeTextLimit))
+        Analytics.amplitude?.track(eventType: "Saved Discover Preferences", eventProperties: [
+            "changed": final != appState.discoverCriteria,
+            "has_custom_preferences": !final.isDefault,
+            "seed_book_count": final.seedBooks.count,
+            "tier_count": final.tiers.count,
+            "tag_count": final.tags.count,
+            "has_free_text": !final.trimmedFreeText.isEmpty,
+        ])
         appState.setDiscoverCriteria(final)
         dismiss()
     }

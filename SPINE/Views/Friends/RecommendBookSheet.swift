@@ -176,7 +176,7 @@ struct RecommendBookSheet: View {
 
     private var inviteFooter: some View {
         VStack(spacing: 8) {
-            Text("Friend not on SPINE yet?")
+            Text("Friend not on Spine yet?")
                 .font(Theme.caption())
                 .foregroundStyle(Theme.textSecondary)
             Button {
@@ -209,6 +209,12 @@ struct RecommendBookSheet: View {
             firstName: user.firstName,
             lastName: user.lastName,
             size: 40
+        )
+        .avatarZoomOnHold(
+            urlString: user.profileImageURL,
+            displayName: user.displayName,
+            firstName: user.firstName,
+            lastName: user.lastName
         )
     }
 

@@ -2,7 +2,7 @@
 //  FeedCaughtUpMarker.swift
 //  SPINE
 //
-//  The "You're all caught up" break in the unified feed. Sits right after the
+//  The "You're caught up" break in the unified feed. Sits right after the
 //  last new post from someone you follow (or at the very top when there were
 //  none) and segments what's above from the community posts below, the way
 //  Instagram's does. Plays once per feed session as it scrolls into view: a
@@ -36,24 +36,18 @@ struct FeedCaughtUpMarker: View {
                 badge
                 rule(growsTowardLeading: false)
             }
-            VStack(spacing: 4) {
-                Text("You're all caught up")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Theme.textPrimary)
-                Text("You've seen every new post from people you follow.")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-            .opacity(copyOpacity)
-            .offset(y: copyOffset)
+            Text("You're caught up")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(Theme.textPrimary)
+                .opacity(copyOpacity)
+                .offset(y: copyOffset)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, Theme.horizontalPadding)
         .padding(.top, 34)
         .padding(.bottom, 26)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("You're all caught up. You've seen every new post from people you follow.")
+        .accessibilityLabel("You're caught up")
         .onAppear(perform: play)
     }
 

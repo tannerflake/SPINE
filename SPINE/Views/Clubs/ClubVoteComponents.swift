@@ -94,6 +94,11 @@ struct ClubVoteMemberCloud: View {
                             size: size,
                             ring: false
                         )
+                        .avatarZoomOnHold(
+                            urlString: entry.member.photoURL,
+                            displayName: entry.member.displayName,
+                            firstName: entry.member.firstName
+                        )
                         .overlay(Circle().strokeBorder(Theme.paperFixed.opacity(isDone ? 0.9 : 0.25), lineWidth: 2))
                         .saturation(isDone ? 1 : 0.15)
                         .opacity(isDone ? 1 : 0.45)
@@ -614,6 +619,7 @@ struct ClubVoteStatusCard: View {
                 HStack(spacing: -8) {
                     ForEach(members, id: \.uid) { entry in
                         UserAvatarView(urlString: entry.member.photoURL, displayName: entry.member.displayName, firstName: entry.member.firstName, lastName: nil, size: 30)
+                            .avatarZoomOnHold(urlString: entry.member.photoURL, displayName: entry.member.displayName, firstName: entry.member.firstName)
                             .opacity(done.contains(entry.uid) ? 1 : 0.35)
                             .saturation(done.contains(entry.uid) ? 1 : 0.2)
                     }

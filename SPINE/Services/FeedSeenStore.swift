@@ -11,6 +11,11 @@
 //  Entries older than `retention` are dropped on load and the map is capped,
 //  so a heavy reader's file never grows without bound.
 //
+//  Each account's file also carries a `baseline`: the moment the store was
+//  first created for it. Everything posted before then counts as seen, so
+//  the first launch after this feature (or after a reinstall) starts caught
+//  up instead of marching a 800-follow member's entire history to the top.
+//
 
 import Foundation
 
@@ -22,8 +27,15 @@ final class FeedSeenStore {
     static let retention: TimeInterval = 90 * 86400
     static let maxEntries = 4000
 
+    private struct Payload: Codable {
+        var baseline: Date
+        var seenAt: [String: Date]
+    }
+
     private var uid: String?
     private var seenAt: [String: Date] = [:]
+    /// Posts created before this are seen by definition (see the header).
+    private(set) var baseline: Date = .distantPast
     private var saveWork: DispatchWorkItem?
     private let diskQueue = DispatchQueue(label: "spine.feedSeenStore", qos: .utility)
     /// `-uiPreview` runs keep marks in memory only, so every preview launch
@@ -44,17 +56,32 @@ final class FeedSeenStore {
         flushPendingSave()
         self.uid = uid
         seenAt = [:]
+        // Preview runs: the demo feed's posts are all "new" unless a flag
+        // seeds them seen.
+        baseline = inMemoryOnly ? .distantPast : Date()
         guard !inMemoryOnly, let url = Self.fileURL(uid: uid),
-              let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode([String: Date].self, from: data) else { return }
+              let data = try? Data(contentsOf: url) else {
+            // First time for this account: write the baseline down now so
+            // it doesn't move to a later launch.
+            if !inMemoryOnly { scheduleSave() }
+            return
+        }
         let cutoff = Date().addingTimeInterval(-Self.retention)
-        seenAt = decoded.filter { $0.value > cutoff }
+        if let payload = try? JSONDecoder().decode(Payload.self, from: data) {
+            baseline = payload.baseline
+            seenAt = payload.seenAt.filter { $0.value > cutoff }
+        } else if let legacy = try? JSONDecoder().decode([String: Date].self, from: data) {
+            // Pre-baseline file (2026-09-26 builds): treat its creation as now.
+            seenAt = legacy.filter { $0.value > cutoff }
+            scheduleSave()
+        }
     }
 
     func unload() {
         flushPendingSave()
         uid = nil
         seenAt = [:]
+        baseline = .distantPast
     }
 
     func isSeen(_ postId: String) -> Bool {
@@ -109,9 +136,9 @@ final class FeedSeenStore {
 
     private func save() {
         guard !inMemoryOnly, let uid, let url = Self.fileURL(uid: uid) else { return }
-        let snapshot = seenAt
+        let payload = Payload(baseline: baseline, seenAt: seenAt)
         diskQueue.async {
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            guard let data = try? JSONEncoder().encode(payload) else { return }
             try? data.write(to: url, options: .atomic)
         }
     }

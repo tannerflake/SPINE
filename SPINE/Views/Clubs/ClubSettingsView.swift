@@ -15,6 +15,7 @@ struct ClubSettingsView: View {
     /// Set by the Clubs tab when there is no club list to reach these from.
     var onStartClub: (() -> Void)?
     var onJoinClub: (() -> Void)?
+    var onBrowseClubs: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var appState: AppState
@@ -26,6 +27,7 @@ struct ClubSettingsView: View {
     @State private var confirmDelete = false
     @State private var confirmCancelVote = false
     @State private var memberToRemove: String?
+    @State private var inviteToCancel: String?
     @State private var busy = false
     /// Drag-to-dismiss is off for the list itself, so a swipe down while reading
     /// the members scrolls instead of throwing the sheet away. This tracks the
@@ -36,12 +38,14 @@ struct ClubSettingsView: View {
         club: BookClub,
         onLeft: @escaping () -> Void = {},
         onStartClub: (() -> Void)? = nil,
-        onJoinClub: (() -> Void)? = nil
+        onJoinClub: (() -> Void)? = nil,
+        onBrowseClubs: (() -> Void)? = nil
     ) {
         self.club = club
         self.onLeft = onLeft
         self.onStartClub = onStartClub
         self.onJoinClub = onJoinClub
+        self.onBrowseClubs = onBrowseClubs
         _name = State(initialValue: club.name)
         _everyoneIsAdmin = State(initialValue: club.everyoneIsAdmin)
     }
@@ -105,6 +109,35 @@ struct ClubSettingsView: View {
                     }
 
                     Section {
+                        ForEach(BookClub.Visibility.allCases, id: \.self) { option in
+                            Button {
+                                guard option != club.visibility, let uid else { return }
+                                run { try await BookClubService.shared.setVisibility(clubId: club.id, actorUid: uid, visibility: option) }
+                            } label: {
+                                HStack(alignment: .top, spacing: 12) {
+                                    Image(systemName: club.visibility == option ? "largecircle.fill.circle" : "circle")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .foregroundStyle(club.visibility == option ? Theme.chrome : Theme.textTertiary)
+                                        .padding(.top, 1)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(option.title)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(Theme.textPrimary)
+                                        Text(option.blurb)
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(Theme.textSecondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } header: {
+                        Text("Who can find it")
+                    }
+
+                    Section {
                         ForEach(BookClub.PickMode.allCases, id: \.self) { mode in
                             Button {
                                 guard mode != club.pickMode, let uid else { return }
@@ -157,7 +190,19 @@ struct ClubSettingsView: View {
                     }
                 }
 
-                if onStartClub != nil || onJoinClub != nil {
+                if !club.orderedPendingInvites.isEmpty {
+                    Section {
+                        ForEach(club.orderedPendingInvites, id: \.uid) { entry in
+                            pendingInviteRow(uid: entry.uid, invite: entry.invite)
+                        }
+                    } header: {
+                        Text("Invited · \(club.orderedPendingInvites.count)")
+                    } footer: {
+                        Text("They're in once they accept. Swipe to take an invite back.")
+                    }
+                }
+
+                if onStartClub != nil || onJoinClub != nil || onBrowseClubs != nil {
                     Section {
                         if let onStartClub {
                             Button {
@@ -174,6 +219,15 @@ struct ClubSettingsView: View {
                                 onJoinClub()
                             } label: {
                                 Label("Join a club with a code", systemImage: "ticket")
+                                    .foregroundStyle(Theme.textPrimary)
+                            }
+                        }
+                        if let onBrowseClubs {
+                            Button {
+                                dismiss()
+                                onBrowseClubs()
+                            } label: {
+                                Label("Browse public clubs", systemImage: "globe")
                                     .foregroundStyle(Theme.textPrimary)
                             }
                         }
@@ -238,6 +292,18 @@ struct ClubSettingsView: View {
                     memberToRemove = nil
                 }
             }
+            .confirmationDialog(
+                "Take back the invite to \(inviteToCancel.flatMap { club.pendingInvites[$0]?.firstName } ?? "them")?",
+                isPresented: Binding(get: { inviteToCancel != nil }, set: { if !$0 { inviteToCancel = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Cancel invite", role: .destructive) {
+                    if let target = inviteToCancel {
+                        run { try await BookClubService.shared.cancelInvite(clubId: club.id, uid: target) }
+                    }
+                    inviteToCancel = nil
+                }
+            }
             .disabled(busy)
         }
         .offset(y: dragOffset)
@@ -275,6 +341,7 @@ struct ClubSettingsView: View {
         let memberIsAdmin = !club.everyoneIsAdmin && club.adminIds.contains(memberUid)
         return HStack(spacing: 12) {
             UserAvatarView(urlString: member.photoURL, displayName: member.displayName, firstName: member.firstName, lastName: nil, size: 36)
+                .avatarZoomOnHold(urlString: member.photoURL, displayName: member.displayName, firstName: member.firstName)
             VStack(alignment: .leading, spacing: 1) {
                 Text(memberUid == uid ? "You" : member.displayName)
                     .font(.system(size: 15, weight: .semibold))
@@ -310,6 +377,34 @@ struct ClubSettingsView: View {
                 Button(role: .destructive) { memberToRemove = memberUid } label: {
                     Label("Remove", systemImage: "person.badge.minus")
                 }
+            }
+        }
+    }
+
+    private func pendingInviteRow(uid inviteeUid: String, invite: BookClub.PendingInvite) -> some View {
+        HStack(spacing: 12) {
+            UserAvatarView(urlString: invite.photoURL, displayName: invite.displayName, firstName: invite.firstName, lastName: nil, size: 36)
+                .avatarZoomOnHold(urlString: invite.photoURL, displayName: invite.displayName, firstName: invite.firstName)
+                .opacity(0.6)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(invite.displayName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                if !invite.username.isEmpty {
+                    Text("@\(invite.username)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+            }
+            Spacer()
+            Text("INVITED")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(Theme.textTertiary)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { inviteToCancel = inviteeUid } label: {
+                Label("Cancel invite", systemImage: "xmark")
             }
         }
     }

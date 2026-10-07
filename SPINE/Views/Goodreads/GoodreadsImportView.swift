@@ -45,6 +45,24 @@ final class GoodreadsWizardModel: ObservableObject {
     @Published var parseError: String?
     /// Non-fatal problem to surface on the wizard (failed save, bulk-import hiccups).
     @Published var importError: String?
+    /// Neutral heads-up on the queue wizard (the import-all cap was reached).
+    @Published var importNotice: String?
+
+    /// Automatic "import all" on the to-read phase stops once this many to-read
+    /// books are in (hand-added ones count too); the rest go one by one. Bounds
+    /// what a single huge to-read shelf can cost in ISBNdb searches and
+    /// Firestore writes (2026-09-29: one session billed ~6,500 searches).
+    static let queueImportAllCap = 500
+
+    /// How many more to-read books "import all" may still bring in.
+    var queueImportAllAllowance: Int {
+        max(0, Self.queueImportAllCap - (session?.importedQueueCount ?? 0))
+    }
+
+    /// Pending to-read books an import-all from here would NOT reach.
+    var queueRowsBeyondImportAll: Int {
+        max(0, (session?.pendingQueueCount ?? 0) - queueImportAllAllowance)
+    }
 
     private let service = GoodreadsImportService()
     private weak var appState: AppState?
@@ -76,6 +94,11 @@ final class GoodreadsWizardModel: ObservableObject {
 
     /// How many upcoming books to match ahead of the user so cards appear instantly.
     private let prefetchWindow = 4
+    /// Rolling ISBN warm-up (see `warmISBNCache`): batch size, and how close
+    /// the user may get to the unwarmed edge before the next batch goes out.
+    private let isbnWarmBatchSize = 100
+    private let isbnWarmRefillAt = 30
+    private var isbnWarmedRowIds: Set<String> = []
 
     var currentRow: GoodreadsRow? { session?.currentRow }
 
@@ -144,7 +167,6 @@ final class GoodreadsWizardModel: ObservableObject {
         importedWorkKeys = []
         persist()
         enterStep(for: s.phase)
-        warmISBNCache()
         advancePastUndecidable()
     }
 
@@ -152,15 +174,16 @@ final class GoodreadsWizardModel: ObservableObject {
         session = saved
         source = saved.resolvedSource
         matchStates = saved.matchedBooks.mapValues { .matched($0) }
-        warmISBNCache()
         enterStep(for: saved.phase)
         advancePastUndecidable()
     }
 
     func startOver() {
         appState?.clearGoodreadsWizardSession()
+        importNotice = nil
         session = nil
         matchStates = [:]
+        isbnWarmedRowIds = []
         importedBookIds = []
         importedWorkKeys = []
         parseError = nil
@@ -189,17 +212,25 @@ final class GoodreadsWizardModel: ObservableObject {
         return s.activeRows.filter { s.decisions[$0.id] == nil }
     }
 
-    /// Resolve every undecided row's ISBN in bulk up front (batched cache check
-    /// + one ISBNdb bulk request), so the per-row match lookups become cache
-    /// hits. Re-kicks the match window when done, in case its first rows ran
-    /// before the warm cache landed.
+    /// Resolve upcoming rows' ISBNs in bulk (batched cache check + one ISBNdb
+    /// bulk request), so the per-row match lookups become cache hits. Rolling
+    /// window over the ACTIVE phase only: every ISBN sent bills one ISBNdb
+    /// search whether or not the user ever reaches that row, and warming the
+    /// whole export up front billed entire to-read shelves for people who only
+    /// imported their read books (one 2026-09-29 session: ~6,500 searches for
+    /// 143 books added). Queue rows warm once the queue phase starts. Refills
+    /// when the next `isbnWarmRefillAt` rows aren't all warmed yet, so lookups
+    /// stay ahead of the user in ~100-row batches. Re-kicks the match window
+    /// when done, in case its first rows ran before the warm cache landed.
     private func warmISBNCache() {
-        guard let s = session else { return }
-        let rows = (s.readRows + s.queueRows).filter { s.decisions[$0.id] == nil && s.matchedBooks[$0.id] == nil }
-        guard !rows.isEmpty else { return }
+        guard let s = session, s.phase == .readBooks || s.phase == .queueBooks else { return }
+        let upcoming = pendingActiveRows.filter { s.matchedBooks[$0.id] == nil }
+        guard upcoming.prefix(isbnWarmRefillAt).contains(where: { !isbnWarmedRowIds.contains($0.id) }) else { return }
+        let batch = upcoming.prefix(isbnWarmBatchSize).filter { !isbnWarmedRowIds.contains($0.id) }
+        isbnWarmedRowIds.formUnion(batch.map(\.id))
         Task { [weak self] in
             guard let self else { return }
-            await self.service.prefetchISBNs(for: rows)
+            await self.service.prefetchISBNs(for: batch)
             self.prefetchMatches()
         }
     }
@@ -297,6 +328,7 @@ final class GoodreadsWizardModel: ObservableObject {
             persist()
         }
         transitionIfPhaseFinished()
+        warmISBNCache()
         prefetchMatches()
     }
 
@@ -327,6 +359,7 @@ final class GoodreadsWizardModel: ObservableObject {
     private func decideCurrent(_ decision: GoodreadsRowDecision) {
         guard var s = session, let row = s.currentRow else { return }
         importError = nil
+        importNotice = nil
         s.decisions[row.id] = decision
         session = s
         persist()
@@ -530,8 +563,14 @@ final class GoodreadsWizardModel: ObservableObject {
             persist()
         }
         guard let s = session, s.phase == .readBooks || s.phase == .queueBooks else { return }
-        let rows = pendingActiveRows
-        guard !rows.isEmpty else { return }
+        var rows = pendingActiveRows
+        if s.phase == .queueBooks {
+            rows = Array(rows.prefix(queueImportAllAllowance))
+        }
+        guard !rows.isEmpty else {
+            enterStep(for: s.phase)
+            return
+        }
         let phase = s.phase
         bulkTotal = rows.count
         bulkDone = 0
@@ -618,6 +657,13 @@ final class GoodreadsWizardModel: ObservableObject {
                 self.enterStep(for: phase)
             } else {
                 self.transitionIfPhaseFinished()
+            }
+            // Cap reached with to-read books still waiting: back to the wizard
+            // so they can go one by one.
+            if phase == .queueBooks, let left = self.session?.pendingQueueCount, left > 0 {
+                let added = self.session?.importedQueueCount ?? 0
+                self.importNotice = "Added \(added.formatted()) to-read books, the most we add automatically. \(left.formatted()) more \(left == 1 ? "is" : "are") waiting below if you'd like to go through them one by one."
+                self.enterStep(for: phase)
             }
         }
     }
@@ -769,13 +815,43 @@ struct GoodreadsImportView: View {
             } message: {
                 Text("Starting over deletes your place in this import and every book still waiting for review. You'd begin again from a fresh CSV. Books you've already imported stay in your library.")
             }
-            .alert("Import all remaining?", isPresented: $showImportAllConfirm) {
-                Button("Import all anyway") { model.importAllRemaining() }
+            .alert(importAllAlertTitle, isPresented: $showImportAllConfirm) {
+                if !importAllCapReached {
+                    Button(importAllConfirmLabel) { model.importAllRemaining() }
+                }
                 Button("Keep reviewing", role: .cancel) {}
             } message: {
-                Text("Importing everything at once can occasionally mismatch books, so going book by book is recommended. Your progress is always saved. You can close this and pick up right where you left off anytime.")
+                Text(importAllAlertMessage)
             }
         }
+    }
+
+    private var isQueueImportAll: Bool { model.step == .queueWizard }
+
+    /// To-read phase and the automatic-import cap is used up.
+    private var importAllCapReached: Bool {
+        isQueueImportAll && model.queueImportAllAllowance == 0
+    }
+
+    private var importAllAlertTitle: String {
+        importAllCapReached ? "Automatic import limit reached" : "Import all remaining?"
+    }
+
+    private var importAllConfirmLabel: String {
+        guard isQueueImportAll, model.queueRowsBeyondImportAll > 0 else { return "Import all anyway" }
+        return "Import \(model.queueImportAllAllowance.formatted()) anyway"
+    }
+
+    private var importAllAlertMessage: String {
+        let caution = "Importing everything at once can occasionally mismatch books, so going book by book is recommended. Your progress is always saved. You can close this and pick up right where you left off anytime."
+        guard isQueueImportAll else { return caution }
+        let cap = GoodreadsWizardModel.queueImportAllCap.formatted()
+        if importAllCapReached {
+            return "We add up to \(cap) to-read books automatically, and you've reached that. Go through the rest one by one to bring them in."
+        }
+        let beyond = model.queueRowsBeyondImportAll
+        guard beyond > 0 else { return caution }
+        return "We add up to \(cap) to-read books automatically, so this imports the next \(model.queueImportAllAllowance.formatted()). You can go through the other \(beyond.formatted()) one by one afterward."
     }
 
     /// True while the user is actively working through books (or a bulk import is
@@ -858,26 +934,23 @@ struct GoodreadsImportView: View {
     /// First screen: which service to pull the library from.
     private var sourcePickerContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Where are your books?")
-                        .font(Theme.headline())
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("Pick the app you track your reading in. SPINE grabs the export for you and walks through your books one at a time.")
-                        .font(Theme.callout())
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            VStack(alignment: .leading, spacing: 28) {
+                Text("Where is your reading?")
+                    .font(Theme.headline())
+                    .foregroundStyle(Theme.textPrimary)
 
-                VStack(spacing: 12) {
-                    sourceOption(
-                        .goodreads,
-                        subtitle: "Ratings, reviews, read dates, and your to-read shelf."
-                    )
-                    sourceOption(
-                        .storyGraph,
-                        subtitle: "Ratings, reviews, read dates, and your to-read pile."
-                    )
+                HStack(alignment: .top, spacing: 36) {
+                    Spacer(minLength: 0)
+                    ForEach(LibraryImportSource.allCases) { source in
+                        Button {
+                            model.parseError = nil
+                            selectedSource = source
+                        } label: {
+                            ImportSourceTile(source: source)
+                        }
+                        .buttonStyle(.springPress)
+                    }
+                    Spacer(minLength: 0)
                 }
 
                 if let err = model.parseError {
@@ -891,40 +964,6 @@ struct GoodreadsImportView: View {
             .padding(.bottom, 16)
         }
         .safeAreaInset(edge: .bottom) { haveFileButton }
-    }
-
-    private func sourceOption(_ source: LibraryImportSource, subtitle: String) -> some View {
-        Button {
-            model.parseError = nil
-            selectedSource = source
-        } label: {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(source.displayName)
-                        .font(Theme.headline())
-                        .foregroundStyle(Theme.textPrimary)
-                    Text(subtitle)
-                        .font(Theme.caption())
-                        .foregroundStyle(Theme.textSecondary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Theme.chrome.opacity(0.4), lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .buttonStyle(.springPress)
     }
 
     private var goodreadsExplainerContent: some View {
@@ -993,15 +1032,23 @@ struct GoodreadsImportView: View {
                     Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 12) {
                         GridRow {
                             stepNumberBadge(1, done: false, active: true)
-                            stepBody("Tap the button below. Sign in to StoryGraph if asked, then tap “Generate export”.")
+                            stepBody("Sign in.")
                         }
                         GridRow {
                             stepNumberBadge(2, done: false, active: false)
-                            stepBody("It usually takes about a minute. Stay on the page and tap Refresh until a download link appears. No need to check your email.")
+                            stepBody("Tap “Generate Export”.")
                         }
                         GridRow {
                             stepNumberBadge(3, done: false, active: false)
-                            stepBody("Tap the download link. SPINE grabs the file and starts the import.")
+                            stepBody("Wait ~40 seconds.")
+                        }
+                        GridRow {
+                            stepNumberBadge(4, done: false, active: false)
+                            stepBody("Refresh the page.")
+                        }
+                        GridRow {
+                            stepNumberBadge(5, done: false, active: false)
+                            stepBody("Tap “Download” once it appears.")
                         }
                     }
                 }
@@ -1121,18 +1168,33 @@ struct GoodreadsImportView: View {
                 importErrorBanner
 
                 ScrollView {
-                    VStack(spacing: 20) {
+                    ZStack(alignment: .top) {
                         if let book = model.currentBook, let row = model.currentRow {
                             readBookCard(book: book, row: row)
                         } else if model.currentNeedsManualMatch, let row = model.currentRow {
                             manualMatchCard(row: row)
                         } else {
                             matchingCard
+                                .transition(.spinnerFadeOut)
                         }
                     }
                     .padding(Theme.cardPadding)
                 }
             }
+        }
+    }
+
+    /// Neutral note (e.g. the to-read import-all cap was reached).
+    @ViewBuilder
+    private var importNoticeBanner: some View {
+        if let notice = model.importNotice {
+            Text(notice)
+                .font(Theme.caption())
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Theme.cardPadding)
+                .padding(.top, 8)
         }
     }
 
@@ -1327,13 +1389,8 @@ struct GoodreadsImportView: View {
     }
 
     private var matchingCard: some View {
-        VStack(spacing: 20) {
-            SpinningSpineLogo()
-            Text("Finding your book…")
-                .font(Theme.title2())
-                .foregroundStyle(Theme.textSecondary)
-        }
-        .frame(maxWidth: .infinity)
+        SpinningSpineLogo(size: 288)
+            .frame(maxWidth: .infinity)
         .padding(.top, 96)
     }
 
@@ -1418,7 +1475,9 @@ struct GoodreadsImportView: View {
                 Button {
                     model.importAllRemaining()
                 } label: {
-                    Text("Add all automatically")
+                    Text(model.queueRowsBeyondImportAll > 0
+                         ? "Add \(model.queueImportAllAllowance.formatted()) automatically"
+                         : "Add all automatically")
                 }
                 .buttonStyle(.spinePrimary)
 
@@ -1455,15 +1514,17 @@ struct GoodreadsImportView: View {
                 )
 
                 importErrorBanner
+                importNoticeBanner
 
                 ScrollView {
-                    VStack(spacing: 20) {
+                    ZStack(alignment: .top) {
                         if let book = model.currentBook {
                             queueBookCard(book: book)
                         } else if model.currentNeedsManualMatch, let row = model.currentRow {
                             manualMatchCard(row: row)
                         } else {
                             matchingCard
+                                .transition(.spinnerFadeOut)
                         }
                     }
                     .padding(Theme.cardPadding)
@@ -1475,6 +1536,13 @@ struct GoodreadsImportView: View {
     /// Queue-phase prompt: to-read rows go to the Backlog, did-not-finish rows
     /// (StoryGraph only) to the DNF list under the queue.
     private var queuePromptText: String {
+        let base = queuePromptBaseText
+        let beyond = model.queueRowsBeyondImportAll
+        guard beyond > 0 else { return base }
+        return base + "\n\nWe can add up to \(model.queueImportAllAllowance.formatted()) automatically. To bring in all of them, review them one by one."
+    }
+
+    private var queuePromptBaseText: String {
         let total = model.session?.pendingQueueCount ?? 0
         let dnf = model.session?.pendingDNFCount ?? 0
         let source = model.source.displayName
@@ -1933,3 +2001,40 @@ private struct GoodreadsStarsRow: View {
 
 // Tier picker moved to TierBadge.swift as `InlineTierPicker` so the mark-as-read
 // card can share it.
+
+// MARK: - Import source tile
+
+/// App-icon style tile for a library import source: the service's logo
+/// clipped like a home-screen icon with its name beneath. Shared by the
+/// import source picker and the onboarding wizard's import step.
+struct ImportSourceTile: View {
+    let source: LibraryImportSource
+    var iconSize: CGFloat = 96
+
+    private var assetName: String {
+        switch source {
+        case .goodreads: return "goodreads-logo"
+        case .storyGraph: return "storygraph-logo"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(assetName)
+                .resizable()
+                .scaledToFill()
+                .frame(width: iconSize, height: iconSize)
+                .clipShape(RoundedRectangle(cornerRadius: iconSize * 0.22, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: iconSize * 0.22, style: .continuous)
+                        .stroke(Theme.textPrimary.opacity(0.12), lineWidth: 1)
+                )
+                .shadow(color: Theme.shadowInk.opacity(0.18), radius: 12, x: 0, y: 6)
+            Text(source.displayName)
+                .font(Theme.callout())
+                .fontWeight(.medium)
+                .foregroundStyle(Theme.textPrimary)
+        }
+        .contentShape(Rectangle())
+    }
+}

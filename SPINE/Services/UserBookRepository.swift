@@ -172,94 +172,33 @@ final class UserBookRepository {
     /// need the people currently on screen (the feed people strip loads these a
     /// page at a time; the feed loads them for post authors).
     func fetchReadingNowBooks(forUserIds uids: [String]) async -> [String: [Book]] {
-        let wanted = Array(Set(uids))
+        let wanted = Set(uids)
         guard !wanted.isEmpty else { return [:] }
-        let chunks = stride(from: 0, to: wanted.count, by: 30).map {
-            Array(wanted[$0..<min($0 + 30, wanted.count)])
-        }
-        let rows = await withTaskGroup(of: [UserBook].self) { group in
-            for chunk in chunks {
-                group.addTask { [self] in
-                    do {
-                        let snapshot = try await db.collection(userBooks)
-                            .whereField("userId", in: chunk)
-                            .whereField("queueShelf", isEqualTo: QueueShelf.readingNow.rawValue)
-                            .getDocuments()
-                        return snapshot.documents.compactMap { doc -> UserBook? in
-                            guard let ub = userBook(from: doc.data(), docId: doc.documentID),
-                                  ub.status == .wantToRead, ub.queueShelf == .readingNow else { return nil }
-                            return ub
-                        }
-                    } catch {
-                        return []
-                    }
-                }
-            }
-            var all: [UserBook] = []
-            for await chunkRows in group { all.append(contentsOf: chunkRows) }
-            return all
-        }
-        var rowsByUid: [String: [UserBook]] = [:]
-        for ub in rows { rowsByUid[ub.userId, default: []].append(ub) }
-        return await resolveReadingNowBooks(rowsByUid: rowsByUid)
+        return await ReadingNowSummary.shared.byUid().filter { wanted.contains($0.key) }
     }
 
-    /// Every member's "Reading now" covers in one query (widget snapshot): uid → books in shelf order.
+    /// Every member's "Reading now" covers: uid → books in shelf order.
+    ///
+    /// Served from the server-maintained `summaries/readingNow` document (one
+    /// read) rather than scanning every reading-now row in the database plus a
+    /// book doc per cover, which is what this cost per cold launch, per device,
+    /// before 2026-10-05. The Cloud Functions userBooks trigger keeps the doc
+    /// current and a nightly job rebuilds it from scratch.
     func fetchAllReadingNowBooks() async -> [String: [Book]] {
-        do {
-            let snapshot = try await db.collection(userBooks)
-                .whereField("queueShelf", isEqualTo: QueueShelf.readingNow.rawValue)
-                .getDocuments()
-            var rowsByUid: [String: [UserBook]] = [:]
-            for doc in snapshot.documents {
-                guard let ub = userBook(from: doc.data(), docId: doc.documentID),
-                      ub.status == .wantToRead, ub.queueShelf == .readingNow else { continue }
-                rowsByUid[ub.userId, default: []].append(ub)
-            }
-            return await resolveReadingNowBooks(rowsByUid: rowsByUid)
-        } catch {
-            return [:]
-        }
+        await ReadingNowSummary.shared.byUid()
     }
 
-    /// Just the readers with something on their Reading Now shelf — no book
-    /// documents resolved. The roster-wide ranking in `UserDirectory` only needs
-    /// to know who is reading, not what, and hydrating every cover for that
-    /// would cost more than the rest of the member search put together.
+    /// Just the readers with something on their Reading Now shelf (the
+    /// roster-wide ranking in `UserDirectory` only needs to know who).
     func fetchUidsReadingNow() async -> Set<String> {
-        do {
-            let snapshot = try await db.collection(userBooks)
-                .whereField("queueShelf", isEqualTo: QueueShelf.readingNow.rawValue)
-                .getDocuments()
-            var uids: Set<String> = []
-            for doc in snapshot.documents {
-                guard let ub = userBook(from: doc.data(), docId: doc.documentID),
-                      ub.status == .wantToRead, ub.queueShelf == .readingNow else { continue }
-                uids.insert(ub.userId)
-            }
-            return uids
-        } catch {
-            return []
-        }
-    }
-
-    /// Shared tail of the reading-now fetches: resolve book documents and put
-    /// each reader's covers in shelf order, dropping readers with no covers.
-    private func resolveReadingNowBooks(rowsByUid: [String: [UserBook]]) async -> [String: [Book]] {
-        guard !rowsByUid.isEmpty else { return [:] }
-        let allBooks = await bookRepo.getBooks(ids: rowsByUid.values.flatMap { $0.map(\.bookId) })
-        var result: [String: [Book]] = [:]
-        for (uid, rows) in rowsByUid {
-            let ordered = rows.sorted { ($0.queueOrder ?? 999) < ($1.queueOrder ?? 999) }
-            let books = ordered.compactMap { allBooks[$0.bookId] }
-            if !books.isEmpty { result[uid] = books }
-        }
-        return result
+        Set(await ReadingNowSummary.shared.byUid().keys)
     }
 
     /// Adds a userBook (and ensures the book exists). Returns the created UserBook with its id.
     /// `targetShelf`/`targetOrder` (wantToRead only) place the book directly on a specific queue
-    /// shelf at a specific position — used by the shelf "Add" tiles. Default: top of backlog.
+    /// shelf at a sparse position (see `SparseOrder`); callers compute the position from the
+    /// library they already hold (`AppState.topBacklogOrder()` / shelf end), so a queue add is
+    /// exactly one document write. Without them a queue book lands on the backlog at order 0.
     func addUserBook(userId: String, book: Book, status: ReadingStatus, rating: Double?, reviewText: String?, dateStarted: Date?, dateFinished: Date?, targetShelf: QueueShelf? = nil, targetOrder: Int? = nil) async throws -> UserBook {
         // Resolve to the community's canonical book doc — the id actually shelved
         // can differ from the tapped search result's id (same work under another
@@ -298,37 +237,16 @@ final class UserBookRepository {
         ]
         var queueShelf: QueueShelf?
         var queueOrder: Int?
-        if status == .wantToRead, let shelf = targetShelf {
-            // Explicit placement (e.g. end of a shelf) — no reordering of other books needed.
+        if status == .wantToRead {
+            // Sparse placement: the new row takes its own slot and no other
+            // document is touched. (The old path re-read and renumbered every
+            // backlog row per add — quadratic across an import.)
+            let shelf = targetShelf ?? .backlog
             queueShelf = shelf
             queueOrder = targetOrder ?? 0
             data["queueShelf"] = shelf.rawValue
             data["queueOrder"] = queueOrder ?? 0
             try await ref.setData(data)
-        } else if status == .wantToRead {
-            queueShelf = .backlog
-            queueOrder = 0
-            data["queueShelf"] = QueueShelf.backlog.rawValue
-            data["queueOrder"] = 0
-            let snapshot = try await db.collection(userBooks)
-                .whereField("userId", isEqualTo: userId)
-                .whereField("status", isEqualTo: status.rawValue)
-                .getDocuments()
-            let batch = db.batch()
-            for doc in snapshot.documents {
-                let d = doc.data()
-                let shelfRaw = d["queueShelf"] as? String
-                // Don't bump order for books on the explicit shelves (Reading Now / Up Next) — only backlog gets pushed down by the new arrival.
-                if shelfRaw == QueueShelf.upNext.rawValue { continue }
-                if shelfRaw == QueueShelf.readingNow.rawValue { continue }
-                let ord = (d["queueOrder"] as? Int) ?? 1_000_000
-                batch.updateData([
-                    "queueOrder": ord + 1,
-                    "updatedAt": Timestamp(date: now),
-                ], forDocument: doc.reference)
-            }
-            batch.setData(data, forDocument: ref)
-            try await batch.commit()
         } else {
             data["queueShelf"] = NSNull()
             data["queueOrder"] = NSNull()

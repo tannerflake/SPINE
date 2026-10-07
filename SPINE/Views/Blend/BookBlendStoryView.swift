@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct BookBlendStoryView: View {
     let blend: BookBlend
@@ -67,12 +68,17 @@ struct BookBlendStoryView: View {
         BlendAvatarLockup(leftURL: myPhotoURL, rightURL: otherPhotoURL, leftName: myName, rightName: otherName, size: size)
     }
 
+    /// Shared books get one reveal page each, bounded so a big overlap doesn't
+    /// become a 60-page story. The list is affinity-sorted, so these are the best.
+    private static let maxRevealPages = 12
+
     private var pages: [Page] {
         guard let result else { return [.outro] }
         var list: [Page] = [.intro, .score]
         if !result.sharedBooks.isEmpty {
             list.append(.sharedIntro)
-            for i in result.sharedBooks.indices { list.append(.bookReveal(i)) }
+            // Reveal the top-affinity books one per page; the intro shows the true count.
+            for i in result.sharedBooks.prefix(Self.maxRevealPages).indices { list.append(.bookReveal(i)) }
         }
         for insight in result.insights.prefix(2) { list.append(.insight(insight)) }
         // One slide per direction: all of a reader's picks together.
@@ -424,7 +430,7 @@ struct BookBlendStoryView: View {
             book: book,
             coverBook: bookFor(shared: book),
             index: index,
-            total: books.count,
+            total: min(books.count, Self.maxRevealPages),
             myUid: myUid,
             otherUid: otherUid,
             myName: myName,
@@ -840,7 +846,7 @@ struct BookBlendStoryView: View {
                     exportSuccessCount += 1
                     exportNote = "Saved to Photos."
                 case .permissionDenied:
-                    exportNote = "SPINE needs photo access to save. Turn it on in Settings."
+                    exportNote = "Spine needs photo access to save. Turn it on in Settings."
                 case .failed:
                     exportNote = "Could not save the image. Try again."
                 }

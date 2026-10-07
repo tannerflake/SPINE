@@ -122,7 +122,7 @@ struct WizardContactsSyncStep: View {
                 centered: false
             )
 
-            Text("It helps us find your friends on SPINE.")
+            Text("It helps us find your friends on Spine.")
                 .font(.system(size: 16))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -273,7 +273,7 @@ struct WizardRosterStep: View {
             // user knows who they're looking for, so ranking is noise here.
             let results = searchResults
             if results.isEmpty {
-                Text("No one named \u{201C}\(searchQuery)\u{201D} on SPINE yet.")
+                Text("No one named \u{201C}\(searchQuery)\u{201D} on Spine yet.")
                     .font(.system(size: 15))
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -380,7 +380,7 @@ struct WizardRosterStep: View {
             // would just come back empty again.
             contactsNote(
                 icon: "person.2.slash.fill",
-                text: "No one in your contacts is on SPINE yet.",
+                text: "No one in your contacts is on Spine yet.",
                 onTap: nil
             )
         } else {
@@ -388,7 +388,7 @@ struct WizardRosterStep: View {
             // in Settings, and re-tapping is how the user gets there.
             contactsNote(
                 icon: "person.2.fill",
-                text: "Sync your contacts to find your friends on SPINE.",
+                text: "Sync your contacts to find your friends on Spine.",
                 onTap: {
                     Task { await model.matchContactsForRoster(requestingPermission: true) }
                 }
@@ -636,6 +636,12 @@ struct WizardReaderRow: View {
                         lastName: entry.user.lastName,
                         size: 42
                     )
+                    .avatarZoomOnHold(
+                        urlString: entry.user.profileImageURL,
+                        displayName: entry.user.displayName,
+                        firstName: entry.user.firstName,
+                        lastName: entry.user.lastName
+                    )
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.user.displayName)
@@ -719,7 +725,7 @@ struct WizardInviteStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             TypewriterText(
-                text: "Help SPINE grow!",
+                text: "Help Spine grow!",
                 font: .system(size: 28, weight: .bold),
                 centered: false
             )
@@ -792,7 +798,7 @@ struct WizardInviteStep: View {
         .alert("Can't send texts", isPresented: $cantSendTextAlert) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("This device can't send text messages. You can still share SPINE from the App Store: \(AppLinks.appStore)")
+            Text("This device can't send text messages. You can still share Spine from the App Store: \(AppLinks.appStore)")
         }
     }
 
@@ -958,7 +964,7 @@ struct WizardNotificationsStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             TypewriterText(
-                text: "SPINE is no fun without notifications!",
+                text: "Spine is no fun without notifications!",
                 font: .system(size: 28, weight: .bold),
                 centered: false
             )

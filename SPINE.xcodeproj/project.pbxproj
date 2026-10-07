@@ -51,7 +51,6 @@
 		B0010023 /* BookRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010023 /* BookRepository.swift */; };
 		B0010024 /* UserBookRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010024 /* UserBookRepository.swift */; };
 		B0010025 /* PostRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010025 /* PostRepository.swift */; };
-		B00F3C11 /* FeedSeenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3C11 /* FeedSeenStore.swift */; };
 		B0010026 /* CommentRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010026 /* CommentRepository.swift */; };
 		B0010027 /* ApiKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010027 /* ApiKeys.swift */; };
 		B0010028 /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010028 /* ClaudeService.swift */; };
@@ -62,7 +61,6 @@
 		B001002D /* DismissedSuggestionsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002D /* DismissedSuggestionsRepository.swift */; };
 		B001002E /* DiscoverSuggestionsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002E /* DiscoverSuggestionsService.swift */; };
 		B001002F /* ProfilePhotoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001002F /* ProfilePhotoService.swift */; };
-		B00C4A01 /* WalletPassService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C4A01 /* WalletPassService.swift */; };
 		B0010030 /* CommentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010030 /* CommentsView.swift */; };
 		B0010032 /* GoodreadsCSVParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010032 /* GoodreadsCSVParser.swift */; };
 		B0010033 /* GoodreadsImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010033 /* GoodreadsImportService.swift */; };
@@ -104,6 +102,7 @@
 		B0010107 /* TagCatalogPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010107 /* TagCatalogPicker.swift */; };
 		B0010108 /* DiscoverCriteriaStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010108 /* DiscoverCriteriaStrip.swift */; };
 		B0010109 /* DiscoverCriteriaEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010109 /* DiscoverCriteriaEditorSheet.swift */; };
+		B00D5C31 /* DiscoverSwipeDeck.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D5C31 /* DiscoverSwipeDeck.swift */; };
 		B001010A /* DiscoverBookPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001010A /* DiscoverBookPickerView.swift */; };
 		B0010201 /* ReadingNowFanStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010201 /* ReadingNowFanStack.swift */; };
 		B0010202 /* ContactSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0010202 /* ContactSyncService.swift */; };
@@ -161,6 +160,7 @@
 		B00C1C21 /* BookClubVote.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1C21 /* BookClubVote.swift */; };
 		B00C1C22 /* ClubVoteFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1C22 /* ClubVoteFlowView.swift */; };
 		B00C1C23 /* ClubVoteComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C1C23 /* ClubVoteComponents.swift */; };
+		B00C4A01 /* WalletPassService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C4A01 /* WalletPassService.swift */; };
 		B00C7A31 /* BookPopularityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00C7A31 /* BookPopularityService.swift */; };
 		B00D1A01 /* TypewriterText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A01 /* TypewriterText.swift */; };
 		B00D1A02 /* OnboardingWizard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D1A02 /* OnboardingWizard.swift */; };
@@ -183,7 +183,6 @@
 		B00D8E3 /* LinkBookExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E3 /* LinkBookExtractionService.swift */; };
 		B00D8E4 /* LinkImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00D8E4 /* LinkImportView.swift */; };
 		B00E7A01 /* FeedInterstitials.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7A01 /* FeedInterstitials.swift */; };
-		B00F3C12 /* FeedCaughtUpMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3C12 /* FeedCaughtUpMarker.swift */; };
 		B00E7C31 /* UserAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E7C31 /* UserAvatarView.swift */; };
 		B00E9A01 /* StoryExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A01 /* StoryExporter.swift */; };
 		B00E9A02 /* ShareCoverResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00E9A02 /* ShareCoverResolver.swift */; };
@@ -193,9 +192,13 @@
 		B00F3A2A /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A2A /* MarkdownText.swift */; };
 		B00F3A40 /* LaunchSplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A40 /* LaunchSplashView.swift */; };
 		B00F3A9C /* ReadDatePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3A9C /* ReadDatePicker.swift */; };
+		B00F3C11 /* FeedSeenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3C11 /* FeedSeenStore.swift */; };
+		B00F3D51 /* ReadingNowSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3D51 /* ReadingNowSummary.swift */; };
+		B00F3C12 /* FeedCaughtUpMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00F3C12 /* FeedCaughtUpMarker.swift */; };
 		B04F3B71 /* NotificationsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04F3B71 /* NotificationsRepository.swift */; };
 		B04F3B72 /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04F3B72 /* NotificationsView.swift */; };
 		B07E4D21 /* UserFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07E4D21 /* UserFeedView.swift */; };
+		B0C1A7E3 /* ClubJoinPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C1A7E3 /* ClubJoinPromptView.swift */; };
 		B7D91A42 /* ISBNdbService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D91A42 /* ISBNdbService.swift */; };
 		BA0C0001 /* OnboardingCompletionMemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0C0001 /* OnboardingCompletionMemo.swift */; };
 		BA9E7301 /* Mentions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA9E7301 /* Mentions.swift */; };
@@ -284,7 +287,6 @@
 		F0010023 /* BookRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRepository.swift; sourceTree = "<group>"; };
 		F0010024 /* UserBookRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserBookRepository.swift; sourceTree = "<group>"; };
 		F0010025 /* PostRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostRepository.swift; sourceTree = "<group>"; };
-		F00F3C11 /* FeedSeenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSeenStore.swift; sourceTree = "<group>"; };
 		F0010026 /* CommentRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentRepository.swift; sourceTree = "<group>"; };
 		F0010027 /* ApiKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiKeys.swift; sourceTree = "<group>"; };
 		F0010028 /* ClaudeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeService.swift; sourceTree = "<group>"; };
@@ -295,7 +297,6 @@
 		F001002D /* DismissedSuggestionsRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DismissedSuggestionsRepository.swift; sourceTree = "<group>"; };
 		F001002E /* DiscoverSuggestionsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverSuggestionsService.swift; sourceTree = "<group>"; };
 		F001002F /* ProfilePhotoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoService.swift; sourceTree = "<group>"; };
-		F00C4A01 /* WalletPassService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletPassService.swift; sourceTree = "<group>"; };
 		F0010030 /* CommentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentsView.swift; sourceTree = "<group>"; };
 		F0010032 /* GoodreadsCSVParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsCSVParser.swift; sourceTree = "<group>"; };
 		F0010033 /* GoodreadsImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodreadsImportService.swift; sourceTree = "<group>"; };
@@ -337,6 +338,7 @@
 		F0010107 /* TagCatalogPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCatalogPicker.swift; sourceTree = "<group>"; };
 		F0010108 /* DiscoverCriteriaStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverCriteriaStrip.swift; sourceTree = "<group>"; };
 		F0010109 /* DiscoverCriteriaEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverCriteriaEditorSheet.swift; sourceTree = "<group>"; };
+		F00D5C31 /* DiscoverSwipeDeck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverSwipeDeck.swift; sourceTree = "<group>"; };
 		F001010A /* DiscoverBookPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverBookPickerView.swift; sourceTree = "<group>"; };
 		F0010201 /* ReadingNowFanStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingNowFanStack.swift; sourceTree = "<group>"; };
 		F0010202 /* ContactSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactSyncService.swift; sourceTree = "<group>"; };
@@ -394,6 +396,7 @@
 		F00C1C21 /* BookClubVote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookClubVote.swift; sourceTree = "<group>"; };
 		F00C1C22 /* ClubVoteFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubVoteFlowView.swift; sourceTree = "<group>"; };
 		F00C1C23 /* ClubVoteComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubVoteComponents.swift; sourceTree = "<group>"; };
+		F00C4A01 /* WalletPassService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletPassService.swift; sourceTree = "<group>"; };
 		F00C7A31 /* BookPopularityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPopularityService.swift; sourceTree = "<group>"; };
 		F00D1A01 /* TypewriterText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypewriterText.swift; sourceTree = "<group>"; };
 		F00D1A02 /* OnboardingWizard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWizard.swift; sourceTree = "<group>"; };
@@ -416,7 +419,6 @@
 		F00D8E3 /* LinkBookExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkBookExtractionService.swift; sourceTree = "<group>"; };
 		F00D8E4 /* LinkImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkImportView.swift; sourceTree = "<group>"; };
 		F00E7A01 /* FeedInterstitials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInterstitials.swift; sourceTree = "<group>"; };
-		F00F3C12 /* FeedCaughtUpMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCaughtUpMarker.swift; sourceTree = "<group>"; };
 		F00E7C31 /* UserAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAvatarView.swift; sourceTree = "<group>"; };
 		F00E9A01 /* StoryExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryExporter.swift; sourceTree = "<group>"; };
 		F00E9A02 /* ShareCoverResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCoverResolver.swift; sourceTree = "<group>"; };
@@ -426,9 +428,13 @@
 		F00F3A2A /* MarkdownText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
 		F00F3A40 /* LaunchSplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchSplashView.swift; sourceTree = "<group>"; };
 		F00F3A9C /* ReadDatePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadDatePicker.swift; sourceTree = "<group>"; };
+		F00F3C11 /* FeedSeenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSeenStore.swift; sourceTree = "<group>"; };
+		F00F3D51 /* ReadingNowSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingNowSummary.swift; sourceTree = "<group>"; };
+		F00F3C12 /* FeedCaughtUpMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCaughtUpMarker.swift; sourceTree = "<group>"; };
 		F04F3B71 /* NotificationsRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsRepository.swift; sourceTree = "<group>"; };
 		F04F3B72 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 		F07E4D21 /* UserFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFeedView.swift; sourceTree = "<group>"; };
+		F0C1A7E3 /* ClubJoinPromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClubJoinPromptView.swift; sourceTree = "<group>"; };
 		F7D91A42 /* ISBNdbService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISBNdbService.swift; sourceTree = "<group>"; };
 		FA0C0001 /* OnboardingCompletionMemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCompletionMemo.swift; sourceTree = "<group>"; };
 		FA9E7301 /* Mentions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mentions.swift; sourceTree = "<group>"; };
@@ -625,6 +631,7 @@
 				F0010024 /* UserBookRepository.swift */,
 				F0010025 /* PostRepository.swift */,
 				F00F3C11 /* FeedSeenStore.swift */,
+				F00F3D51 /* ReadingNowSummary.swift */,
 				F0010026 /* CommentRepository.swift */,
 				F001002A /* LocalLibraryCache.swift */,
 				F001002C /* BookProfileService.swift */,
@@ -753,6 +760,7 @@
 				F0010011 /* DiscoverView.swift */,
 				F0010108 /* DiscoverCriteriaStrip.swift */,
 				F0010109 /* DiscoverCriteriaEditorSheet.swift */,
+				F00D5C31 /* DiscoverSwipeDeck.swift */,
 				F001010A /* DiscoverBookPickerView.swift */,
 			);
 			path = Discover;
@@ -855,6 +863,7 @@
 				F00C1B13 /* CreateClubView.swift */,
 				F00C1B14 /* ClubMemberPickerView.swift */,
 				F00C1B15 /* JoinClubSheet.swift */,
+				F0C1A7E3 /* ClubJoinPromptView.swift */,
 				F00C1B16 /* ClubInviteSheet.swift */,
 				F00C1B17 /* ClubBookPickerSheet.swift */,
 				F00C1B18 /* ClubSettingsView.swift */,
@@ -1000,7 +1009,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					8BB298632F671AAA007008DC = {
 						CreatedOnToolsVersion = 26.2;
@@ -1145,6 +1154,7 @@
 				B0010024 /* UserBookRepository.swift in Sources */,
 				B0010025 /* PostRepository.swift in Sources */,
 				B00F3C11 /* FeedSeenStore.swift in Sources */,
+				B00F3D51 /* ReadingNowSummary.swift in Sources */,
 				B0010026 /* CommentRepository.swift in Sources */,
 				B0010027 /* ApiKeys.swift in Sources */,
 				B0010028 /* ClaudeService.swift in Sources */,
@@ -1204,6 +1214,7 @@
 				B0010107 /* TagCatalogPicker.swift in Sources */,
 				B0010108 /* DiscoverCriteriaStrip.swift in Sources */,
 				B0010109 /* DiscoverCriteriaEditorSheet.swift in Sources */,
+				B00D5C31 /* DiscoverSwipeDeck.swift in Sources */,
 				B001010A /* DiscoverBookPickerView.swift in Sources */,
 				B0010034 /* GoodreadsImportView.swift in Sources */,
 				B0010102 /* GoodreadsExportWebView.swift in Sources */,
@@ -1237,6 +1248,7 @@
 				B00C1B13 /* CreateClubView.swift in Sources */,
 				B00C1B14 /* ClubMemberPickerView.swift in Sources */,
 				B00C1B15 /* JoinClubSheet.swift in Sources */,
+				B0C1A7E3 /* ClubJoinPromptView.swift in Sources */,
 				B00C1B16 /* ClubInviteSheet.swift in Sources */,
 				B00C1B17 /* ClubBookPickerSheet.swift in Sources */,
 				B00C1B18 /* ClubSettingsView.swift in Sources */,
@@ -1338,7 +1350,6 @@
 				CODE_SIGN_ENTITLEMENTS = SPINEShareExtension/SPINEShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T32N9X64JM;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -1350,7 +1361,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SPINEShareExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_CFBundleDisplayName = Spine;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1359,7 +1370,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1405,7 +1416,6 @@
 				CODE_SIGN_ENTITLEMENTS = SPINEShareExtension/SPINEShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T32N9X64JM;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -1417,7 +1427,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SPINEShareExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_CFBundleDisplayName = Spine;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1426,7 +1436,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1450,13 +1460,12 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T32N9X64JM;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SPINENotificationService/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_CFBundleDisplayName = Spine;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1465,7 +1474,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1488,13 +1497,12 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T32N9X64JM;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SPINENotificationService/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_CFBundleDisplayName = Spine;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1503,7 +1511,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1528,13 +1536,12 @@
 				CODE_SIGN_ENTITLEMENTS = SPINEWidget/SPINEWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T32N9X64JM;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SPINEWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_CFBundleDisplayName = Spine;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1543,7 +1550,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1567,13 +1574,12 @@
 				CODE_SIGN_ENTITLEMENTS = SPINEWidget/SPINEWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T32N9X64JM;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SPINEWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_CFBundleDisplayName = Spine;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1582,7 +1588,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app.WellReadWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1604,20 +1610,48 @@
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ENABLE_MODULES = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = T32N9X64JM;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
 					"$(inherited)",
 				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -1630,14 +1664,42 @@
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ENABLE_MODULES = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = T32N9X64JM;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -1646,21 +1708,20 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = SPINE/SPINE.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T32N9X64JM;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SPINE/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_CFBundleDisplayName = Spine;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.7;
+				MARKETING_VERSION = 3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1674,21 +1735,20 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = SPINE/SPINE.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = T32N9X64JM;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SPINE/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SPINE;
+				INFOPLIST_KEY_CFBundleDisplayName = Spine;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.7;
+				MARKETING_VERSION = 3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wellread.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

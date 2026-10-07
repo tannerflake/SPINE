@@ -109,6 +109,9 @@ enum PushNotificationService {
     static var pendingClubId: String?
     /// A `spine://club/join/{CODE}` link opened before the main UI existed.
     static var pendingClubInviteCode: String?
+    /// A `club_invite` push or bell row tapped before MainTabView mounted: the
+    /// club whose "join?" screen should open.
+    static var pendingClubInviteClubId: String?
     /// A `club_vote_*` push: the club page should open the vote flow on arrival.
     static var pendingClubVoteOpen = false
 
@@ -394,7 +397,15 @@ enum PushNotificationService {
 
     private static func routeRemoteNotificationTap(userInfo: [AnyHashable: Any]) {
         let type = SpineDeepLink.pushNotificationType(from: userInfo)
-        /// Every club push lands on the club page: added, new book, meeting reminders.
+        /// An invite isn't a club page yet: it opens the "join?" screen.
+        if type == "club_invite" {
+            if let clubId = userInfo[AnyHashable("clubId")] as? String, !clubId.isEmpty {
+                pendingClubInviteClubId = clubId
+                NotificationCenter.default.post(name: .spineOpenClubInvite, object: nil, userInfo: ["clubId": clubId])
+            }
+            return
+        }
+        /// Every other club push lands on the club page: new book, meeting reminders, votes.
         if (type ?? "").hasPrefix("club_") {
             if let clubId = userInfo[AnyHashable("clubId")] as? String, !clubId.isEmpty {
                 pendingClubId = clubId
@@ -613,9 +624,14 @@ extension Notification.Name {
     static let spineOpenMonthlyRecap = Notification.Name("spineOpenMonthlyRecap")
     /// Feed tab tapped while already selected: FeedView scrolls to top if scrolled down, or refreshes if already at top.
     static let spineFeedTabTappedAgain = Notification.Name("spineFeedTabTappedAgain")
+    /// The feed reloaded on return from a long stretch in the background
+    /// (`AppState.reloadFeedIfAwayLong`); FeedView jumps back to the top.
+    static let spineFeedReloadedAfterAway = Notification.Name("spineFeedReloadedAfterAway")
     static let spineClubsTabTappedAgain = Notification.Name("spineClubsTabTappedAgain")
     /// userInfo["clubId"]: open that club (Clubs tab + detail page).
     static let spineOpenClub = Notification.Name("spineOpenClub")
+    /// userInfo["clubId"]: show the "X invited you to join" screen for that club.
+    static let spineOpenClubInvite = Notification.Name("spineOpenClubInvite")
     /// userInfo["code"]: open the join sheet with an invite code filled in.
     static let spineJoinClubWithCode = Notification.Name("spineJoinClubWithCode")
     /// Discover tab tapped while already selected: DiscoverView pops any pushed pages back to its root.

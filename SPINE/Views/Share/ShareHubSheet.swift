@@ -630,7 +630,7 @@ struct ShareHubSheet: View {
                 case .saved:
                     WizardHaptics.success()
                 case .permissionDenied:
-                    resultLine = ("SPINE needs photo access to save. Turn it on in Settings.", true)
+                    resultLine = ("Spine needs photo access to save. Turn it on in Settings.", true)
                 case .failed:
                     resultLine = ("Could not save the image. Try again.", true)
                 }

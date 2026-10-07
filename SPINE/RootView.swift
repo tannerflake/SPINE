@@ -54,6 +54,13 @@ struct RootView: View {
         ProcessInfo.processInfo.arguments.contains("-uiPreviewSplash")
     }
 
+    /// Launch with `-uiPreviewWalletStrip` to draw the Apple Wallet strip art
+    /// at 1:1 (with the OG mark and a placed stamp) next to the card it is
+    /// meant to match, without a pass certificate or a device.
+    private var isWalletStripPreviewRun: Bool {
+        ProcessInfo.processInfo.arguments.contains("-uiPreviewWalletStrip")
+    }
+
     /// Local-only demo state for `-uiPreview` runs — never written to Firestore.
     private func seedUIPreviewData() {
         guard appState.currentUser == nil else { return }
@@ -61,11 +68,17 @@ struct RootView: View {
         appState.isAuthenticated = true
         let now = Date()
         let uid = "ui-preview"
-        // `-uiPreviewAchievements`: an earned, uncelebrated, unplaced stamp, so
-        // the unlock modal fires and the card page shows the bank.
+        // `-uiPreviewAchievements`: an earned, uncelebrated, unplaced 25 stamp,
+        // so the unlock modal fires and the card page shows the bank, plus a
+        // 50 stamp already pressed on the front so the printed size can be
+        // checked against the card.
         if ProcessInfo.processInfo.arguments.contains("-uiPreviewAchievements") {
             appState.currentUser?.achievements = [
-                AchievementStamp(kind: .ranked25, unlockedAt: now, seenAt: nil, placement: nil)
+                AchievementStamp(kind: .ranked25, unlockedAt: now, seenAt: nil, placement: nil),
+                AchievementStamp(
+                    kind: .ranked50, unlockedAt: now, seenAt: now,
+                    placement: StampPlacement(side: .front, x: 0.82, y: 0.74, rotation: -9)
+                )
             ]
         }
         // `-uiPreviewMonthlyRecap`: an unseen recap for the month the demo
@@ -179,6 +192,8 @@ struct RootView: View {
             #if DEBUG
             if isSplashPreviewRun {
                 LaunchSplashView()
+            } else if isWalletStripPreviewRun {
+                WalletStripPreview()
             } else if isWizardPreviewRun {
                 OnboardingWizardView(previewMode: true, onFinished: {})
             } else if isWelcomePreviewRun {
@@ -283,7 +298,7 @@ struct RootView: View {
                 ProgressView()
                     .tint(Theme.accent)
                 if showConnectingTrouble {
-                    Text("Having trouble reaching SPINE. Check your connection.")
+                    Text("Having trouble reaching Spine. Check your connection.")
                         .font(.system(size: 15))
                         .foregroundStyle(Theme.textSecondary)
                         .multilineTextAlignment(.center)

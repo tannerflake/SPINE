@@ -203,6 +203,11 @@ final class OnboardingWizardModel: ObservableObject {
         if previewMode, ProcessInfo.processInfo.arguments.contains("-uiPreviewWizardRoster") {
             step = .roster
         }
+        // -uiPreviewWizardImport jumps to the Goodreads / StoryGraph import
+        // step; its CTA opens the real source picker in this mode.
+        if previewMode, ProcessInfo.processInfo.arguments.contains("-uiPreviewWizardImport") {
+            step = .goodreads
+        }
     }
 
     // MARK: Configuration
@@ -646,8 +651,8 @@ final class OnboardingWizardModel: ObservableObject {
 
     private func computeMutualCandidates() -> [MutualCandidate] {
         let byUid = Dictionary(roster.map { ($0.uid, $0) }, uniquingKeysWith: { first, _ in first })
-        // The founder is a default follow for every new account and follows
-        // nobody, so he is neither a peer nor a candidate.
+        // The founder follows every account, so as a peer he would make the
+        // whole roster a "mutual". He is neither a peer nor a candidate.
         let peers = roster.filter { followedUids.contains($0.uid) && $0.uid != SpineFounder.uid }
         guard !peers.isEmpty else { return [] }
         let peerFollowing = peers.map { (uid: $0.uid, following: $0.user.following) }

@@ -36,18 +36,16 @@ struct WizardCardStep: View {
     /// monogram even though the card on screen shows the photo.
     @State private var resolvedPhoto: UIImage?
 
-    // Stamp order: photo, name, handle, goal stamp, then the OG badge.
+    // Stamp order: photo, name, handle, then the OG badge.
     private let photoStampIndex = 0
     private let nameStampIndex = 1
     private let handleStampIndex = 2
-    private let goalStampIndex = 3
-    private let ogStampIndex = 4
+    private let ogStampIndex = 3
 
-    // Choreography beats. The count-up is its own sequence after the goal
-    // stamp so the member number gets a moment of its own, and the OG stamp
-    // lands on the photo right after the number settles.
-    private let goalBeat: Double = 3.3
-    private var countUpBeat: Double { goalBeat + 0.7 }
+    // Choreography beats. The count-up is its own sequence after the handle
+    // so the member number gets a moment of its own, and the OG stamp lands
+    // on the photo right after the number settles.
+    private let countUpBeat: Double = 3.2
     private let countUpDuration: Double = 2.0
     private var ogBeat: Double { countUpBeat + countUpDuration + 0.5 }
     private var captionBeat: Double { ogBeat + 0.7 }
@@ -75,6 +73,11 @@ struct WizardCardStep: View {
                 LibraryCardDownloadButton(details: exportDetails, prominent: false, title: "Save my card", pulses: true)
                     .padding(.top, 18)
                     .wizardReveal(delay: captionBeat + 0.15)
+
+                // The card can live in Apple Wallet too; hidden once it does.
+                AddToWalletButton(details: exportDetails, title: "Add to Apple Wallet")
+                    .padding(.top, 10)
+                    .wizardReveal(delay: captionBeat + 0.25)
 
                 Spacer()
 
@@ -126,11 +129,16 @@ struct WizardCardStep: View {
                 .fill(Theme.textPrimary)
                 .frame(height: 2)
             identityRow
-            goalStampRow
-            Rectangle()
-                .fill(Theme.textPrimary.opacity(0.18))
-                .frame(height: 1)
-            footer
+            // Same blank band and rule as LibraryCardFace (see there for why
+            // the rule is an overlay).
+            Color.clear
+                .frame(height: LibraryCardFace.stampFieldHeight)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Theme.textPrimary.opacity(0.18))
+                        .frame(height: 1)
+                        .padding(.top, LibraryCardFace.stampFieldRuleOffset)
+                }
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -164,9 +172,9 @@ struct WizardCardStep: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("SPINE")
+            Text(BrandWordmark.text)
                 .font(.system(size: 15, weight: .heavy))
-                .tracking(4)
+                .tracking(BrandWordmark.tracking(4))
                 .foregroundStyle(Theme.textPrimary)
             Spacer()
             CardNumberLabel(value: countUpValue)
@@ -294,46 +302,6 @@ struct WizardCardStep: View {
         )
     }
 
-    /// The reading goal is the card's one stamp: pressed on slightly tilted,
-    /// like the librarian inked it after filling in the identity fields.
-    private var goalStampRow: some View {
-        HStack {
-            if appearedStamps.contains(goalStampIndex) {
-                goalStamp
-                    .wizardStamp(restRotation: -1.8)
-            }
-        }
-        .frame(minHeight: 30, alignment: .leading)
-    }
-
-    private var goalStamp: some View {
-        Text(model.goalYearText)
-            .font(.system(size: 12, weight: .heavy))
-            .tracking(1.4)
-            .foregroundStyle(Theme.textPrimary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(Theme.textPrimary, lineWidth: 1.5)
-            )
-    }
-
-    private var footer: some View {
-        HStack {
-            Text("MEMBER SINCE \(model.memberSinceText)")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(1.2)
-                .foregroundStyle(Theme.textTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Spacer()
-        }
-        .frame(minHeight: 16)
-    }
-
     // MARK: Choreography
 
     /// Deal the card in, thunk it down, fire the photo-booth flash, then press
@@ -369,7 +337,6 @@ struct WizardCardStep: View {
         stampIn(photoStampIndex, at: 1.5)
         stampIn(nameStampIndex, at: 2.1)
         stampIn(handleStampIndex, at: 2.5)
-        stampIn(goalStampIndex, at: goalBeat)
         runCountUp(after: countUpBeat, duration: countUpDuration)
         if isOGEligible {
             stampIn(ogStampIndex, at: ogBeat, heavy: true)
@@ -444,7 +411,7 @@ I love feedback. Tell me what you love, what you hate, and what features you'd l
 
 Sharing ideas, learning, and reading are the core of my passion for life. This project means a lot to me.
 
-I hope SPINE helps you share what inspires you.
+I hope Spine helps you share what inspires you.
 
 I'm glad you're here.
 
@@ -717,10 +684,10 @@ private struct TypewrittenNote: View {
             guard !Task.isCancelled else { return }
             let character = characters[shownCount]
             shownCount += 1
-            var delay = 0.024
-            if ".!?".contains(character) { delay += 0.22 }
-            else if character == "\n" { delay += 0.10 }
-            else if ",".contains(character) { delay += 0.08 }
+            var delay = 0.012
+            if ".!?".contains(character) { delay += 0.11 }
+            else if character == "\n" { delay += 0.05 }
+            else if ",".contains(character) { delay += 0.04 }
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         }
         fireFinished()

@@ -96,6 +96,12 @@ struct GoodreadsWizardSession: Codable {
         queueRows.filter { decisions[$0.id] == nil && $0.importStatus == .didNotFinish }.count
     }
 
+    /// To-read rows imported so far (by hand or automatically) — counts toward
+    /// the queue import-all cap.
+    var importedQueueCount: Int {
+        queueRows.filter { decisions[$0.id] == .imported }.count
+    }
+
     var importedCount: Int {
         decisions.values.filter { $0 == .imported }.count
     }

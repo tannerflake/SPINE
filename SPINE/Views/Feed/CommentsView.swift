@@ -38,6 +38,24 @@ struct CommentsView: View {
     @State private var navPath: [String] = []
     /// Tapping the book in the header pushes its profile inside this sheet.
     @State private var selectedBookForProfile: Book? = nil
+    /// Real book doc fetched when the post arrived carrying the 2s timeout
+    /// placeholder ("Book" by "Unknown") or no book at all. The header shows
+    /// nothing for the book until this resolves rather than the stand-in.
+    @State private var rehydratedBook: Book? = nil
+
+    /// Book to show in the header: never the load-timeout placeholder.
+    private var headerBook: Book? {
+        if let rehydratedBook { return rehydratedBook }
+        guard let b = post.book, !b.isMetadataLoadTimeoutPlaceholder else { return nil }
+        return b
+    }
+
+    private func rehydrateBookIfNeeded() async {
+        guard headerBook == nil, let bookId = post.bookId else { return }
+        guard let real = await BookRepository.shared.getBook(id: bookId, timeout: nil),
+              !real.isMetadataLoadTimeoutPlaceholder else { return }
+        await MainActor.run { rehydratedBook = real }
+    }
     /// Mention autocomplete roster + handle the reply flow auto-inserted (so
     /// canceling the reply can remove exactly what it added).
     @ObservedObject private var mentionCatalog = MentionCatalog.shared
@@ -122,16 +140,16 @@ struct CommentsView: View {
                 BookProfileView(
                     book: book,
                     readBooksForSimilar: appState.readBooks,
-                    onWantToRead: { appState.addToWantToRead(book: book); selectedBookForProfile = nil },
-                    onStartReading: { appState.addToQueue(book: book, shelf: .readingNow); selectedBookForProfile = nil },
+                    onWantToRead: { appState.addToWantToRead(book: book) },
+                    onStartReading: { appState.addToQueue(book: book, shelf: .readingNow) },
                     onConfirmRead: { date, rating, postToFeed, caption, tier in
                         appState.addAsRead(book: book, dateFinished: date, rating: rating, postToFeed: postToFeed, caption: caption, tier: tier)
                         selectedBookForProfile = nil
                     },
                     isOnReadList: appState.isBookOnReadList(bookId: book.id),
                     isInQueue: appState.isBookInQueue(bookId: book.id),
-                    onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
-                    onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
+                    onRemoveFromQueue: { appState.removeFromQueue(book: book) },
+                    onMarkAsDNF: { appState.markAsDNF(book: book) },
                     readEntryForReview: appState.userReadBook(forBookId: book.id),
                     canEditReadReview: true,
                     sourceReaderUid: post.userId
@@ -196,6 +214,7 @@ struct CommentsView: View {
             viewModel.loadLikedComments(userId: appState.authUserId)
             MentionCatalog.shared.ensureLoaded(viewerUid: appState.authUserId)
         }
+        .task { await rehydrateBookIfNeeded() }
         .task {
             // Deep-linked to a specific comment: let it flash into view instead
             // of raising the keyboard over it.
@@ -337,6 +356,12 @@ struct CommentsView: View {
                             lastName: post.user?.lastName,
                             size: 36
                         )
+                        .avatarZoomOnHold(
+                            urlString: post.user?.profileImageURL,
+                            displayName: post.user?.displayName,
+                            firstName: post.user?.firstName,
+                            lastName: post.user?.lastName
+                        )
                         VStack(alignment: .leading, spacing: 1) {
                             Text(post.user?.displayName ?? "User")
                                 .font(.system(size: 14, weight: .semibold))
@@ -352,7 +377,7 @@ struct CommentsView: View {
                 .accessibilityLabel("Open \(post.user?.displayName ?? "the author")'s profile")
                 Spacer(minLength: 0)
             }
-            if let book = post.book {
+            if let book = headerBook {
                 Button {
                     selectedBookForProfile = book
                 } label: {
@@ -584,6 +609,12 @@ struct CommentsView: View {
                 lastName: appState.currentUser?.lastName,
                 size: 34
             )
+            .avatarZoomOnHold(
+                urlString: appState.currentUser?.profileImageURL,
+                displayName: appState.currentUser?.displayName,
+                firstName: appState.currentUser?.firstName,
+                lastName: appState.currentUser?.lastName
+            )
             .padding(.bottom, 2)
             HStack(alignment: .bottom, spacing: 6) {
                 TextField(
@@ -729,6 +760,7 @@ struct CommentRow: View {
             // the tap targets, pushing the profile in the sheet's own stack.
             NavigationLink(value: comment.userId) {
                 UserAvatarView(urlString: profileImageURL, displayName: comment.displayName, size: avatarSize)
+                    .avatarZoomOnHold(urlString: profileImageURL, displayName: comment.displayName)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(comment.displayName ?? "this user")'s profile")

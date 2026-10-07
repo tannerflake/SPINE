@@ -278,3 +278,69 @@ extension View {
         }
     }
 }
+
+// MARK: - Hold-to-zoom in one modifier
+
+/// The whole hold-to-zoom affordance in one piece, owning its own presented
+/// flag: the long press, the step haptic, the accessibility hint and the
+/// full-screen cover. Call sites that render one fixed avatar (rows, chips,
+/// stacks, `ForEach` cells) attach this and nothing else; the flag lives per
+/// instance so it works inside a `ForEach` without the parent tracking which
+/// member is held. Surfaces that already route the hold elsewhere (the people
+/// strip's `zoomUser`, the library card's `onPhotoLongPress`) keep their own
+/// wiring.
+///
+/// Attach it to the avatar itself, including when the avatar sits inside a
+/// `Button` or `NavigationLink` label: a long press on a descendant consumes the
+/// touch, so the release neither pushes nor fires the action, while a plain tap
+/// still reaches the button (verified 2026-10-04 on the Reviews card rows).
+/// Keep it a bare `onLongPressGesture`: sequencing the press before a
+/// zero-distance drag, with `.gesture` or `.simultaneousGesture`, swallowed
+/// plain taps on the avatar so the enclosing button never fired.
+private struct AvatarZoomOnHold: ViewModifier {
+    let urlString: String?
+    let displayName: String?
+    let firstName: String?
+    let lastName: String?
+    let caption: String?
+
+    @State private var isPresented = false
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Circle())
+            .onLongPressGesture(minimumDuration: 0.35) {
+                WizardHaptics.step()
+                AvatarZoomPresentation.present($isPresented)
+            }
+            .accessibilityHint("Touch and hold to see their photo full screen")
+            .avatarZoom(
+                isPresented: $isPresented,
+                urlString: urlString,
+                displayName: displayName,
+                firstName: firstName,
+                lastName: lastName,
+                caption: caption
+            )
+    }
+}
+
+extension View {
+    /// Touch and hold to see this avatar full screen. The caption defaults to
+    /// the display name so the zoomed photo is always labelled.
+    func avatarZoomOnHold(
+        urlString: String?,
+        displayName: String?,
+        firstName: String? = nil,
+        lastName: String? = nil,
+        caption: String? = nil
+    ) -> some View {
+        modifier(AvatarZoomOnHold(
+            urlString: urlString,
+            displayName: displayName,
+            firstName: firstName,
+            lastName: lastName,
+            caption: caption ?? displayName
+        ))
+    }
+}

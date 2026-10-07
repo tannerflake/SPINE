@@ -181,6 +181,42 @@ struct UserBook: Identifiable, Codable, Equatable {
     }()
 }
 
+/// Sparse placement for `tierOrder` / `queueOrder`.
+///
+/// Positions are plain integers sorted ascending, but they are **not** dense
+/// indices: neighbours sit `step` apart so a book can be dropped between two
+/// others by writing ONE document (the midpoint) instead of renumbering the
+/// whole shelf. Adding to the top is `lowest - step`, to the end `highest + step`.
+/// Only when two neighbours have no integer left between them (or a legacy
+/// row carries no order at all) does the caller fall back to renumbering the
+/// shelf once, with `step` spacing, after which it stays sparse.
+///
+/// Why: a Goodreads/StoryGraph import of N queue books used to renumber the
+/// whole backlog per row (N²/2 reads and writes — one 1,174-book import
+/// produced ~690k Firestore writes and 2.8M Cloud Function invocations).
+enum SparseOrder {
+    static let step = 1024
+
+    /// Order for a book placed between `lower` (the row just above) and
+    /// `upper` (the row just below); `nil` for either means no neighbour on
+    /// that side. Returns `nil` when there's no gap and a renumber is needed.
+    static func between(_ lower: Int?, _ upper: Int?) -> Int? {
+        switch (lower, upper) {
+        case (nil, nil): return 0
+        case (let lo?, nil): return lo &+ step
+        case (nil, let hi?): return hi &- step
+        case (let lo?, let hi?):
+            guard hi - lo >= 2 else { return nil }
+            return lo + (hi - lo) / 2
+        }
+    }
+
+    /// Dense renumbering with `step` spacing: 0, step, 2·step, ...
+    static func renumbered(count: Int) -> [Int] {
+        (0..<count).map { $0 * step }
+    }
+}
+
 /// The one ordering for books inside a tier row. `tierOrder` wins; books without one
 /// tie-break on createdAt/id instead of falling back to array position — `userBooks`
 /// arrives sorted by `updatedAt` desc, so position-based ties reshuffle on every

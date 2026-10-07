@@ -46,7 +46,7 @@ struct ProfilePhotoNudgeModal: View {
                     .font(.system(size: 44))
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(Theme.accent, Theme.textSecondary)
-                Text("SPINE is more fun with a profile pic!")
+                Text("Spine is more fun with a profile pic!")
                     .font(Theme.body())
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)

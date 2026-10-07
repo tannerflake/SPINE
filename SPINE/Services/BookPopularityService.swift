@@ -3,10 +3,12 @@
 //  SPINE
 //
 //  Community popularity signal for search ranking: which works have 2+ SPINE
-//  members shelved them. Reads `bookStats/` (maintained by the Cloud Functions
-//  `onUserBookWritten` trigger; docs keyed by a hash of
-//  `BookSearchRanker.popularityKey`), caches the key set in memory for an hour,
-//  and never blocks search — a slow or failed fetch just means no boost.
+//  members shelved them. Reads the one-document `summaries/popularKeys`
+//  (maintained by the Cloud Functions `onUserBookWritten` trigger from
+//  `bookStats/`, rebuilt nightly; keys are `BookSearchRanker.popularityKey`
+//  strings), caches the key set in memory for an hour, and never blocks
+//  search — a slow or failed fetch just means no boost. Before 2026-10-05
+//  this read up to 3,000 bookStats docs per device per hour.
 //
 
 import FirebaseFirestore
@@ -15,12 +17,7 @@ import Foundation
 final class BookPopularityService {
     static let shared = BookPopularityService()
 
-    private let db = FirestoreDatabase.firestore
-    private let collection = "bookStats"
-    private let minUsers = 2
-    /// Backfill (2026-08) found ~1.5k works with 2+ members; leave headroom, and
-    /// the count-descending order keeps the most popular if the cap ever binds.
-    private let maxKeys = 3000
+    private let summaryRef = FirestoreDatabase.firestore.collection("summaries").document("popularKeys")
     private let refreshInterval: TimeInterval = 3600
     /// Search fires this on every query; past this, serve whatever we have.
     private let fetchTimeout: UInt64 = 1_200_000_000
@@ -65,28 +62,22 @@ final class BookPopularityService {
 
     private func fetchKeys() async -> Set<String> {
         defer {
-            lock.lock()
-            inflight = nil
-            lock.unlock()
+            lock.withLock { inflight = nil }
         }
         do {
-            let snapshot = try await db.collection(collection)
-                .whereField("count", isGreaterThanOrEqualTo: minUsers)
-                .order(by: "count", descending: true)
-                .limit(to: maxKeys)
-                .getDocuments()
-            let keys = Set(snapshot.documents.compactMap { $0.data()["key"] as? String }.filter { !$0.isEmpty })
-            lock.lock()
-            cachedKeys = keys
-            lastFetch = Date()
-            lock.unlock()
+            let snapshot = try await summaryRef.getDocument()
+            let keys = Set(((snapshot.data()?["keys"] as? [String]) ?? []).filter { !$0.isEmpty })
+            lock.withLock {
+                cachedKeys = keys
+                lastFetch = Date()
+            }
             return keys
         } catch {
             // Keep whatever we had; retry after the normal interval elapses.
-            lock.lock()
-            let existing = cachedKeys
-            lastFetch = Date()
-            lock.unlock()
+            let existing = lock.withLock {
+                lastFetch = Date()
+                return cachedKeys
+            }
             return existing
         }
     }

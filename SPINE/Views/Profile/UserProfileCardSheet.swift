@@ -15,9 +15,6 @@ import SwiftUI
 struct UserProfileCardSheet: View {
     let userId: String
     let user: User
-    /// Open straight into stamping mode with this stamp selected (the unlock
-    /// modal's "Stamp my card", or the push tap). Own card only.
-    var stampOnOpen: AchievementKind? = nil
 
     @EnvironmentObject private var authService: AuthService
     @EnvironmentObject private var appState: AppState
@@ -44,8 +41,8 @@ struct UserProfileCardSheet: View {
     @State private var showAvatarZoom = false
     /// Stamping mode, presented full screen over the card page.
     @State private var stampingSession: StampingSession?
-    /// A placed stamp tapped in the bank: re-stamp or remove.
-    @State private var restampCandidate: AchievementStamp?
+    /// A placed stamp tapped in the bank: shows the Remove popover above it.
+    @State private var removeCandidate: AchievementKind?
     /// A locked stamp tapped in the bank: what it takes to earn it.
     @State private var lockedExplainer: AchievementKind?
 
@@ -64,7 +61,16 @@ struct UserProfileCardSheet: View {
         let user: User
     }
 
-    private var myUid: String? { authService.firebaseUser?.uid }
+    private var myUid: String? {
+        #if DEBUG
+        // `-uiPreview` has no Firebase user: the demo card is your own card,
+        // so the stamp bank and stamping mode can be exercised.
+        if authService.firebaseUser == nil, ProcessInfo.processInfo.arguments.contains("-uiPreview") {
+            return appState.viewerUid
+        }
+        #endif
+        return authService.firebaseUser?.uid
+    }
 
     /// Looking at your own card: the page gains a settings gear and a download
     /// button, and the copy switches to second person.
@@ -156,40 +162,8 @@ struct UserProfileCardSheet: View {
                         .environmentObject(appState)
                 }
             }
-            .confirmationDialog(
-                restampCandidate.map { "\($0.kind.title) is on your card." } ?? "",
-                isPresented: Binding(
-                    get: { restampCandidate != nil },
-                    set: { if !$0 { restampCandidate = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                if let candidate = restampCandidate {
-                    Button("Re-stamp") {
-                        restampCandidate = nil
-                        AchievementStore.setPlacement(nil, for: candidate.kind, appState: appState, uid: myUid)
-                        stampingSession = StampingSession(kind: candidate.kind)
-                    }
-                    Button("Remove from card", role: .destructive) {
-                        restampCandidate = nil
-                        AchievementStore.setPlacement(nil, for: candidate.kind, appState: appState, uid: myUid)
-                    }
-                    Button("Cancel", role: .cancel) { restampCandidate = nil }
-                }
-            } message: {
-                Text("Lift it off to press it somewhere else, or take it off the card.")
-            }
-            .alert(
-                lockedExplainer?.title ?? "",
-                isPresented: Binding(
-                    get: { lockedExplainer != nil },
-                    set: { if !$0 { lockedExplainer = nil } }
-                ),
-                presenting: lockedExplainer
-            ) { _ in
-                Button("Got it") { lockedExplainer = nil }
-            } message: { kind in
-                Text(kind.howToUnlock)
+            .sheet(item: $lockedExplainer) { kind in
+                LockedStampExplainerSheet(kind: kind) { lockedExplainer = nil }
             }
         }
         .task { await load() }
@@ -206,13 +180,6 @@ struct UserProfileCardSheet: View {
             details = nil
             Task { await loadCard() }
         }
-        .onChange(of: details) { _, new in
-            guard isSelf, new != nil, let kind = stampOnOpen, stampingSession == nil,
-                  new?.stamps.contains(where: { $0.kind == kind && !$0.isPlaced }) == true else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                stampingSession = StampingSession(kind: kind)
-            }
-        }
     }
 
     private static func differOnlyInAchievements(_ old: User?, _ new: User) -> Bool {
@@ -223,7 +190,8 @@ struct UserProfileCardSheet: View {
 
     private var navTitle: String {
         if isSelf { return "Settings" }
-        return displayUser.firstName?.isEmpty == false ? "\(displayUser.firstName ?? "")'s card" : "Card"
+        let label = displayUser.firstNameLabel
+        return label.isEmpty ? "Card" : "\(label)'s card"
     }
 
     // MARK: - Card
@@ -272,8 +240,7 @@ struct UserProfileCardSheet: View {
     // MARK: - Stamps
 
     /// Every stamp this member has earned, placed or not. Yours are tappable:
-    /// an unplaced one opens stamping mode, a placed one offers re-stamp or
-    /// remove. Your own bank also lists the stamps still to earn, blurred
+    /// an unplaced one opens stamping mode, a placed one offers Remove. Your own bank also lists the stamps still to earn, blurred
     /// under a lock; tapping one says what it takes. Other members' cards show
     /// only what they have. The OG mark is printed on the card, not a stamp,
     /// so it is not listed here.
@@ -293,7 +260,7 @@ struct UserProfileCardSheet: View {
                         Button {
                             stampingSession = StampingSession(kind: stamps.first(where: { !$0.isPlaced })?.kind)
                         } label: {
-                            Label("Stamp my card", systemImage: "seal")
+                            Label("Stamp my card", systemImage: "person.text.rectangle")
                         }
                         .buttonStyle(.spine(.secondary, size: .small, fullWidth: false))
                     }
@@ -305,7 +272,7 @@ struct UserProfileCardSheet: View {
                             if isSelf {
                                 Button {
                                     if stamp.isPlaced {
-                                        restampCandidate = stamp
+                                        removeCandidate = stamp.kind
                                     } else {
                                         stampingSession = StampingSession(kind: stamp.kind)
                                     }
@@ -313,6 +280,11 @@ struct UserProfileCardSheet: View {
                                     StampBankTile(stamp: stamp)
                                 }
                                 .buttonStyle(.springPress)
+                                .stampRemovePopover(for: stamp.kind, candidate: $removeCandidate) {
+                                    removeCandidate = nil
+                                    AchievementStore.setPlacement(nil, for: stamp.kind, appState: appState, uid: myUid)
+                                    WizardHaptics.step()
+                                }
                             } else {
                                 StampBankTile(stamp: stamp)
                             }
@@ -392,10 +364,11 @@ struct UserProfileCardSheet: View {
             case .followers: return "No one is following you yet."
             }
         }
-        let name = displayUser.firstName?.isEmpty == false ? (displayUser.firstName ?? "They") : "They"
+        // Never fall back to "They": it breaks the verb agreement ("They is...").
+        let label = displayUser.firstNameLabel
         switch roster {
-        case .following: return "\(name) is not following anyone yet."
-        case .followers: return "No one is following \(name) yet."
+        case .following: return label.isEmpty ? "Not following anyone yet." : "\(label) is not following anyone yet."
+        case .followers: return label.isEmpty ? "No followers yet." : "No one is following \(label) yet."
         }
     }
 
@@ -475,12 +448,10 @@ struct UserProfileCardSheet: View {
 
     private func loadCard() async {
         guard details == nil else { return }
-        let cardUser = displayUser
-        let photo = await LibraryCardExporter.loadPhoto(urlString: cardUser.profileImageURL)
-        let number = await userRepo.memberNumber(joinedAt: cardUser.joinedAt)
+        let loaded = await LibraryCardDetails.load(for: displayUser)
         await MainActor.run {
             withAnimation(.easeInOut(duration: 0.25)) {
-                details = LibraryCardDetails.from(user: cardUser, cardNumber: max(1, number ?? 1), photo: photo)
+                details = loaded
             }
         }
     }

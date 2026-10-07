@@ -23,11 +23,53 @@ import Foundation
 final class MatchScoreService {
     static let shared = MatchScoreService()
 
-    /// Trust weight per followed reader (uid → 0.25…2.0), session-scoped.
-    private var trustCache: [String: Double] = [:]
+    /// Trust weight per followed reader (uid → 0.25…2.0).
+    ///
+    /// Computing one means reading that reader's entire read shelf — the whole
+    /// shelf on purpose, since taste agreement needs the holistic picture. What
+    /// it does not need is recomputing on every book profile: a friend's taste
+    /// does not change between Tuesday and Wednesday. Persisted across launches
+    /// for `trustTTL`, after which the next book profile refreshes it.
+    private var trustCache: [String: TrustEntry] = [:]
     private let queue = DispatchQueue(label: "com.spine.matchscore.cache")
+    private static let trustTTL: TimeInterval = 3 * 24 * 60 * 60
+    private static let trustDefaultsKey = "matchScore.trustByFriend.v1"
 
-    private init() {}
+    private struct TrustEntry: Codable {
+        let trust: Double
+        let at: Date
+    }
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: Self.trustDefaultsKey),
+           let saved = try? JSONDecoder().decode([String: TrustEntry].self, from: data) {
+            trustCache = saved.filter { Date().timeIntervalSince($0.value.at) < Self.trustTTL }
+        }
+    }
+
+    private func cachedTrust(_ friendUid: String) -> Double? {
+        queue.sync {
+            guard let entry = trustCache[friendUid],
+                  Date().timeIntervalSince(entry.at) < Self.trustTTL else { return nil }
+            return entry.trust
+        }
+    }
+
+    private func storeTrust(_ trust: Double, for friendUid: String) {
+        let snapshot: [String: TrustEntry] = queue.sync {
+            trustCache[friendUid] = TrustEntry(trust: trust, at: Date())
+            return trustCache
+        }
+        if let data = try? JSONEncoder().encode(snapshot) {
+            UserDefaults.standard.set(data, forKey: Self.trustDefaultsKey)
+        }
+    }
+
+    /// Sign-out: another member's taste must not seed this one's scores.
+    func clearTrustCache() {
+        queue.sync { trustCache = [:] }
+        UserDefaults.standard.removeObject(forKey: Self.trustDefaultsKey)
+    }
 
     // MARK: - Public API
 
@@ -181,7 +223,7 @@ final class MatchScoreService {
     /// 0.25…2.0 multiplier for a friend's verdict: 1.0 = neutral (no shared
     /// rated books), >1 = their past ratings agreed with the user's, <1 = clashed.
     private func trustWeight(friendUid: String, myHistory: [UserBook]) async -> Double {
-        if let cached = queue.sync(execute: { trustCache[friendUid] }) { return cached }
+        if let cached = cachedTrust(friendUid) { return cached }
 
         let friendRows = await UserBookRepository().fetchReadEntriesLite(userId: friendUid)
         var mineByBook: [String: Double] = [:]
@@ -203,7 +245,7 @@ final class MatchScoreService {
             let similarity = ((agreements.reduce(0, +) / n) - 0.5) * 2.0 * (n / (n + 2.0))
             trust = min(2.0, max(0.25, 1.0 + similarity))
         }
-        queue.sync { trustCache[friendUid] = trust }
+        storeTrust(trust, for: friendUid)
         return trust
     }
 

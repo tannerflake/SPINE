@@ -11,7 +11,8 @@
 
 import Foundation
 
-final class ITunesCoverService {
+/// Mutable state is confined to `cacheQueue`.
+final class ITunesCoverService: @unchecked Sendable {
     static let shared = ITunesCoverService()
 
     private let session: URLSession

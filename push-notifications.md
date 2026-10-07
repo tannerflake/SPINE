@@ -26,9 +26,9 @@ lost. The copy now follows three rules, implemented in `functions/src/index.ts`:
 | thread_commented | 💬 Hannah also commented | In the Sapiens thread you joined: “teaser…” |
 | review_mentioned | 📣 Hannah mentioned you | In their review of Sapiens: “teaser…” |
 | comment_mentioned | 📣 Hannah mentioned you | In a comment on Sapiens: “teaser…” |
-| new_follower | 👋 Hannah followed you | See what they're reading on SPINE. |
-| founder join alert (new_follower) | 🎉 Hannah joined SPINE | They follow you, and you now follow them back. |
-| contact_joined | 🎉 Hannah joined SPINE | Hannah Smith is in your contacts. Tap to follow. |
+| new_follower | 👋 Hannah followed you | See what they're reading on Spine. |
+| founder join alert (new_follower) | 🎉 Hannah joined Spine | They follow you, and you now follow them back. |
+| contact_joined | 🎉 Hannah joined Spine | Hannah Smith is in your contacts. Tap to follow. |
 | blend_request | 🔀 Hannah invited you | Book Blend: see how your reading tastes line up. Tap to accept. |
 | blend_ready | 🔀 Your Blend is ready | You and Hannah scored 84%. Tap to watch it. |
 | book_recommended | 📖 Hannah sent you a book | Sapiens: “note teaser…” / Sapiens. It's on the Recommended shelf of your queue. |

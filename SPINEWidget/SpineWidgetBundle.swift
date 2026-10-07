@@ -22,7 +22,7 @@ struct SpineWidget: Widget {
         StaticConfiguration(kind: kind, provider: SpineTimelineProvider()) { entry in
             SpineWidgetEntryView(entry: entry)
         }
-        .configurationDisplayName("SPINE")
+        .configurationDisplayName("Spine")
         .description("Your reading stack and what people you follow are reading now.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }

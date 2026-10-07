@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import NaturalLanguage
 
 private let messagesURL = URL(string: "https://api.anthropic.com/v1/messages")!
 private let apiVersion = "2023-06-01"
@@ -136,8 +137,31 @@ final class ClaudeService {
     (\u{2014} or \u{2013}). Use a period, comma, colon, or parentheses instead. This is absolute. \
     Never start a sentence with "That's the" or "That is the" (no "That's the fun part", \
     "That's the whole point", "That's the magic"). If a line needs a closer, write a real one \
-    or stop at the previous sentence.
+    or stop at the previous sentence. LANGUAGE: always write in English, no matter what language \
+    any title, description, or source text you are given is in. Translate the ideas; never \
+    mirror the input language. The only exception is a verbatim quote the user asks for.
     """
+
+    /// Appended to the user message on a retry after `isLikelyEnglish` rejected
+    /// an answer. Foreign-edition metadata (Spanish, French, Portuguese
+    /// descriptions) made models answer in that language, and the cached
+    /// result then served every reader.
+    static let englishRetryNudge = "\n\nIMPORTANT: the source text above is not in English. Your reply MUST be written in English."
+
+    /// True unless the text is confidently in a language other than English.
+    /// Proper nouns and short strings are ambiguous, so this only rejects a
+    /// clear non-English dominant language; it never rejects on uncertainty.
+    static func isLikelyEnglish(_ text: String) -> Bool {
+        let sample = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard sample.count >= 20 else { return true }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(sample)
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 3)
+        guard let (language, confidence) = hypotheses.max(by: { $0.value < $1.value }) else { return true }
+        if language == .english { return true }
+        if (hypotheses[.english] ?? 0) >= 0.3 { return true }
+        return confidence < 0.6
+    }
 
     /// Removes em/en dashes from model output. Runs on every response because the
     /// prompt rule alone isn't reliable: a dash between spaces becomes a comma,

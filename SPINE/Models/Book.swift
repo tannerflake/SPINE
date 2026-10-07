@@ -20,6 +20,11 @@ struct Book: Identifiable, Equatable, Hashable {
     var fallbackCoverURLs: [String]? = nil
     /// When true, `coverImageURLsToTry` is empty (e.g. Firestore metadata timed out — show title-only placeholder only).
     var suppressCoverImageFetch: Bool = false
+    /// True only for `metadataLoadTimeoutPlaceholder`: the book doc hadn't
+    /// arrived inside the client budget, so title/author are stand-ins ("Book" /
+    /// "Unknown"). Anything that presents a single book (deep links, the
+    /// comments sheet header) must treat this as "still loading", never as data.
+    var isMetadataLoadTimeoutPlaceholder: Bool = false
     /// Community-chosen cover (a member regenerated a bad cover and kept the result).
     /// Tried before everything else so all users converge on it.
     var coverOverrideURL: String? = nil
@@ -194,6 +199,7 @@ struct Book: Identifiable, Equatable, Hashable {
             genres: []
         )
         b.suppressCoverImageFetch = true
+        b.isMetadataLoadTimeoutPlaceholder = true
         return b
     }
 }

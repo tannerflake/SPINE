@@ -25,6 +25,8 @@ final class AppState: ObservableObject {
     /// run on top, everything else in order) so marks landing mid-scroll never
     /// reshuffle it; `beginFeedSession` retakes it on a reload.
     @Published private(set) var feedSeenSnapshot: Set<String> = []
+    /// Posts created before this count as seen (see `FeedSeenStore.baseline`).
+    @Published private(set) var feedSeenBaseline: Date = .distantPast
     /// Bumps on every `beginFeedSession` — the "caught up" marker plays its
     /// entrance once per token.
     @Published private(set) var feedSessionToken = 0
@@ -37,8 +39,33 @@ final class AppState: ObservableObject {
     /// How deep the feed listener currently reads. Grows a page at a time as the
     /// reader hits the bottom; resets on a new account or a scope switch.
     private var feedLimit = feedPageSize
+    /// Once the first delivery lands, the set of posts in `feedPosts` is frozen.
+    /// The listener stays live, but its deliveries only refresh those posts in
+    /// place (likes, comments, edits); anything newer waits in
+    /// `latestFeedDelivery` until a hard reload (`reloadFeed`: pull to refresh,
+    /// tab re-tap at the top, a long stretch in the background) or the next
+    /// launch. Paging still adds the older page, and the viewer's own new posts
+    /// go in straight away. False means the next delivery is taken whole.
+    private var feedIsFrozen = false
+    /// Newest `createdAt` in the feed as of the last reload: paging admits
+    /// posts at or before it (the older page) and holds anything after it.
+    private var feedFrozenNewest: Date = .distantFuture
+    /// The listener's most recent full delivery, unfiltered, so a reload can
+    /// show what's arrived without waiting on the network.
+    private var latestFeedDelivery: [Post] = []
+    private var latestFeedDeliverySettled = false
+    /// Set when paging deepens the listener; older posts are admitted until
+    /// the deeper query has heard from the server.
+    private var feedPagingPending = false
+    /// When the app last went to the background (see `reloadFeedIfAwayLong`).
+    private var feedBackgroundedAt: Date?
+    /// Away at least this long counts as coming back to the app fresh.
+    private static let feedStaleAfterBackground: TimeInterval = 30 * 60
 
     @Published var dismissedBookIds: Set<String> = []
+    /// Titles of passed books, newest first, for Discover's avoid list. Only
+    /// docs written since titles were stored carry one.
+    private var dismissedBookTitles: [(bookId: String, title: String)] = []
     @Published var discoverCurrentSuggestion: Book?
     @Published var discoverSuggestionQueue: [Book] = []
     /// Books passed on in Discover this session, newest last. Session-only (never
@@ -68,6 +95,10 @@ final class AppState: ObservableObject {
     /// tile: Discover draws a back arrow and accepts a left-edge swipe home.
     /// Any other way into Discover (tab bar, push, deep link) clears it.
     @Published var discoverEnteredFromFeed = false
+    /// How the current Discover visit started (`DiscoverEntryPoint` raw
+    /// value), stamped on every Discover analytics event. Not published:
+    /// nothing draws from it.
+    var discoverEntryPoint = DiscoverEntryPoint.tabBar.rawValue
     /// One-shot scroll offset for FeedView to restore on its next appearance
     /// (the tab switch tears the feed's scroll view down). Feed clears it.
     @Published var feedScrollRestoreOffsetY: CGFloat?
@@ -149,12 +180,25 @@ final class AppState: ObservableObject {
             // A follow/unfollow restart keeps the reader's paging depth; only a
             // different account starts back at page one.
             feedLimit = feedPageSize
+            feedIsFrozen = false
+            feedFrozenNewest = .distantFuture
+            latestFeedDelivery = []
+            latestFeedDeliverySettled = false
+            feedPagingPending = false
             FeedSeenStore.shared.load(uid: uid)
+            feedFollowing = Set(following)
             beginFeedSession()
+        } else if !feedIsFrozen {
+            // Still on the first load: nothing on screen to keep steady yet.
+            feedFollowing = Set(following)
         }
+        // A follow/unfollow restart otherwise leaves `feedFollowing` alone: who
+        // counts as "people you follow" is part of the layout, so a new follow's
+        // posts move into the new-for-you run on the next reload, not under the
+        // reader mid-scroll.
+        if uid != currentUserId { lowestAssignedBacklogOrder = nil }
         currentUserId = uid
         currentFollowing = following
-        feedFollowing = Set(following)
         dismissedBookIdsLoaded = false
         userBooksLoaded = false
         refreshGoodreadsWizardResumeState()
@@ -199,9 +243,12 @@ final class AppState: ObservableObject {
 
         Task { [weak self] in
             guard let self = self, let uid = self.currentUserId else { return }
-            let ids = await self.dismissedRepo.fetchDismissedBookIds(userId: uid)
+            let entries = await self.dismissedRepo.fetchDismissed(userId: uid)
             await MainActor.run {
-                self.dismissedBookIds = Set(ids)
+                self.dismissedBookIds = Set(entries.map(\.bookId))
+                self.dismissedBookTitles = entries
+                    .sorted { ($0.dismissedAt ?? .distantPast) > ($1.dismissedAt ?? .distantPast) }
+                    .compactMap { e in e.title.map { (e.bookId, $0) } }
                 self.dismissedBookIdsLoaded = true
                 self.loadDiscoverSuggestionsIfNeeded()
             }
@@ -302,7 +349,40 @@ final class AppState: ObservableObject {
     /// what's still unseen from people you follow leads.
     func beginFeedSession() {
         feedSeenSnapshot = FeedSeenStore.shared.seenIds()
+        feedSeenBaseline = FeedSeenStore.shared.baseline
         feedSessionToken += 1
+    }
+
+    /// Hard reload: posts that arrived since the last one join the feed, the
+    /// follow graph is re-read, and a new session re-sorts against what's been
+    /// seen. The only way new posts from other people reach the feed besides
+    /// a fresh launch.
+    func reloadFeed() {
+        feedFollowing = Set(currentFollowing)
+        if !latestFeedDelivery.isEmpty {
+            feedIsFrozen = false
+            applyFeedDelivery(latestFeedDelivery, settled: latestFeedDeliverySettled)
+        }
+        beginFeedSession()
+    }
+
+    /// Records the app going to the background, for `reloadFeedIfAwayLong`.
+    func noteAppBackgrounded() {
+        feedBackgroundedAt = Date()
+    }
+
+    /// Back from the background: a long absence counts as coming back to the
+    /// app fresh, so the feed reloads. Returns true when it did, so the feed
+    /// can start over at the top. Short trips leave everything where it was.
+    @discardableResult
+    func reloadFeedIfAwayLong() -> Bool {
+        guard let since = feedBackgroundedAt else { return false }
+        feedBackgroundedAt = nil
+        guard currentUserId != nil,
+              Date().timeIntervalSince(since) >= Self.feedStaleAfterBackground else { return false }
+        feedScrollRestoreOffsetY = nil
+        reloadFeed()
+        return true
     }
 
     /// Posts that have scrolled into view. Recorded immediately (so they never
@@ -338,7 +418,7 @@ final class AppState: ObservableObject {
         }
         Task { [weak self, notificationsRepo] in
             let unread = await notificationsRepo.hasUnread(uid: uid)
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 self?.hasUnreadNotifications = unread
             }
         }
@@ -363,6 +443,7 @@ final class AppState: ObservableObject {
               !isLoadingMoreFeedPosts,
               !isFeedLoading else { return }
         isLoadingMoreFeedPosts = true
+        feedPagingPending = true
         feedLimit += feedPageSize
         feedListener?.remove()
         feedListener = makeFeedListener(uid: uid)
@@ -371,14 +452,46 @@ final class AppState: ObservableObject {
     /// The unified feed listener: community posts plus everything recent from
     /// the follow graph, merged (see `PostRepository.listenUnifiedFeed`).
     private func makeFeedListener(uid: String) -> FeedListenerHandle {
-        let onUpdate: ([Post], Bool) -> Void = { [weak self] list, hasMore in
+        let onUpdate: ([Post], Bool, Bool) -> Void = { [weak self] list, hasMore, settled in
             guard let self = self else { return }
-            self.feedPosts = list
+            self.latestFeedDelivery = list
+            self.latestFeedDeliverySettled = settled
+            self.applyFeedDelivery(list, settled: settled)
+            if settled { self.feedPagingPending = false }
             self.isFeedLoading = false
             self.isLoadingMoreFeedPosts = false
             self.canLoadMoreFeedPosts = hasMore
         }
         return postRepo.listenUnifiedFeed(viewerUid: uid, followedIds: currentFollowing, limit: feedLimit, onUpdate: onUpdate)
+    }
+
+    /// Folds a listener delivery into the frozen feed (see `feedIsFrozen`).
+    /// Until the first server-confirmed (`settled`) delivery lands, each one
+    /// is taken whole: launch paints from the local cache first, and the
+    /// server's answer is what "load new posts on launch" means. After that,
+    /// posts already shown take the delivery's fresh copy; shown posts missing
+    /// from it keep their current copy, since new posts push the oldest out of
+    /// the query window and a post vanishing from the bottom is as jarring as
+    /// one appearing at the top. Explicit removals (deletes, demotions) edit
+    /// `feedPosts` directly, so they stay removed.
+    private func applyFeedDelivery(_ list: [Post], settled: Bool) {
+        guard feedIsFrozen else {
+            feedIsFrozen = settled
+            feedFrozenNewest = list.map(\.createdAt).max() ?? .distantFuture
+            feedPosts = list
+            return
+        }
+        let paging = feedPagingPending
+        var byId: [UUID: Post] = [:]
+        for post in feedPosts { byId[post.id] = post }
+        let ownUid = currentUserId
+        for post in list {
+            let admit = byId[post.id] != nil
+                || post.userId == ownUid
+                || (paging && post.createdAt <= feedFrozenNewest)
+            if admit { byId[post.id] = post }
+        }
+        feedPosts = byId.values.sorted { $0.createdAt > $1.createdAt }
     }
 
     /// Call when user signs out to stop listeners and clear state.
@@ -426,7 +539,10 @@ final class AppState: ObservableObject {
         currentFollowing = []
         feedFollowing = []
         feedSeenSnapshot = []
+        feedSeenBaseline = .distantPast
         FeedSeenStore.shared.unload()
+        MatchScoreService.shared.clearTrustCache()
+        ReadingNowSummary.shared.invalidate()
         currentUser = nil
         isAuthenticated = false
         userBooks = []
@@ -434,11 +550,18 @@ final class AppState: ObservableObject {
         feedPosts = []
         isFeedLoading = true
         feedLimit = feedPageSize
+        feedIsFrozen = false
+        feedFrozenNewest = .distantFuture
+        latestFeedDelivery = []
+        latestFeedDeliverySettled = false
+        feedPagingPending = false
+        feedBackgroundedAt = nil
         canLoadMoreFeedPosts = false
         isLoadingMoreFeedPosts = false
         incomingRecommendations = []
         recommenderProfiles = [:]
         dismissedBookIds = []
+        dismissedBookTitles = []
         dismissedBookIdsLoaded = false
         userBooksLoaded = false
         discoverCurrentSuggestion = nil
@@ -554,30 +677,17 @@ final class AppState: ObservableObject {
             insertAt = inTarget.count
         }
         inTarget.insert(moved, at: insertAt)
-        var inSourceUpdates: [(Int, Int)] = []
-        if sourceTier != tier {
-            let inSource = tierMembers(sourceTier).filter { $0.id != userBookId }
-            for (i, ub) in inSource.enumerated() {
-                guard let idx = userBooks.firstIndex(where: { $0.id == ub.id }) else { continue }
-                if userBooks[idx].tierOrder != i {
-                    inSourceUpdates.append((idx, i))
-                }
-            }
-        }
 
         withAnimation(.easeInOut(duration: 0.3)) {
-            for (i, ub) in inTarget.enumerated() {
-                guard let idx = userBooks.firstIndex(where: { $0.id == ub.id }) else { continue }
-                let changed = userBooks[idx].tier != tier || userBooks[idx].tierOrder != i
+            for (id, order) in Self.sparsePlacement(members: inTarget, movedId: userBookId, order: \.tierOrder) {
+                guard let idx = userBooks.firstIndex(where: { $0.id == id }) else { continue }
+                let changed = userBooks[idx].tier != tier || userBooks[idx].tierOrder != order
                 userBooks[idx].tier = tier
-                userBooks[idx].tierOrder = i
-                if ub.id == userBookId { userBooks[idx].updatedAt = now }
+                userBooks[idx].tierOrder = order
+                if id == userBookId { userBooks[idx].updatedAt = now }
                 if changed { toPersist.append(userBooks[idx]) }
             }
-            for (idx, i) in inSourceUpdates {
-                userBooks[idx].tierOrder = i
-                toPersist.append(userBooks[idx])
-            }
+            // The tier it left keeps its relative order; nothing there is rewritten.
         }
 
         Task {
@@ -610,7 +720,6 @@ final class AppState: ObservableObject {
         guard !moving.isEmpty else { return }
         let now = Date()
         let movingIds = Set(moving.map(\.id))
-        let sourceTiers = Set(moving.map(\.normalizedTier)).subtracting([tier])
         // Books actually changing tier get their feed posts re-badged below.
         let rebadge = moving.filter { $0.normalizedTier != tier }.map(\.bookId)
 
@@ -620,22 +729,30 @@ final class AppState: ObservableObject {
 
         var toPersist: [UserBook] = []
         withAnimation(.easeInOut(duration: 0.3)) {
-            let target = tierMembers(tier) + moving
-            for (i, ub) in target.enumerated() {
-                guard let idx = userBooks.firstIndex(where: { $0.id == ub.id }) else { continue }
-                let changed = userBooks[idx].tier != tier || userBooks[idx].tierOrder != i
+            // Append after the row's last book with sparse spacing, so only the
+            // moved books are written. A row with legacy unordered books is
+            // renumbered once (they'd otherwise sort after anything appended).
+            let existing = tierMembers(tier)
+            let assignments: [(UUID, Int)]
+            if existing.allSatisfy({ $0.tierOrder != nil }) {
+                var next = existing.compactMap(\.tierOrder).max() ?? -SparseOrder.step
+                assignments = moving.map { ub in
+                    next += SparseOrder.step
+                    return (ub.id, next)
+                }
+            } else {
+                let target = existing + moving
+                assignments = zip(target, SparseOrder.renumbered(count: target.count)).map { ($0.id, $1) }
+            }
+            for (id, order) in assignments {
+                guard let idx = userBooks.firstIndex(where: { $0.id == id }) else { continue }
+                let changed = userBooks[idx].tier != tier || userBooks[idx].tierOrder != order
                 userBooks[idx].tier = tier
-                userBooks[idx].tierOrder = i
-                if movingIds.contains(ub.id) { userBooks[idx].updatedAt = now }
+                userBooks[idx].tierOrder = order
+                if movingIds.contains(id) { userBooks[idx].updatedAt = now }
                 if changed { toPersist.append(userBooks[idx]) }
             }
-            for source in sourceTiers {
-                for (i, ub) in tierMembers(source).enumerated() {
-                    guard let idx = userBooks.firstIndex(where: { $0.id == ub.id }), userBooks[idx].tierOrder != i else { continue }
-                    userBooks[idx].tierOrder = i
-                    toPersist.append(userBooks[idx])
-                }
-            }
+            // Source tiers keep their relative order without renumbering.
         }
 
         Task {
@@ -675,9 +792,10 @@ final class AppState: ObservableObject {
     /// Append position for a book entering `tier`, so it never lands with `tierOrder == nil`
     /// (nil orders tie and make drop-slot indices ambiguous). Safe even when existing
     /// members still have nil orders.
+    /// Sparse order for a book joining the end of `tier` (see `SparseOrder`).
     private func nextTierOrder(for tier: String) -> Int {
         let members = userBooks.filter { $0.status == .read && $0.normalizedTier == tier }
-        return max((members.compactMap(\.tierOrder).max() ?? -1) + 1, members.count)
+        return (members.compactMap(\.tierOrder).max() ?? -SparseOrder.step) + SparseOrder.step
     }
 
     /// Updates the **existing** queue `userBook` document to Read with rating, optional thoughts as `reviewText`, and optional feed post. Does not create a duplicate row.
@@ -786,33 +904,18 @@ final class AppState: ObservableObject {
         inTarget.insert(moved, at: insertAt)
 
         var toPersist: [UserBook] = []
-
         withAnimation(.easeInOut(duration: 0.3)) {
-            for (i, ub) in inTarget.enumerated() {
-                guard let idx = userBooks.firstIndex(where: { $0.id == ub.id }) else { continue }
+            for (id, order) in Self.sparsePlacement(members: inTarget, movedId: userBookId, order: \.queueOrder) {
+                guard let idx = userBooks.firstIndex(where: { $0.id == id }) else { continue }
                 let prev = userBooks[idx]
                 userBooks[idx].queueShelf = shelf
-                userBooks[idx].queueOrder = i
-                if ub.id == userBookId { userBooks[idx].updatedAt = now }
-                if prev.queueShelf != userBooks[idx].queueShelf || prev.queueOrder != userBooks[idx].queueOrder {
+                userBooks[idx].queueOrder = order
+                if id == userBookId { userBooks[idx].updatedAt = now }
+                if prev.queueShelf != shelf || prev.queueOrder != order {
                     toPersist.append(userBooks[idx])
                 }
             }
-
-            if sourceShelf != shelf {
-                var inSource = userBooks.filter { $0.id != userBookId && belongsToShelf($0, sourceShelf) }
-                inSource = Self.sortQueueMembers(inSource, shelf: sourceShelf)
-                for (i, ub) in inSource.enumerated() {
-                    guard let idx = userBooks.firstIndex(where: { $0.id == ub.id }) else { continue }
-                    let prev = userBooks[idx]
-                    userBooks[idx].queueOrder = i
-                    userBooks[idx].queueShelf = sourceShelf
-                    userBooks[idx].updatedAt = now
-                    if prev.queueOrder != userBooks[idx].queueOrder || prev.queueShelf != userBooks[idx].queueShelf {
-                        toPersist.append(userBooks[idx])
-                    }
-                }
-            }
+            // The shelf it left keeps its relative order; nothing there is rewritten.
         }
 
         Task {
@@ -820,10 +923,56 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Sparse placement for one shelf or tier (see `SparseOrder`). `members` is
+    /// the row in display order with the moved book already inserted. The moved
+    /// book takes the midpoint between its neighbours — one document write —
+    /// and only when there is no integer left between them, or a neighbour is
+    /// a legacy row with no order, is the whole row renumbered (once; it stays
+    /// sparse after that). Returns (userBook id, new order) pairs to apply.
+    private static func sparsePlacement(members: [UserBook], movedId: UUID, order: (UserBook) -> Int?) -> [(UUID, Int)] {
+        guard let pos = members.firstIndex(where: { $0.id == movedId }) else { return [] }
+        let lower: UserBook? = pos > 0 ? members[pos - 1] : nil
+        let upper: UserBook? = pos + 1 < members.count ? members[pos + 1] : nil
+        let lowerOrder = lower.map(order)
+        let upperOrder = upper.map(order)
+        // `.some(nil)` = a neighbour exists but has no order: renumber.
+        if case .some(nil) = lowerOrder {} else if case .some(nil) = upperOrder {} else {
+            if let mid = SparseOrder.between(lowerOrder ?? nil, upperOrder ?? nil) {
+                return [(movedId, mid)]
+            }
+        }
+        return zip(members, SparseOrder.renumbered(count: members.count)).map { ($0.id, $1) }
+    }
+
+    /// Lowest backlog order handed out this session. Imports add rows faster
+    /// than the listener echoes them back, so the in-memory library alone
+    /// would hand the same top slot to two books.
+    private var lowestAssignedBacklogOrder: Int?
+
+    /// Sparse order for a book joining the TOP of the backlog (see `SparseOrder`).
+    func topBacklogOrder() -> Int {
+        let current = wantToReadBacklog.compactMap(\.queueOrder).min()
+        let lowest = [current, lowestAssignedBacklogOrder].compactMap { $0 }.min()
+        let next = (lowest ?? SparseOrder.step) - SparseOrder.step
+        lowestAssignedBacklogOrder = next
+        return next
+    }
+
+    /// Sparse order for a book joining the END of a queue shelf.
+    private func endQueueOrder(for shelf: QueueShelf) -> Int {
+        let members: [UserBook]
+        switch shelf {
+        case .readingNow: members = wantToReadReadingNow
+        case .upNext: members = wantToReadUpNext
+        case .backlog: members = wantToReadBacklog
+        }
+        return (members.compactMap(\.queueOrder).max() ?? -SparseOrder.step) + SparseOrder.step
+    }
+
     private static func sortQueueMembers(_ books: [UserBook], shelf: QueueShelf) -> [UserBook] {
         switch shelf {
         case .readingNow, .upNext:
-            return books.sorted { ($0.queueOrder ?? 999) < ($1.queueOrder ?? 999) }
+            return books.sorted { ($0.queueOrder ?? Int.max) < ($1.queueOrder ?? Int.max) }
         case .backlog:
             return sortedBacklog(books)
         }
@@ -845,14 +994,14 @@ final class AppState: ObservableObject {
     var wantToReadReadingNow: [UserBook] {
         userBooks
             .filter { $0.status == .wantToRead && $0.queueShelf == .readingNow }
-            .sorted { ($0.queueOrder ?? 999) < ($1.queueOrder ?? 999) }
+            .sorted { ($0.queueOrder ?? Int.max) < ($1.queueOrder ?? Int.max) }
     }
 
     /// Queue → **Up next** (explicit shelf only).
     var wantToReadUpNext: [UserBook] {
         userBooks
             .filter { $0.status == .wantToRead && $0.queueShelf == .upNext }
-            .sorted { ($0.queueOrder ?? 999) < ($1.queueOrder ?? 999) }
+            .sorted { ($0.queueOrder ?? Int.max) < ($1.queueOrder ?? Int.max) }
     }
 
     /// Queue → **Backlog** (default; includes legacy `queueShelf == nil`).
@@ -976,7 +1125,7 @@ final class AppState: ObservableObject {
 
     /// The post-queue toast: cover thumbnail + "tap to add a note".
     private func showQueuedToast(for book: Book, shelf: QueueShelf?) {
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
             ToastCenter.shared.show(.queued(book: book, startedReading: shelf == .readingNow) { [weak self] in
                 self?.promptQueueNote(for: book)
             })
@@ -996,12 +1145,19 @@ final class AppState: ObservableObject {
     }
 
     /// Mark a book as "not interested" so we never suggest it again.
-    func addDismissedBookId(_ bookId: String) {
-        dismissedBookIds.insert(bookId)
+    func addDismissed(book: Book) {
+        dismissedBookIds.insert(book.id)
+        dismissedBookTitles.removeAll { $0.bookId == book.id }
+        dismissedBookTitles.insert((book.id, book.title), at: 0)
         guard let uid = currentUserId else { return }
         Task {
-            try? await dismissedRepo.addDismissed(userId: uid, bookId: bookId)
+            try? await dismissedRepo.addDismissed(userId: uid, bookId: book.id, title: book.title)
         }
+    }
+
+    /// Passed-book titles still dismissed (undo removes the id), newest first.
+    private var recentDismissedTitles: [String] {
+        dismissedBookTitles.filter { dismissedBookIds.contains($0.bookId) }.map(\.title)
     }
 
     /// Remove a book from dismissed (undo Pass) and show it again as the current Discover suggestion.
@@ -1044,8 +1200,9 @@ final class AppState: ObservableObject {
             return
         }
         showQueuedToast(for: book, shelf: .backlog)
+        let order = topBacklogOrder()
         Task {
-            _ = try? await userBookRepo.addUserBook(userId: uid, book: book, status: .wantToRead, rating: nil, reviewText: nil, dateStarted: nil, dateFinished: nil)
+            _ = try? await userBookRepo.addUserBook(userId: uid, book: book, status: .wantToRead, rating: nil, reviewText: nil, dateStarted: nil, dateFinished: nil, targetShelf: .backlog, targetOrder: order)
         }
     }
 
@@ -1060,13 +1217,7 @@ final class AppState: ObservableObject {
             showQueuedToast(for: book, shelf: shelf)
             return
         }
-        let endOrder: Int = {
-            switch shelf {
-            case .readingNow: return wantToReadReadingNow.count
-            case .upNext: return wantToReadUpNext.count
-            case .backlog: return wantToReadBacklog.count
-            }
-        }()
+        let endOrder = endQueueOrder(for: shelf)
         showQueuedToast(for: book, shelf: shelf)
         Task {
             _ = try? await userBookRepo.addUserBook(userId: uid, book: book, status: .wantToRead, rating: nil, reviewText: nil, dateStarted: nil, dateFinished: nil, targetShelf: shelf, targetOrder: endOrder)
@@ -1196,7 +1347,7 @@ final class AppState: ObservableObject {
         updated.updatedAt = Date()
         do {
             try await userBookRepo.updateUserBook(updated)
-            await MainActor.run { self.updateUserBook(updated) }
+            await MainActor.run { [updated] in self.updateUserBook(updated) }
             let posts = await postRepo.fetchPostsForUserAndBook(userId: uid, bookId: userBook.bookId)
             let finished = posts.filter { $0.type == .finishedBook }.sorted { $0.createdAt > $1.createdAt }
             // Hidden discussion carriers from the book profile's "Read by" section —
@@ -1481,8 +1632,9 @@ final class AppState: ObservableObject {
         let status: ReadingStatus = status == .didNotFinish ? .didNotFinish : .wantToRead
         // Only DNF rows carry their review/rating note over; to-read rows have none.
         let reviewText = status == .didNotFinish ? review?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmptyText : nil
+        let order = status == .wantToRead ? topBacklogOrder() : nil
         do {
-            _ = try await userBookRepo.addUserBook(userId: uid, book: book, status: status, rating: nil, reviewText: reviewText, dateStarted: nil, dateFinished: nil)
+            _ = try await userBookRepo.addUserBook(userId: uid, book: book, status: status, rating: nil, reviewText: reviewText, dateStarted: nil, dateFinished: nil, targetShelf: order == nil ? nil : .backlog, targetOrder: order)
             return .imported
         } catch {
             return .failed
@@ -1507,8 +1659,9 @@ final class AppState: ObservableObject {
             return .imported
         }
         #endif
+        let order = topBacklogOrder()
         do {
-            let ub = try await userBookRepo.addUserBook(userId: uid, book: book, status: .wantToRead, rating: nil, reviewText: nil, dateStarted: nil, dateFinished: nil)
+            let ub = try await userBookRepo.addUserBook(userId: uid, book: book, status: .wantToRead, rating: nil, reviewText: nil, dateStarted: nil, dateFinished: nil, targetShelf: .backlog, targetOrder: order)
             if trimmed != nil {
                 try? await userBookRepo.setQueueNote(userBookId: ub.id, note: trimmed)
             }
@@ -1644,7 +1797,15 @@ final class AppState: ObservableObject {
     /// Call when app/tab bar appears to load first suggestion in background. No-op if already have a suggestion or are loading. Waits for dismissed IDs and the library to load so we never suggest passed or already-read books.
     func loadDiscoverSuggestionsIfNeeded() {
         guard dismissedBookIdsLoaded, userBooksLoaded else { return }
-        guard discoverCurrentSuggestion == nil, discoverSuggestionQueue.isEmpty, !isLoadingDiscoverSuggestions else { return }
+        guard discoverCurrentSuggestion == nil, !isLoadingDiscoverSuggestions else { return }
+        // A background refill landed while the card sat empty: show it instead
+        // of fetching again (this used to make "Try again" a silent no-op).
+        dropExcludedFromDiscoverQueue()
+        if !discoverSuggestionQueue.isEmpty {
+            popNextDiscoverSuggestion()
+            discoverLoadCameUpEmpty = false
+            return
+        }
         isLoadingDiscoverSuggestions = true
         discoverLoadCameUpEmpty = false
         let generation = discoverFetchGeneration
@@ -1654,14 +1815,22 @@ final class AppState: ObservableObject {
                 readBooks: self.readBooks,
                 unreadLibraryBooks: self.unreadLibraryBooks,
                 dismissedBookIds: self.dismissedBookIds,
+                dismissedTitles: self.recentDismissedTitles,
                 readingInterestTags: self.currentUser?.readingInterestTags ?? [],
                 criteria: self.discoverCriteria
             )
             await MainActor.run {
                 guard generation == self.discoverFetchGeneration else { return }
                 self.isLoadingDiscoverSuggestions = false
-                let filtered = batch.filter { !self.shouldExcludeFromDiscover($0) }
+                let known = Set(self.discoverPoolBooks.map(\.id))
+                let filtered = batch.filter { !self.shouldExcludeFromDiscover($0) && !known.contains($0.id) }
                 self.discoverSuggestionQueue.append(contentsOf: filtered)
+                // Nothing usable: say so and let "Try again" fetch, rather than
+                // kicking off an untracked refill behind the empty state.
+                guard !self.discoverSuggestionQueue.isEmpty else {
+                    self.discoverLoadCameUpEmpty = true
+                    return
+                }
                 self.popNextDiscoverSuggestion()
                 self.discoverLoadCameUpEmpty = (self.discoverCurrentSuggestion == nil)
             }
@@ -1728,6 +1897,27 @@ final class AppState: ObservableObject {
             .filter { !shouldExcludeFromDiscover($0) && seen.insert($0.id).inserted }
     }
 
+    /// A cover on the feed's "Selected for you" row was tapped: put that book
+    /// on the Discover card and line the rest of its row up right behind it
+    /// (in row order, so picking the third still walks through the first two),
+    /// then everything else the pool held, in its old order. Nothing is
+    /// dismissed or consumed here; the book that was on the card simply waits
+    /// its turn again. Books the reader has since read, queued, or passed on
+    /// are already gone from the pool, so they never come back around.
+    func focusDiscover(on book: Book, rowPicks: [Book]) {
+        let pool = discoverPoolBooks
+        var ordered: [Book] = [book]
+        var seen: Set<String> = [book.id]
+        for pick in rowPicks where seen.insert(pick.id).inserted {
+            if !shouldExcludeFromDiscover(pick) { ordered.append(pick) }
+        }
+        for b in pool where seen.insert(b.id).inserted {
+            ordered.append(b)
+        }
+        discoverCurrentSuggestion = ordered.first
+        discoverSuggestionQueue = Array(ordered.dropFirst())
+    }
+
     /// Ceiling on how deep the feed may grow the Discover queue (each extra fetch
     /// is one LLM call). Past it, the feed rows stop asking for more.
     static let discoverPoolCap = 20
@@ -1754,6 +1944,7 @@ final class AppState: ObservableObject {
                 readBooks: self.readBooks,
                 unreadLibraryBooks: self.unreadLibraryBooks,
                 dismissedBookIds: self.dismissedBookIds,
+                dismissedTitles: self.recentDismissedTitles,
                 readingInterestTags: self.currentUser?.readingInterestTags ?? [],
                 criteria: self.discoverCriteria
             )
@@ -1772,6 +1963,9 @@ final class AppState: ObservableObject {
     }
 
     private func fetchMoreDiscoverSuggestionsInBackground() {
+        // One refill at a time (shared with the feed's pool deepening).
+        guard !isDeepeningDiscoverPool, !isLoadingDiscoverSuggestions else { return }
+        isDeepeningDiscoverPool = true
         let generation = discoverFetchGeneration
         Task { [weak self] in
             guard let self = self else { return }
@@ -1779,13 +1973,21 @@ final class AppState: ObservableObject {
                 readBooks: self.readBooks,
                 unreadLibraryBooks: self.unreadLibraryBooks,
                 dismissedBookIds: self.dismissedBookIds,
+                dismissedTitles: self.recentDismissedTitles,
                 readingInterestTags: self.currentUser?.readingInterestTags ?? [],
                 criteria: self.discoverCriteria
             )
             await MainActor.run {
+                self.isDeepeningDiscoverPool = false
                 guard generation == self.discoverFetchGeneration else { return }
-                let filtered = batch.filter { !self.shouldExcludeFromDiscover($0) }
+                let known = Set(self.discoverPoolBooks.map(\.id))
+                let filtered = batch.filter { !self.shouldExcludeFromDiscover($0) && !known.contains($0.id) }
                 self.discoverSuggestionQueue.append(contentsOf: filtered)
+                // The reader swiped through everything while this was in flight.
+                if self.discoverCurrentSuggestion == nil, !self.discoverSuggestionQueue.isEmpty {
+                    self.popNextDiscoverSuggestion()
+                    self.discoverLoadCameUpEmpty = false
+                }
             }
         }
     }

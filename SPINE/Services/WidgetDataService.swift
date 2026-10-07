@@ -26,8 +26,8 @@ final class WidgetDataService {
     /// to stay inside WidgetKit's daily reload budget.
     private var lastWrittenDigest: Data?
 
-    /// Friends' shelves only change server-side; refetching more often than this
-    /// just burns Firestore reads (`fetchAllReadingNowBooks` scans the collection).
+    /// Friends' shelves only change server-side; `fetchAllReadingNowBooks` is one
+    /// summary-document read now, but the covers and avatars behind it are not.
     private static let friendRefreshInterval: TimeInterval = 30 * 60
     private static let maxOwnBooks = 4
     private static let maxFriends = 8
@@ -114,12 +114,16 @@ final class WidgetDataService {
         guard !following.isEmpty else { return [] }
 
         let readingNowByUid = await userBookRepo.fetchAllReadingNowBooks()
+        // One batched (and cached) profile fetch for the friends with covers,
+        // instead of one document read per friend every refresh.
+        let candidates = following.filter { !(readingNowByUid[$0] ?? []).isEmpty }.prefix(Self.maxFriends)
+        let profiles = await userRepo.getUsers(uids: Array(candidates))
 
         var entries: [WidgetSnapshot.FriendEntry] = []
-        for friendUid in following {
+        for friendUid in candidates {
             guard entries.count < Self.maxFriends else { break }
             guard let books = readingNowByUid[friendUid], !books.isEmpty else { continue }
-            guard let profile = await userRepo.getUser(uid: friendUid) else { continue }
+            guard let profile = profiles[friendUid] else { continue }
 
             var bookEntries: [WidgetSnapshot.BookEntry] = []
             for book in books.prefix(Self.maxBooksPerFriend) {

@@ -88,13 +88,13 @@ struct OnboardingFlowView: View {
             }
             .frame(width: 240, height: 240)
 
-            Text("SPINE")
+            Text(BrandWordmark.text)
                 .font(.system(size: 40, weight: .bold))
-                .tracking(10)
+                .tracking(BrandWordmark.tracking(10))
                 .foregroundStyle(Theme.textPrimary)
                 .padding(.top, 28)
                 // Optical centering: tracking adds trailing space after the last glyph.
-                .offset(x: 5)
+                .offset(x: BrandWordmark.tracking(10) / 2)
                 // Hidden with the mark until measured, then travels with it:
                 // the splash hands off a finished lockup, nothing re-fades.
                 .opacity(logoStartOffset == nil ? 0 : 1)

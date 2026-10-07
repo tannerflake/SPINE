@@ -30,7 +30,7 @@ extension BookClub {
 
         var blurb: String {
             switch self {
-            case .groupVote: return "Everyone suggests a book anonymously, then ranks the picks. SPINE tallies it and reveals the winner."
+            case .groupVote: return "Everyone suggests a book anonymously, then ranks the picks. Spine tallies it and reveals the winner."
             case .admin: return "An admin chooses the next book and sets the meeting."
             }
         }

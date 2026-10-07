@@ -175,7 +175,7 @@ struct GoodreadsExportWebView: View {
     private var stepLabel: String {
         switch source {
         case .goodreads: return mode == .login ? "Step 1 of 2" : "Step 2 of 2"
-        case .storyGraph: return "Takes about a minute"
+        case .storyGraph: return "Instructions"
         }
     }
 
@@ -183,14 +183,20 @@ struct GoodreadsExportWebView: View {
         switch source {
         case .goodreads:
             if mode == .login {
-                return Text("Sign in to Goodreads, then tap “I’m logged in” at the top. If your phone opens the Goodreads app, close it and come back to SPINE.")
+                return Text("Sign in to Goodreads, then tap “I’m logged in” at the top. If your phone opens the Goodreads app, close it and come back to Spine.")
             } else {
                 return Text("Tap “Export Library”, then tap the ")
                     + GoodreadsExportLinkMock.text
                     + Text(" link when it appears.")
             }
         case .storyGraph:
-            return Text("Sign in if asked, then tap “Generate export”. It usually takes about a minute. Stay on this page and tap Refresh (or pull down) until a download link appears, then tap it. No need to check your email.")
+            return Text("""
+                1. Sign in.
+                2. Tap “Generate Export”.
+                3. Wait ~40 seconds.
+                4. Refresh the page.
+                5. Tap “Download” once it appears.
+                """)
         }
     }
 }

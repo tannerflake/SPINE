@@ -473,6 +473,7 @@ struct LinkImportView: View {
         switch model.step {
         case .loading(let status):
             loadingContent(status: status)
+                .transition(.spinnerFadeOut)
         case .failed(let message):
             failedContent(message: message)
         case .empty:
@@ -489,18 +490,8 @@ struct LinkImportView: View {
     // MARK: Loading / failed / empty
 
     private func loadingContent(status: String) -> some View {
-        VStack(spacing: 20) {
-            SpinningSpineLogo()
-            Text(status)
-                .font(Theme.title2())
-                .foregroundStyle(Theme.textSecondary)
-            if let host = payload?.displayHost {
-                Text(host)
-                    .font(Theme.caption())
-                    .foregroundStyle(Theme.textTertiary)
-            }
-        }
-        .frame(maxWidth: .infinity)
+        SpinningSpineLogo(size: 288)
+            .frame(maxWidth: .infinity)
         .padding(.top, 96)
     }
 
@@ -569,7 +560,9 @@ struct LinkImportView: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         if let candidate = model.currentCandidate {
-                            currentCard(for: candidate)
+                            ZStack(alignment: .top) {
+                                currentCard(for: candidate)
+                            }
                         }
                     }
                     .padding(Theme.cardPadding)
@@ -608,6 +601,7 @@ struct LinkImportView: View {
             lookupFailedCard(candidate: candidate)
         case .pending:
             matchingCard(candidate: candidate)
+                .transition(.spinnerFadeOut)
         }
     }
 
@@ -727,19 +721,8 @@ struct LinkImportView: View {
     }
 
     private func matchingCard(candidate: LinkBookCandidate) -> some View {
-        VStack(spacing: 20) {
-            SpinningSpineLogo()
-            Text("Finding “\(candidate.title)”…")
-                .font(Theme.title2())
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-            if !candidate.author.isEmpty {
-                Text(candidate.author)
-                    .font(Theme.callout())
-                    .foregroundStyle(Theme.textTertiary)
-            }
-        }
-        .frame(maxWidth: .infinity)
+        SpinningSpineLogo(size: 288)
+            .frame(maxWidth: .infinity)
         .padding(.top, 64)
     }
 

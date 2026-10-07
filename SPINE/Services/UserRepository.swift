@@ -19,10 +19,28 @@ enum HiddenAccounts {
         "lWfYPy4fOxdQYFUYEXAGnpvNscw2": [SpineFounder.uid],
     ]
 
+    /// Every `isTestAccount` doc (Tanner's onboarding logins, App Review accounts),
+    /// visible only to itself and the founder. Keyed off the flag rather than a
+    /// hardcoded uid because these accounts get deleted and recreated with a new uid
+    /// every onboarding run. Persisted so a cold start filters the feed before
+    /// `UserRepository.refreshHiddenTestAccounts()` lands.
+    private static let testUidsLock = NSLock()
+    private static let testUidsDefaultsKey = "hiddenTestAccountUids"
+    private static var testUids: Set<String> = Set(UserDefaults.standard.stringArray(forKey: testUidsDefaultsKey) ?? [])
+
+    static func setTestAccountUids(_ uids: Set<String>) {
+        testUidsLock.withLock { testUids = uids }
+        UserDefaults.standard.set(Array(uids), forKey: testUidsDefaultsKey)
+    }
+
     static func isHidden(uid: String, viewerUid: String?) -> Bool {
-        guard let allowed = visibleOnlyTo[uid] else { return false }
+        if let allowed = visibleOnlyTo[uid] {
+            guard let viewer = viewerUid else { return true }
+            return viewer != uid && !allowed.contains(viewer)
+        }
+        guard testUidsLock.withLock({ testUids.contains(uid) }) else { return false }
         guard let viewer = viewerUid else { return true }
-        return viewer != uid && !allowed.contains(viewer)
+        return viewer != uid && viewer != SpineFounder.uid
     }
 
     /// Convenience for call sites without a viewer uid in scope (feed/comment listeners).
@@ -44,6 +62,7 @@ enum TestAccountSignatures {
     static let emailsLowercased: Set<String> = [
         "tanner@tinyhealth.com", // @tantest, see HiddenAccounts
         "tanner+onboarding@tinyhealth.com", // onboarding-flow test account, see onboarding-test-account memory
+        "tflakeeeee@gmail.com", // Tanner's onboarding-flow test login (recreated per run)
         "review@spynesapp.com",
         "review@spinesapp.com",
     ]
@@ -83,8 +102,9 @@ private enum OtherReadersExclusion {
     }
 }
 
-/// The founder's Firebase Auth uid (Tanner Flake, @tan). New accounts follow him by default;
-/// a Cloud Function (`onUserCreated`) follows them back and pushes him a new-member alert.
+/// The founder's Firebase Auth uid (Tanner Flake, @tan). A Cloud Function (`onUserCreated`)
+/// has him follow every new account and pushes him a new-member alert. New accounts do not
+/// follow him automatically.
 enum SpineFounder {
     static let uid = "jCaSGxcYgHZd6OzXfxmGNn1GZBj2"
 }
@@ -127,6 +147,24 @@ final class UserRepository {
         }
     }
 
+    /// Reloads the uids `HiddenAccounts` hides as test accounts: docs flagged
+    /// `isTestAccount`, plus docs whose email matches `TestAccountSignatures` in
+    /// case the flag hasn't been written yet. Keeps the last set on failure.
+    func refreshHiddenTestAccounts() async {
+        do {
+            async let flagged = db.collection(users)
+                .whereField("isTestAccount", isEqualTo: true)
+                .getDocuments()
+            async let byEmail = db.collection(users)
+                .whereField("email", in: Array(TestAccountSignatures.emailsLowercased))
+                .getDocuments()
+            let (a, b) = try await (flagged, byEmail)
+            HiddenAccounts.setTestAccountUids(Set((a.documents + b.documents).map(\.documentID)))
+        } catch {
+            // Keep the persisted set.
+        }
+    }
+
     func getUser(uid: String) async -> User? {
         let ref = db.collection(users).document(uid)
         do {
@@ -165,15 +203,15 @@ final class UserRepository {
     func getUsers(uids: [String]) async -> [String: User] {
         var result: [String: User] = [:]
         var missing: [String] = []
-        Self.bulkUserCacheLock.lock()
-        for uid in Set(uids) {
-            if let cached = Self.bulkUserCache[uid] {
-                result[uid] = cached
-            } else {
-                missing.append(uid)
+        Self.bulkUserCacheLock.withLock {
+            for uid in Set(uids) {
+                if let cached = Self.bulkUserCache[uid] {
+                    result[uid] = cached
+                } else {
+                    missing.append(uid)
+                }
             }
         }
-        Self.bulkUserCacheLock.unlock()
         guard !missing.isEmpty else { return result }
         let chunks = stride(from: 0, to: missing.count, by: 30).map { Array(missing[$0..<min($0 + 30, missing.count)]) }
         let fetched = await withTaskGroup(of: [(String, User)].self) { group in
@@ -195,9 +233,9 @@ final class UserRepository {
             for await pairs in group { all.append(contentsOf: pairs) }
             return all
         }
-        Self.bulkUserCacheLock.lock()
-        for (uid, u) in fetched { Self.bulkUserCache[uid] = u }
-        Self.bulkUserCacheLock.unlock()
+        Self.bulkUserCacheLock.withLock {
+            for (uid, u) in fetched { Self.bulkUserCache[uid] = u }
+        }
         for (uid, u) in fetched { result[uid] = u }
         return result
     }
@@ -295,9 +333,9 @@ final class UserRepository {
                 "joinedAt": Timestamp(date: Date()),
                 "totalBooksRead": 0,
                 "totalPagesRead": 0,
-                // New members start out following the founder; the `onUserCreated` Cloud
-                // Function follows them back (rules only allow writing your own doc).
-                "following": uid == SpineFounder.uid ? [] : [SpineFounder.uid],
+                // New members start out following nobody. The `onUserCreated` Cloud
+                // Function has the founder follow them (rules only allow writing your own doc).
+                "following": [String](),
                 "hasSeenFounderWelcomeModal": false,
                 "hasSeenPushNotificationPrompt": false,
                 "readingGoal": NSNull(),
@@ -512,10 +550,16 @@ final class UserRepository {
     // MARK: - Push (FCM)
 
     /// Stores an FCM registration token under `users/{uid}/fcmTokens/{hash}` for Cloud Messaging.
+    /// `appVersion`/`appBuild` ride along (refreshed every launch) so functions can
+    /// hold a push back from devices whose build cannot act on it, the way the
+    /// monthly recap push does (its 2026-09 run landed on 3.7 builds with no handler).
     func saveFCMToken(uid: String, token: String) async throws {
         let docId = Self.fcmTokenDocumentId(for: token)
+        let info = Bundle.main.infoDictionary
         try await db.collection(users).document(uid).collection("fcmTokens").document(docId).setData([
             "token": token,
+            "appVersion": (info?["CFBundleShortVersionString"] as? String) ?? "",
+            "appBuild": (info?["CFBundleVersion"] as? String) ?? "",
             "updatedAt": FieldValue.serverTimestamp(),
         ], merge: true)
     }

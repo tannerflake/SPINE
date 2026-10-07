@@ -35,10 +35,11 @@ enum DiscoverSuggestionsService {
         return sessionFilteredTitles
     }
 
-    /// Fetches up to 5 suggested books, excluding the user's library and dismissed picks. Call from background; updates go to caller via callback/state.
+    /// Fetches a batch of suggested books (up to `picksPerCall`), excluding the user's library and dismissed picks. Call from background; updates go to caller via callback/state.
     /// `readingInterestTags` are onboarding picks from `Tags.csv` (same universe as book tags); used only when `criteria.isDefault`.
     /// `unreadLibraryBooks` are queued + currently-reading entries, included in the prompt's avoid list so Claude doesn't waste picks on them.
-    static func fetchBatch(readBooks: [UserBook], unreadLibraryBooks: [UserBook], dismissedBookIds: Set<String>, readingInterestTags: [String], criteria: DiscoverCriteria) async -> [Book] {
+    /// `dismissedTitles` are passed books, newest first (only those whose title was stored).
+    static func fetchBatch(readBooks: [UserBook], unreadLibraryBooks: [UserBook], dismissedBookIds: Set<String>, dismissedTitles: [String] = [], readingInterestTags: [String], criteria: DiscoverCriteria) async -> [Book] {
         let libraryEntries = readBooks + unreadLibraryBooks
         let excludedIds = Set(libraryEntries.map(\.bookId)).union(dismissedBookIds)
         // Google can resolve a suggested title to a different edition (different volume id)
@@ -51,13 +52,22 @@ enum DiscoverSuggestionsService {
         let excludedTitles = readBooks.compactMap { $0.book?.title }
         let queuedTitles = unreadLibraryBooks.compactMap { $0.book?.title }
         if ApiKeys.claude != nil {
-            return await fetchBatchViaClaude(readBooks: readBooks, excludedTitles: excludedTitles, queuedTitles: queuedTitles, libraryBooks: libraryBooks, isExcluded: isExcluded, readingInterestTags: readingInterestTags, criteria: criteria)
+            return await fetchBatchViaClaude(readBooks: readBooks, excludedTitles: excludedTitles, queuedTitles: queuedTitles, dismissedTitles: dismissedTitles, libraryBooks: libraryBooks, isExcluded: isExcluded, readingInterestTags: readingInterestTags, criteria: criteria)
         } else {
             return await fetchBatchViaGoogleOnly(readBooks: readBooks, isExcluded: isExcluded, readTitles: excludedTitles, readingInterestTags: readingInterestTags, criteria: criteria)
         }
     }
 
-    private static func fetchBatchViaClaude(readBooks: [UserBook], excludedTitles: [String], queuedTitles: [String], libraryBooks: [Book], isExcluded: (Book) -> Bool, readingInterestTags: [String], criteria: DiscoverCriteria) async -> [Book] {
+    /// Books handed back by the Google-only fallbacks.
+    private static let batchSize = 5
+    /// Picks requested per model call. The cheap model leans hard on the same
+    /// few popular titles, and for a reader with a big library most of a
+    /// 5-pick reply was already read or passed, so the batch came back empty
+    /// and Discover showed "Nothing came up" until a retry or two. Asking for
+    /// extra gives the filters room and still fills a batch in one round.
+    private static let picksPerCall = 12
+
+    private static func fetchBatchViaClaude(readBooks: [UserBook], excludedTitles: [String], queuedTitles: [String], dismissedTitles: [String], libraryBooks: [Book], isExcluded: (Book) -> Bool, readingInterestTags: [String], criteria: DiscoverCriteria) async -> [Book] {
         // Read titles first so they are never the part that gets cut: with a large
         // imported library, dropping them is exactly what re-surfaces already-read books.
         var avoidTitles: [String] = []
@@ -66,7 +76,11 @@ enum DiscoverSuggestionsService {
         }
         excludedTitles.prefix(150).forEach(addAvoid)
         queuedTitles.prefix(30).forEach(addAvoid)
+        dismissedTitles.prefix(80).forEach(addAvoid)
         filteredTitlesSnapshot().forEach(addAvoid)
+        // Passed books are excluded by id after resolution; this catches them
+        // by name first, so no search is spent on a pick that's sure to drop.
+        let dismissedKeys = Set(dismissedTitles.map(normalizedMainTitle).filter { !$0.isEmpty })
 
         let criteriaLine: String
         if criteria.isDefault {
@@ -81,47 +95,67 @@ enum DiscoverSuggestionsService {
         }
 
         let system = """
-        You are a book recommendation assistant. Reply with exactly 5 book recommendations. Each line must be only the book title (and optionally ' by Author'). No numbering, no bullets, no extra text. One book per line. Do not suggest any book from the user's excluded list. When the user has stated criteria or reading interests, most or all of your picks should clearly fit them.
+        You are a book recommendation assistant. Reply with exactly \(picksPerCall) book recommendations. Each line must be only the book title and ' by Author'. No numbering, no bullets, no extra text. One book per line. Do not suggest any book from the user's excluded list. Mix well-known picks with less obvious ones rather than defaulting to the usual bestsellers. When the user has stated criteria or reading interests, most or all of your picks should clearly fit them.
         """
 
-        // Two attempts: if every pick in the first round maps to a book the user has already
-        // read, queued, or dismissed, tell Claude which titles were rejected and ask again.
-        for _ in 1...2 {
+        // Up to three rounds: if every pick maps to a book the user has already read, queued,
+        // or dismissed, tell the model which titles were rejected and ask again.
+        for _ in 1...3 {
             let historyLine: String
             if avoidTitles.isEmpty {
                 historyLine = "They have not finished logging any books in this app yet."
             } else {
                 historyLine = "Do not suggest any of these titles (the user has already read, queued, or passed on them): \(avoidTitles.joined(separator: ", "))."
             }
-            let userMessage = "\(criteriaLine)\(historyLine) Suggest 5 books they might enjoy next. Reply with exactly 5 lines, each line one book title (optionally 'Title by Author')."
+            let userMessage = "\(criteriaLine)\(historyLine) Suggest \(picksPerCall) books they might enjoy next. Reply with exactly \(picksPerCall) lines, each line 'Title by Author'."
             do {
                 let response = try await ClaudeService.shared.sendMessage(system: system, userMessage: userMessage, tier: .simple)
                 let lines = parseClaudeBookLines(response)
-                var books: [Book] = []
                 var filteredThisRound: [String] = []
-                for line in lines.prefix(5) {
-                    // Reject a suggestion the moment it names a shelved work — the suggested
-                    // line is a cleaner signal than whatever edition Google resolves it to.
+                var candidates: [(line: String, title: String, author: String?)] = []
+                var seenKeys: Set<String> = []
+                for line in lines.prefix(picksPerCall) {
+                    // Reject a suggestion the moment it names a shelved or passed work — the
+                    // suggested line is a cleaner signal than whatever edition search resolves it to.
                     let (title, author) = parseSuggestionLine(line)
-                    if libraryBooks.contains(where: { LibraryDedup.matches(title: title, author: author, book: $0) }) {
+                    let key = normalizedMainTitle(title)
+                    if dismissedKeys.contains(key) || libraryBooks.contains(where: { LibraryDedup.matches(title: title, author: author, book: $0) }) {
                         filteredThisRound.append(line)
                         continue
                     }
-                    let query = line.replacingOccurrences(of: " by ", with: " ")
-                    let results = (try? await GoogleBooksService.shared.search(query: String(query), searchAuthors: false)) ?? []
-                    // Prefer the result that names the suggested work itself — the top
-                    // hit can be a related listing (bundle, adaptation) of it instead.
-                    guard let first = results.first(where: { LibraryDedup.matches(title: title, author: author, book: $0) }) ?? results.first else { continue }
-                    if isExcluded(first) {
-                        filteredThisRound.append(line)
-                    } else {
-                        books.append(first)
+                    guard key.isEmpty || seenKeys.insert(key).inserted else { continue }
+                    candidates.append((line, title, author))
+                }
+                // Resolve concurrently (ISBNdb paces itself; cache hits return at once),
+                // then keep the model's order.
+                let resolved: [Book?] = await withTaskGroup(of: (Int, Book?).self) { group in
+                    for (i, c) in candidates.enumerated() {
+                        group.addTask {
+                            let query = c.line.replacingOccurrences(of: " by ", with: " ")
+                            let results = (try? await GoogleBooksService.shared.search(query: query, searchAuthors: false)) ?? []
+                            // Prefer the result that names the suggested work itself — the top
+                            // hit can be a related listing (bundle, adaptation) of it instead.
+                            return (i, results.first(where: { LibraryDedup.matches(title: c.title, author: c.author, book: $0) }) ?? results.first)
+                        }
+                    }
+                    var out = [Book?](repeating: nil, count: candidates.count)
+                    for await (i, book) in group { out[i] = book }
+                    return out
+                }
+                var books: [Book] = []
+                for (c, book) in zip(candidates, resolved) {
+                    guard let book else { continue }
+                    if isExcluded(book) {
+                        filteredThisRound.append(c.line)
+                    } else if !books.contains(where: { LibraryDedup.isSameWork($0, book) }) {
+                        books.append(book)
                     }
                 }
                 if !filteredThisRound.isEmpty {
                     rememberFilteredTitles(filteredThisRound)
                     avoidTitles += filteredThisRound
                 }
+                // Every survivor goes in the queue, so one call covers more swipes.
                 if !books.isEmpty { return books }
             } catch {
                 break
@@ -130,7 +164,11 @@ enum DiscoverSuggestionsService {
         let q = googleFallbackQuery(readBooks: readBooks, readTitles: excludedTitles, readingInterestTags: readingInterestTags, criteria: criteria)
         let fallback = (try? await GoogleBooksService.shared.search(query: q, searchAuthors: false))?
             .filter { !isExcluded($0) } ?? []
-        return Array(fallback.prefix(5))
+        return Array(fallback.prefix(batchSize))
+    }
+
+    private static func normalizedMainTitle(_ title: String) -> String {
+        GoodreadsTitleMatcher.normalize(GoodreadsTitleMatcher.mainTitle(title))
     }
 
     /// Prompt fragments for each active criterion; empty criteria sections are skipped.
@@ -177,7 +215,7 @@ enum DiscoverSuggestionsService {
         let query = googleFallbackQuery(readBooks: readBooks, readTitles: readTitles, readingInterestTags: readingInterestTags, criteria: criteria)
         let books = (try? await GoogleBooksService.shared.search(query: query, searchAuthors: false))?
             .filter { !isExcluded($0) } ?? []
-        return Array(books.prefix(5))
+        return Array(books.prefix(batchSize))
     }
 
     /// Search string when Claude is unavailable or errors: prefer the user's criteria (tags, free text, seed/tier books), then interest tags, then recent reads, then generic.

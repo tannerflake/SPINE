@@ -394,7 +394,7 @@ final class BookBlendService {
         return BlendStats(
             score: scoreInt,
             verdict: Self.verdict(for: scoreInt),
-            sharedBooks: Array(shared.prefix(12)),
+            sharedBooks: shared,
             sharedGenres: Array(sharedGenres),
             distinctGenres: [uidA: Array(distinctA), uidB: Array(distinctB)],
             agreement: agreement

@@ -33,7 +33,7 @@ struct RateSpineNudgeModal: View {
                 }
                 .accessibilityHidden(true)
 
-                Text("Enjoying SPINE? Rate it!")
+                Text("Enjoying Spine? Rate it!")
                     .font(Theme.title2())
                     .foregroundStyle(Theme.textPrimary)
                     .multilineTextAlignment(.center)
@@ -47,7 +47,7 @@ struct RateSpineNudgeModal: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 6) {
-                Button("Rate SPINE", action: onRate)
+                Button("Rate Spine", action: onRate)
                     .buttonStyle(.spinePrimary)
 
                 Button("Not now", action: onNotNow)

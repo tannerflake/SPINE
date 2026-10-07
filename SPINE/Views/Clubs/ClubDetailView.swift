@@ -87,6 +87,7 @@ struct ClubDetailView: View {
     /// can offer the "start or join another" that the club list would have.
     var onStartClub: (() -> Void)? = nil
     var onJoinClub: (() -> Void)? = nil
+    var onBrowseClubs: (() -> Void)? = nil
 
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authService: AuthService
@@ -119,13 +120,15 @@ struct ClubDetailView: View {
         initial: BookClub? = nil,
         openInviteOnAppear: Bool = false,
         onStartClub: (() -> Void)? = nil,
-        onJoinClub: (() -> Void)? = nil
+        onJoinClub: (() -> Void)? = nil,
+        onBrowseClubs: (() -> Void)? = nil
     ) {
         self.clubId = clubId
         self.initial = initial
         self.openInviteOnAppear = openInviteOnAppear
         self.onStartClub = onStartClub
         self.onJoinClub = onJoinClub
+        self.onBrowseClubs = onBrowseClubs
         _store = StateObject(wrappedValue: ClubDetailStore(clubId: clubId, initial: initial))
     }
 
@@ -255,7 +258,8 @@ struct ClubDetailView: View {
                     club: club,
                     onLeft: { dismiss() },
                     onStartClub: onStartClub.map { action in { handOff(to: action) } },
-                    onJoinClub: onJoinClub.map { action in { handOff(to: action) } }
+                    onJoinClub: onJoinClub.map { action in { handOff(to: action) } },
+                    onBrowseClubs: onBrowseClubs.map { action in { handOff(to: action) } }
                 )
             }
         }
@@ -266,16 +270,16 @@ struct ClubDetailView: View {
             BookProfileView(
                 book: book,
                 readBooksForSimilar: appState.readBooks,
-                onWantToRead: { appState.addToWantToRead(book: book); selectedBook = nil },
-                onStartReading: { appState.addToQueue(book: book, shelf: .readingNow); selectedBook = nil },
+                onWantToRead: { appState.addToWantToRead(book: book) },
+                onStartReading: { appState.addToQueue(book: book, shelf: .readingNow) },
                 onConfirmRead: { date, rating, post, caption, tier in
                     appState.addAsRead(book: book, dateFinished: date, rating: rating, postToFeed: post, caption: caption, tier: tier)
                     selectedBook = nil
                 },
                 isOnReadList: appState.isBookOnReadList(bookId: book.id),
                 isInQueue: appState.isBookInQueue(bookId: book.id),
-                onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBook = nil },
-                onMarkAsDNF: { appState.markAsDNF(book: book); selectedBook = nil },
+                onRemoveFromQueue: { appState.removeFromQueue(book: book) },
+                onMarkAsDNF: { appState.markAsDNF(book: book) },
                 readEntryForReview: appState.userReadBook(forBookId: book.id),
                 canEditReadReview: true
             )

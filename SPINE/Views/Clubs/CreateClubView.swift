@@ -2,9 +2,10 @@
 //  CreateClubView.swift
 //  SPINE
 //
-//  Start a club: name it, decide who runs it, pull in readers already on
-//  SPINE. Texting people who aren't on SPINE yet happens right after, from
-//  the invite sheet the new club opens with.
+//  Start a club: name it, decide who runs it and who can find it, invite
+//  readers already on SPINE (they join when they accept). Texting people who
+//  aren't on SPINE yet happens right after, from the invite sheet the new
+//  club opens with.
 //
 
 import SwiftUI
@@ -19,6 +20,7 @@ struct CreateClubView: View {
     @State private var name = ""
     @State private var everyoneIsAdmin = false
     @State private var pickMode: BookClub.PickMode = .groupVote
+    @State private var visibility: BookClub.Visibility = .private
     @State private var selected: [ClubMemberPickerView.Selection] = []
     @State private var showPicker = false
     @State private var creating = false
@@ -69,9 +71,18 @@ struct CreateClubView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
-                            ClubFieldLabel(text: "Members")
+                            ClubFieldLabel(text: "Who can find it?")
+                            VStack(spacing: 8) {
+                                ForEach(BookClub.Visibility.allCases, id: \.self) { option in
+                                    governanceOption(selected: visibility == option, title: option.title, body: option.blurb) { visibility = option }
+                                }
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            ClubFieldLabel(text: "Invite")
                             if selected.isEmpty {
-                                Text("Add readers who are already on SPINE. You can text everyone else an invite next.")
+                                Text("Invite readers who are already on Spine. They'll join once they accept. You can text everyone else an invite next.")
                                     .font(Theme.callout())
                                     .foregroundStyle(Theme.textSecondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -80,6 +91,7 @@ struct CreateClubView: View {
                                     ForEach(selected) { s in
                                         HStack(spacing: 6) {
                                             UserAvatarView(urlString: s.user.profileImageURL, displayName: s.user.displayName, firstName: s.user.firstName, lastName: s.user.lastName, size: 22)
+                                                .avatarZoomOnHold(urlString: s.user.profileImageURL, displayName: s.user.displayName, firstName: s.user.firstName, lastName: s.user.lastName)
                                             Text(s.user.firstName?.isEmpty == false ? s.user.firstName! : s.user.displayName)
                                                 .font(.system(size: 13, weight: .semibold))
                                                 .foregroundStyle(Theme.textPrimary)
@@ -100,7 +112,7 @@ struct CreateClubView: View {
                                     }
                                 }
                             }
-                            ClubSecondaryButton(title: selected.isEmpty ? "Add SPINE readers" : "Add more", icon: "person.badge.plus") {
+                            ClubSecondaryButton(title: selected.isEmpty ? "Invite Spine readers" : "Invite more", icon: "person.badge.plus") {
                                 nameFocused = false
                                 showPicker = true
                             }
@@ -135,7 +147,7 @@ struct CreateClubView: View {
                 ClubMemberPickerView(
                     excludedUids: Set([uid].compactMap { $0 }),
                     initialSelection: selected,
-                    title: "Add members"
+                    title: "Invite readers"
                 ) { picked in
                     selected = picked
                 }
@@ -193,8 +205,16 @@ struct CreateClubView: View {
                     creator: appState.currentUser,
                     everyoneIsAdmin: everyoneIsAdmin,
                     pickMode: pickMode,
-                    initialMembers: selected.map { (uid: $0.uid, user: $0.user) }
+                    visibility: visibility
                 )
+                if !selected.isEmpty {
+                    // The club exists either way; a failed invite is retried from the invite sheet.
+                    do {
+                        try await BookClubService.shared.inviteMembers(clubId: club.id, uids: selected.map(\.uid))
+                    } catch {
+                        ToastCenter.shared.show(Toast(style: .error, status: "ERROR", message: "Club created, but the invites didn't send. Try again from Invite."))
+                    }
+                }
                 creating = false
                 onCreated(club)
                 dismiss()

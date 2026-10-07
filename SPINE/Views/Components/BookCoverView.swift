@@ -32,7 +32,8 @@ enum CoverFetchResult {
 }
 
 // Memory + disk cache for cover images. Disk cache persists across app launches so covers don't re-download every time.
-final class CoverImageCache {
+/// Thread-safe: NSCache, `stateLock`-guarded state, `diskQueue`-confined disk I/O.
+final class CoverImageCache: @unchecked Sendable {
     static let shared = CoverImageCache()
 
     /// Max seconds of *inactivity* on a cover request. `FallbackCoverImage` also enforces a **total** budget per cover.
@@ -931,7 +932,7 @@ private struct FallbackCoverImage: View {
             let budget = coverLoadTotalBudgetSeconds
             func remaining() -> TimeInterval { budget - Date().timeIntervalSince(start) }
 
-            func succeed(_ img: UIImage, url: URL) {
+            @MainActor func succeed(_ img: UIImage, url: URL) {
                 store.lock(bookId: bookId, signature: signature, url: url)
                 loadedImage = img
                 loadedIdentity = identity

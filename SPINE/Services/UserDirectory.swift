@@ -36,8 +36,10 @@ final class UserDirectory: ObservableObject {
     /// already-painted list never puts the spinner back up.
     @Published private(set) var isLoading = false
 
-    /// How long a loaded roster is served before a visit refreshes it.
-    private static let refreshInterval: TimeInterval = 5 * 60
+    /// How long a loaded roster is served before a visit refreshes it. The
+    /// roster is ~1,000 user documents per refresh, so this is hours, not
+    /// minutes; new members appear on the next refresh.
+    private static let refreshInterval: TimeInterval = 6 * 60 * 60
     /// Saved rosters older than this are ignored rather than shown.
     private static let maxCacheAge: TimeInterval = 7 * 24 * 60 * 60
     private static let rosterLimit = 1000
@@ -59,6 +61,8 @@ final class UserDirectory: ObservableObject {
             let cached = DirectoryCache.load(uid: uid, maxAge: Self.maxCacheAge)
             readers = cached.readers
             readingNowUids = cached.readingNowUids
+            // A disk copy fetched recently counts as fresh across launches.
+            lastRefreshed = cached.savedAt
         }
         if let last = lastRefreshed, Date().timeIntervalSince(last) < Self.refreshInterval { return }
         guard refreshTask == nil else { return }
@@ -123,14 +127,15 @@ private enum DirectoryCache {
         return dir.appendingPathComponent("userDirectory-\(uid ?? "anon").json")
     }
 
-    static func load(uid: String?, maxAge: TimeInterval) -> (readers: [UserDirectory.Reader], readingNowUids: Set<String>) {
+    static func load(uid: String?, maxAge: TimeInterval) -> (readers: [UserDirectory.Reader], readingNowUids: Set<String>, savedAt: Date?) {
         guard let url = url(uid: uid),
               let data = try? Data(contentsOf: url),
               let payload = try? JSONDecoder().decode(Payload.self, from: data),
-              Date().timeIntervalSince(payload.savedAt) < maxAge else { return ([], []) }
+              Date().timeIntervalSince(payload.savedAt) < maxAge else { return ([], [], nil) }
         return (
             payload.rows.map { UserDirectory.Reader(id: $0.uid, user: $0.user) },
-            Set(payload.readingNowUids ?? [])
+            Set(payload.readingNowUids ?? []),
+            payload.savedAt
         )
     }
 

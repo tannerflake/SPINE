@@ -20,6 +20,16 @@ final class BookProfileService {
 
     private let summaryMaxCharacters = 200
 
+    /// Fill the per-book caches for a book the reader is about to reach
+    /// (Discover's next card), so its page draws complete on arrival. Same
+    /// three fetches the page itself makes, so nothing is spent twice.
+    func prewarm(_ book: Book) async {
+        async let tags = profileTags(for: book)
+        async let summary = twoSentenceSummary(for: book)
+        async let quote = notableQuote(for: book)
+        _ = await (tags, summary, quote)
+    }
+
     /// Short summary (max 200 characters). Uses book description if present; otherwise asks Claude. Cached by book.id.
     func twoSentenceSummary(for book: Book) async -> String? {
         let key = book.id
@@ -36,7 +46,13 @@ final class BookProfileService {
             input = "Book: \(book.title) by \(book.author). Write a brief summary in at most two sentences, under 200 characters."
         }
         do {
-            let response = try await ClaudeService.shared.sendMessageDetailed(system: system, userMessage: input, tier: .simple)
+            var response = try await ClaudeService.shared.sendMessageDetailed(system: system, userMessage: input, tier: .simple)
+            if !ClaudeService.isLikelyEnglish(response.text) {
+                // Foreign-edition description: the model mirrored its language. One
+                // explicit retry; if that also misses, show nothing and cache nothing.
+                response = try await ClaudeService.shared.sendMessageDetailed(system: system, userMessage: input + ClaudeService.englishRetryNudge, tier: .simple)
+                guard ClaudeService.isLikelyEnglish(response.text) else { return nil }
+            }
             var trimmed = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
             trimmed = Self.clampToSentence(trimmed, limit: summaryMaxCharacters)
             queue.sync { summaryCache[key] = trimmed }
@@ -100,7 +116,7 @@ final class BookProfileService {
         let key = book.id
         if let cached = queue.sync(execute: { quoteCache[key] }) { return cached }
         if let shared = await AIContentCacheRepository.shared.content(for: key).quote {
-            queue.sync { quoteCache.updateValue(shared, forKey: key) }
+            _ = queue.sync { quoteCache.updateValue(shared, forKey: key) }
             return shared
         }
         let system = "You are a literary assistant. Reply with one impactful, famous, or notable quote from this book. Output only the quote in quotation marks, nothing else. If you don't know a real quote from the book, reply with exactly: No notable quote available."
@@ -117,13 +133,13 @@ final class BookProfileService {
             if trimmed.lowercased().contains("no notable quote") {
                 // Cache the miss — an explicit "no quote" answer is stable, so
                 // don't re-ask the LLM for this book ever again.
-                queue.sync { quoteCache.updateValue(nil, forKey: key) }
+                _ = queue.sync { quoteCache.updateValue(nil, forKey: key) }
                 await AIContentCacheRepository.shared.storeQuote(nil, bookId: key, model: response.model)
                 return nil
             }
             if trimmed.isEmpty {
                 // Possibly transient (truncation, provider hiccup): skip only this session.
-                queue.sync { quoteCache.updateValue(nil, forKey: key) }
+                _ = queue.sync { quoteCache.updateValue(nil, forKey: key) }
                 return nil
             }
             queue.sync { quoteCache[key] = trimmed }
@@ -401,14 +417,21 @@ final class BookProfileService {
 
     /// Books from the user's read list that are most similar to this book. Returns 2–4 books for "Similar to" section. Uses Claude to pick by title/author; empty if read list is empty or Claude returns nothing.
     func similarBooks(for book: Book, readBooks: [UserBook]) async -> [Book] {
-        let readTitles = readBooks.compactMap { ub -> (title: String, book: Book)? in
-            guard let b = ub.book else { return nil }
-            return (b.title, b)
+        // One candidate per normalized title: duplicate book docs (per-source IDs,
+        // re-imports) otherwise list the same title several times, and the subject
+        // book itself must never be offered as "similar" to itself.
+        let subjectKey = Self.similarTitleKey(book.title)
+        var seenKeys: Set<String> = [subjectKey]
+        let readTitles = readBooks.compactMap { ub -> (title: String, key: String, book: Book)? in
+            guard let b = ub.book, b.id != book.id else { return nil }
+            let key = Self.similarTitleKey(b.title)
+            guard !key.isEmpty, seenKeys.insert(key).inserted else { return nil }
+            return (b.title, key, b)
         }
         guard !readTitles.isEmpty else { return [] }
         let titleList = readTitles.map(\.title).joined(separator: ", ")
-        let system = "You are a book comparison assistant. Given one book and a list of books the user has read, pick 2 to 4 books from the list that are most similar in theme, genre, or style. Reply with only those book titles, one per line. Use the exact title as given. If none are similar, reply with exactly: None."
-        let input = "Book to compare: \(book.title) by \(book.author).\n\nBooks the user has read:\n\(titleList)\n\nList 2 to 4 titles from the user's list that are most similar (one per line), or reply None."
+        let system = "You are a book comparison assistant. Given one book and a list of books the user has read, pick 2 to 4 different books from the list that are most similar in theme, genre, or style. Never list the same book twice. Reply with only those book titles, one per line. Use the exact title as given. If none are similar, reply with exactly: None."
+        let input = "Book to compare: \(book.title) by \(book.author).\n\nBooks the user has read:\n\(titleList)\n\nList 2 to 4 different titles from the user's list that are most similar (one per line), or reply None."
         do {
             let response = try await ClaudeService.shared.sendMessage(system: system, userMessage: input, tier: .simple)
             let lines = response
@@ -416,15 +439,31 @@ final class BookProfileService {
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty && !$0.lowercased().hasPrefix("none") }
             var result: [Book] = []
-            for line in lines.prefix(4) {
-                let normalized = line.lowercased()
-                if let match = readTitles.first(where: { $0.title.lowercased() == normalized || $0.title.lowercased().contains(normalized) || normalized.contains($0.title.lowercased()) }) {
-                    result.append(match.book)
-                }
+            var pickedKeys: Set<String> = []
+            for line in lines {
+                guard result.count < 4 else { break }
+                let normalized = Self.similarTitleKey(line)
+                guard !normalized.isEmpty else { continue }
+                // Exact title first; loose containment only as a fallback.
+                let match = readTitles.first(where: { $0.key == normalized })
+                    ?? readTitles.first(where: { $0.key.contains(normalized) || normalized.contains($0.key) })
+                guard let match, pickedKeys.insert(match.key).inserted else { continue }
+                result.append(match.book)
             }
             return result
         } catch {
             return []
         }
+    }
+
+    /// Lowercased title with list markers, quotes and any subtitle stripped, so
+    /// "Never Split the Difference: Negotiating..." and "Never Split the Difference"
+    /// collapse to one key.
+    private static func similarTitleKey(_ title: String) -> String {
+        var t = title.lowercased()
+        if let colon = t.firstIndex(of: ":") { t = String(t[..<colon]) }
+        t = t.replacingOccurrences(of: #"^\s*(\d+[.)]|[-*•])\s*"#, with: "", options: .regularExpression)
+        t = t.trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’").union(.whitespaces))
+        return t
     }
 }

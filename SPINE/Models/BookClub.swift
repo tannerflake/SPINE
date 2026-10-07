@@ -43,8 +43,52 @@ struct BookClub: Identifiable, Equatable {
     /// The vote in flight (or just finished). Written only by Cloud Functions,
     /// so nothing here ever says who suggested or ranked what.
     var vote: Vote? = nil
+    /// Private clubs are invite only; public ones show up in Browse for any reader.
+    var visibility: Visibility = .private
+    /// uid → who is invited but hasn't answered. Server-written (invite functions).
+    var pendingInvites: [String: PendingInvite] = [:]
 
     static let maxMembers = 50
+
+    enum Visibility: String, CaseIterable {
+        case `private`
+        case `public`
+
+        var title: String {
+            switch self {
+            case .private: return "Private"
+            case .public: return "Public"
+            }
+        }
+
+        var blurb: String {
+            switch self {
+            case .private: return "Only invited readers can see your club."
+            case .public: return "Any Spine reader can find and join your club."
+            }
+        }
+    }
+
+    struct PendingInvite: Equatable {
+        var firstName: String
+        var displayName: String
+        var username: String
+        var photoURL: String?
+        var invitedBy: String?
+        var invitedAt: Date
+
+        var asMember: Member {
+            Member(firstName: firstName, displayName: displayName, username: username, photoURL: photoURL, joinedAt: invitedAt)
+        }
+    }
+
+    /// Pending invitees, oldest invite first.
+    var orderedPendingInvites: [(uid: String, invite: PendingInvite)] {
+        pendingInvites
+            .filter { !memberIds.contains($0.key) }
+            .sorted { $0.value.invitedAt < $1.value.invitedAt }
+            .map { (uid: $0.key, invite: $0.value) }
+    }
     static let maxNameLength = 40
 
     struct Member: Codable, Equatable {
@@ -225,6 +269,7 @@ struct BookClub: Identifiable, Equatable {
             "members": members.mapValues { $0.firestoreData },
             "pastPicks": pastPicks.map { $0.firestoreData },
             "pickMode": pickMode.rawValue,
+            "visibility": visibility.rawValue,
         ]
         data["updatedBy"] = updatedBy ?? NSNull()
         data["currentPick"] = currentPick?.firestoreData ?? NSNull()
@@ -246,6 +291,20 @@ struct BookClub: Identifiable, Equatable {
             }
         }
         let pastPicks = ((data["pastPicks"] as? [[String: Any]]) ?? []).compactMap { Pick.from(data: $0) }
+        var pendingInvites: [String: PendingInvite] = [:]
+        if let map = data["pendingInvites"] as? [String: Any] {
+            for (uid, raw) in map {
+                guard let d = raw as? [String: Any], let displayName = d["displayName"] as? String else { continue }
+                pendingInvites[uid] = PendingInvite(
+                    firstName: (d["firstName"] as? String) ?? displayName,
+                    displayName: displayName,
+                    username: (d["username"] as? String) ?? "",
+                    photoURL: d["photoURL"] as? String,
+                    invitedBy: d["invitedBy"] as? String,
+                    invitedAt: (d["invitedAt"] as? Timestamp)?.dateValue() ?? Date()
+                )
+            }
+        }
         return BookClub(
             id: docId,
             name: name,
@@ -261,9 +320,88 @@ struct BookClub: Identifiable, Equatable {
             currentPick: (data["currentPick"] as? [String: Any]).flatMap { Pick.from(data: $0) },
             pastPicks: pastPicks,
             pickMode: (data["pickMode"] as? String).flatMap(PickMode.init(rawValue:)) ?? .groupVote,
-            vote: (data["vote"] as? [String: Any]).flatMap { Vote.from(data: $0) }
+            vote: (data["vote"] as? [String: Any]).flatMap { Vote.from(data: $0) },
+            visibility: (data["visibility"] as? String).flatMap(Visibility.init(rawValue:)) ?? .private,
+            pendingInvites: pendingInvites
         )
     }
+}
+
+// MARK: - Invites
+
+/// `clubInvites/{clubId}_{uid}`: someone asked this reader to join a club. The
+/// invitee can't read the club until they accept, so the doc carries a snapshot
+/// of what the "join?" screen needs.
+struct ClubInvite: Identifiable, Equatable {
+    enum Status: String { case pending, accepted, declined, cancelled }
+
+    let id: String
+    let clubId: String
+    let clubName: String
+    let inviterUid: String
+    let inviter: BookClub.Member
+    let memberCount: Int
+    let members: [BookClub.Member]
+    let currentPick: Book?
+    let visibility: BookClub.Visibility
+    let status: Status
+    let createdAt: Date
+
+    var isPending: Bool { status == .pending }
+
+    static func from(data: [String: Any], docId: String) -> ClubInvite? {
+        guard let clubId = data["clubId"] as? String,
+              let inviterUid = data["inviterUid"] as? String else { return nil }
+        let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
+        func person(_ raw: Any?) -> BookClub.Member? {
+            guard let d = raw as? [String: Any] else { return nil }
+            let displayName = (d["displayName"] as? String) ?? "Reader"
+            let first = (d["firstName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return BookClub.Member(
+                firstName: first ?? displayName.split(separator: " ").first.map(String.init) ?? displayName,
+                displayName: displayName,
+                username: (d["username"] as? String) ?? "",
+                photoURL: d["photoURL"] as? String,
+                joinedAt: createdAt
+            )
+        }
+        var pick: Book?
+        if let p = data["currentPick"] as? [String: Any], let title = p["title"] as? String {
+            pick = Book(id: "invite-\(clubId)", title: title, author: (p["author"] as? String) ?? "", coverURL: (p["coverURL"] as? String) ?? "", pageCount: nil, publishedDate: nil, description: nil, genres: [])
+        }
+        return ClubInvite(
+            id: docId,
+            clubId: clubId,
+            clubName: (data["clubName"] as? String) ?? "a book club",
+            inviterUid: inviterUid,
+            inviter: person(data["inviter"]) ?? BookClub.Member(firstName: "Someone", displayName: "Someone", username: "", photoURL: nil, joinedAt: createdAt),
+            memberCount: (data["memberCount"] as? Int) ?? 1,
+            members: ((data["members"] as? [Any]) ?? []).compactMap(person),
+            currentPick: pick,
+            visibility: (data["visibility"] as? String).flatMap(BookClub.Visibility.init(rawValue:)) ?? .private,
+            status: (data["status"] as? String).flatMap(Status.init(rawValue:)) ?? .pending,
+            createdAt: createdAt
+        )
+    }
+
+    /// `-uiPreviewClubInvite` fixture.
+    static let uiPreviewDemo: ClubInvite = {
+        let club = BookClub.uiPreviewDemoSecond
+        let members = club.orderedMemberIds.filter { $0 != "ui-preview" }.compactMap { club.members[$0] }
+        return ClubInvite(
+            id: "club-demo-2_ui-preview",
+            clubId: club.id,
+            clubName: club.name,
+            inviterUid: "demo-hannah",
+            inviter: club.members["demo-hannah"]!,
+            memberCount: members.count,
+            members: members,
+            currentPick: club.currentPick?.asBook,
+            visibility: .private,
+            status: .pending,
+            createdAt: Date().addingTimeInterval(-3600)
+        )
+    }()
 }
 
 extension BookClub.Member {
@@ -463,6 +601,27 @@ extension BookClub {
             inviteCode: "R2WTN9",
             currentPick: pick,
             pastPicks: []
+        )
+    }()
+
+    /// A public club the preview reader isn't in, for Browse.
+    static let uiPreviewDemoPublic: BookClub = {
+        let base = BookClub.uiPreviewDemoSecond
+        return BookClub(
+            id: "club-demo-public",
+            name: "Sci-Fi Sundays",
+            createdBy: "demo-hannah",
+            createdAt: base.createdAt,
+            updatedAt: base.updatedAt,
+            updatedBy: "demo-hannah",
+            memberIds: ["demo-hannah", "demo-marcus"],
+            adminIds: ["demo-hannah"],
+            everyoneIsAdmin: true,
+            members: base.members.filter { $0.key != "ui-preview" },
+            inviteCode: "PUB7K2",
+            currentPick: base.currentPick,
+            pastPicks: [],
+            visibility: .public
         )
     }()
 

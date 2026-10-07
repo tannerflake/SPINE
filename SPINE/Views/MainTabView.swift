@@ -17,6 +17,9 @@ struct MainTabView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authService: AuthService
     @State private var selectedTab: Tab = .profile
+    /// Set by whichever route is about to switch to Discover, consumed when
+    /// the switch lands (one "Entered Discover" event per arrival).
+    @State private var pendingDiscoverEntry: DiscoverEntryPoint?
     @State private var showCompleteProfileSheet = false
     @State private var showWelcomeGoodreadsModal = false
     @State private var showGoodreadsImportFromWelcome = false
@@ -55,11 +58,27 @@ struct MainTabView: View {
     /// Kept through dismissal so onDismiss can snooze the undecided invite
     /// (`incomingBlendInvite` is already nil by then).
     @State private var lastPresentedBlendInvite: BookBlend?
+    /// A club invite's "join?" screen: the launch modal (push-independent) and the
+    /// landing for a `club_invite` push or bell row.
+    @State private var clubInvitePrompt: ClubJoinPrompt?
+    /// True once Join / No thanks was tapped; a swipe-down snoozes it two days.
+    @State private var clubInviteDecided = false
+    @State private var lastPresentedClubInvite: ClubInvite?
     /// A stamp just earned: the celebration modal (once per stamp).
     @State private var unlockedAchievement: AchievementKind?
-    /// Own card page opened in stamping mode for this stamp (from the modal's
-    /// "Stamp my card" or an achievement push tap).
-    @State private var stampCardKind: AchievementKind?
+    /// Own card page opened for a stamp (achievement push or bell row tapped).
+    /// The mode is decided ONCE, when the sheet opens: deciding it live off
+    /// `isPlaced` swapped the stamping screen out for the plain card page the
+    /// moment the stamp was pressed, ending the flow under the user's finger.
+    @State private var stampCardRoute: StampCardRoute?
+
+    /// Where an achievement tap lands, frozen at presentation time.
+    private struct StampCardRoute: Identifiable {
+        enum Mode { case stamping, card }
+        let kind: AchievementKind
+        let mode: Mode
+        var id: String { "\(kind.rawValue)-\(mode)" }
+    }
     /// Refresh timers kicked off when the local ranked count crosses a stamp's
     /// threshold, so the celebration lands seconds after the 25th book.
     @State private var achievementRefreshGeneration = 0
@@ -127,6 +146,17 @@ struct MainTabView: View {
         // as they take their positions. The lens (outside this scope) still slides;
         // the page itself just appears, fully formed.
         .animation(nil, value: selectedTab)
+        // Leaving the feed tears its scroll view down; bank where it was so
+        // coming back lands in the same spot instead of reading as a refresh.
+        // (The "Discover more" round trip banks its own offset at the tap.)
+        .onChange(of: selectedTab) { previous, current in
+            if previous == .feed {
+                appState.feedScrollRestoreOffsetY = appState.feedScrollOffsetY
+            }
+            if current == .discover {
+                logEnteredDiscover(from: previous)
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Reserve space for the tab bar in layout (avoids full-screen content drawing
         // under it). Nothing is drawn here: the inset participates in keyboard
@@ -357,7 +387,7 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        monthlyRecapWiring(achievementWiring(tabContentWithSheets))
+        clubInviteWiring(monthlyRecapWiring(achievementWiring(tabContentWithSheets)))
         .onReceive(NotificationCenter.default.publisher(for: .spineOpenFeed)) { _ in
             selectedTab = .feed
             appState.deepLinkFeedPostId = nil
@@ -466,13 +496,15 @@ struct MainTabView: View {
             // Any route into Discover other than the feed's tile leaves no way
             // back, so the back arrow must not be offered.
             appState.discoverEnteredFromFeed = false
+            pendingDiscoverEntry = .other
             selectedTab = .discover
         }
         // "Discover more" on the feed's Selected for you row. The feed's scroll
         // view is torn down by the tab switch, so its offset is banked here at
         // the moment of the tap (while the tracking is still live) and handed
         // back on the return trip.
-        .onReceive(NotificationCenter.default.publisher(for: .spineOpenDiscoverFromFeed)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .spineOpenDiscoverFromFeed)) { note in
+            pendingDiscoverEntry = note.userInfo?[DiscoverEntryPoint.userInfoKey] as? DiscoverEntryPoint ?? .feedSeeMore
             feedOffsetBeforeDiscover = appState.feedScrollOffsetY
             appState.discoverEnteredFromFeed = true
             withAnimation(SlidingLensMotion.settle) { selectedTab = .discover }
@@ -570,6 +602,14 @@ struct MainTabView: View {
                     monthlyRecapModal = appState.currentUser?.monthlyRecap
                 }
             }
+            // `-uiPreviewClubInvite`: the club invite launch modal on demo data.
+            if ClubsPreview.showsInvite {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    clubInviteDecided = false
+                    lastPresentedClubInvite = .uiPreviewDemo
+                    clubInvitePrompt = ClubJoinPrompt(invite: .uiPreviewDemo)
+                }
+            }
             if ProcessInfo.processInfo.arguments.contains("-uiPreviewBlendInviteModal") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     blendInviteDecided = false
@@ -607,6 +647,12 @@ struct MainTabView: View {
                     openAchievement(kind)
                 }
             }
+            if let clubId = PushNotificationService.pendingClubInviteClubId {
+                PushNotificationService.pendingClubInviteClubId = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    openClubInvite(clubId: clubId)
+                }
+            }
             if let monthKey = PushNotificationService.consumePendingMonthlyRecapTap() {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     openMonthlyRecap(monthKey: monthKey)
@@ -634,6 +680,10 @@ struct MainTabView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                 considerShowingBlendInviteModal()
             }
+            // Same for a club invite: someone is waiting on a yes or no.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
+                considerShowingClubInviteModal()
+            }
             // Last month's reading, ready to share: ahead of the housekeeping nudges.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
                 considerShowingMonthlyRecapModal()
@@ -656,7 +706,14 @@ struct MainTabView: View {
                 considerShowingRateSpinePrompt()
             }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { previous, phase in
+            if phase == .background {
+                appState.noteAppBackgrounded()
+            }
+            // Only background → active: launch also passes inactive → active.
+            if previous == .background, phase == .active, appState.reloadFeedIfAwayLong() {
+                NotificationCenter.default.post(name: .spineFeedReloadedAfterAway, object: nil)
+            }
             if phase == .active {
                 reconcileKeyboardVisibility()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -667,6 +724,9 @@ struct MainTabView: View {
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     considerShowingBlendInviteModal()
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) {
+                    considerShowingClubInviteModal()
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                     considerShowingMonthlyRecapModal()
@@ -782,8 +842,9 @@ struct MainTabView: View {
             || showCurrentlyReadingPrompt || showRateSpineModal
             || deepLinkProfile != nil || deepLinkBook != nil
             || incomingBlendInvite != nil || appState.pendingLinkImport != nil
-            || unlockedAchievement != nil || stampCardKind != nil
+            || unlockedAchievement != nil || stampCardRoute != nil
             || monthlyRecapModal != nil || monthlyRecapShare != nil
+            || clubInvitePrompt != nil
     }
 
     /// Monthly recap sheets and observers, kept out of `body`'s modifier chain
@@ -799,8 +860,7 @@ struct MainTabView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                         monthlyRecapShare = MonthlyRecapShare(period: recap.period)
                     }
-                },
-                onNotNow: { monthlyRecapModal = nil }
+                }
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
@@ -810,8 +870,7 @@ struct MainTabView: View {
                 user: appState.currentUser,
                 userBooks: appState.userBooks,
                 initialPage: .monthFloating,
-                initialPeriod: share.period,
-                promptsForPhotoOnOpen: true
+                initialPeriod: share.period
             )
             .environmentObject(appState)
         }
@@ -875,27 +934,111 @@ struct MainTabView: View {
         }
     }
 
+    /// Club invite sheet and observer, kept out of `body`'s modifier chain for the
+    /// same type-checker reason as `achievementWiring`.
+    private func clubInviteWiring<Content: View>(_ content: Content) -> some View {
+        content
+        .sheet(item: $clubInvitePrompt, onDismiss: {
+            // Swipe-down without answering: ask again in two days. The invite
+            // still waits on the Clubs tab and in the bell meanwhile.
+            if !clubInviteDecided, let uid = authService.firebaseUser?.uid,
+               let invite = lastPresentedClubInvite {
+                ClubInviteModalStorage.snoozeTwoDays(uid: uid, invite: invite)
+            }
+            lastPresentedClubInvite = nil
+        }) { prompt in
+            ClubJoinPromptView(
+                prompt: prompt,
+                onJoined: { clubId in
+                    clubInviteDecided = true
+                    clubInvitePrompt = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        NotificationCenter.default.post(name: .spineOpenClub, object: nil, userInfo: ["clubId": clubId, "justJoined": true])
+                    }
+                },
+                onDeclined: {
+                    clubInviteDecided = true
+                    clubInvitePrompt = nil
+                }
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .spineOpenClubInvite)) { note in
+            guard let clubId = note.userInfo?["clubId"] as? String, !clubId.isEmpty else { return }
+            PushNotificationService.pendingClubInviteClubId = nil
+            openClubInvite(clubId: clubId)
+        }
+    }
+
+    /// A `club_invite` push or bell row: show the invite if it's still open,
+    /// the club if they already joined, otherwise say it's gone.
+    private func openClubInvite(clubId: String) {
+        if ClubsPreview.showsInvite {
+            clubInviteDecided = false
+            lastPresentedClubInvite = .uiPreviewDemo
+            clubInvitePrompt = ClubJoinPrompt(invite: .uiPreviewDemo)
+            return
+        }
+        guard let uid = authService.firebaseUser?.uid else { return }
+        Task {
+            let invite = await BookClubService.shared.fetchInvite(clubId: clubId, uid: uid)
+            await MainActor.run {
+                switch invite?.status {
+                case .pending?:
+                    clubInviteDecided = false
+                    lastPresentedClubInvite = invite
+                    clubInvitePrompt = invite.map(ClubJoinPrompt.init(invite:))
+                case .accepted?:
+                    NotificationCenter.default.post(name: .spineOpenClub, object: nil, userInfo: ["clubId": clubId])
+                default:
+                    ToastCenter.shared.show(Toast(style: .info, status: "CLUBS", message: "That invite is no longer open."))
+                }
+            }
+        }
+    }
+
+    /// Open club invite that isn't snoozed → the "join?" screen as a launch modal,
+    /// so invites reach people without push permission.
+    private func considerShowingClubInviteModal() {
+        guard !ClubsPreview.isActive else { return }
+        guard let uid = authService.firebaseUser?.uid else { return }
+        guard authService.appUser?.needsProfileCompletion == false else { return }
+        guard !isAnyLaunchModalUp, !isDeepLinkPending else { return }
+        Task {
+            let invites = await BookClubService.shared.fetchPendingInvites(uid: uid)
+            guard let invite = invites.first(where: { ClubInviteModalStorage.isEligible(uid: uid, invite: $0) }) else { return }
+            await MainActor.run {
+                guard !isAnyLaunchModalUp, !isDeepLinkPending else { return }
+                clubInviteDecided = false
+                lastPresentedClubInvite = invite
+                clubInvitePrompt = ClubJoinPrompt(invite: invite)
+            }
+        }
+    }
+
     /// Achievement sheets and observers, kept out of `body`'s modifier chain,
     /// which is already long enough to time out the type checker.
     private func achievementWiring<Content: View>(_ content: Content) -> some View {
         content
         .sheet(item: $unlockedAchievement) { kind in
-            AchievementUnlockedModal(
-                kind: kind,
-                onStamp: {
-                    unlockedAchievement = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                        stampCardKind = kind
-                    }
-                },
-                onNotNow: { unlockedAchievement = nil }
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            AchievementStampFlow(kind: kind)
+                .environmentObject(authService)
+                .environmentObject(appState)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
-        .sheet(item: $stampCardKind) { kind in
-            if let me = authService.firebaseUser?.uid ?? appState.viewerUid, let user = appState.currentUser {
-                UserProfileCardSheet(userId: me, user: user, stampOnOpen: kind)
+        .sheet(item: $stampCardRoute) { route in
+            // Not pressed yet → straight into stamping; already on the card →
+            // the card page. `route.mode` does not change while the sheet is
+            // up, so pressing the stamp leaves the stamping screen in place
+            // until the user taps Done or swipes down.
+            if route.mode == .stamping {
+                AchievementStampFlow(kind: route.kind, celebrate: false)
+                    .environmentObject(authService)
+                    .environmentObject(appState)
+            } else if let me = authService.firebaseUser?.uid ?? appState.viewerUid, let user = appState.currentUser {
+                UserProfileCardSheet(userId: me, user: user)
                     .environmentObject(authService)
                     .environmentObject(appState)
             }
@@ -917,6 +1060,12 @@ struct MainTabView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 considerShowingAchievementModal()
             }
+        }
+        // Passes added from an older build keep that build's strip art until
+        // something re-renders it; catch that once the user doc is in.
+        .onChange(of: appState.currentUser?.id, initial: true) { _, uid in
+            guard uid != nil else { return }
+            WalletPassService.refreshArtIfStale(appState: appState)
         }
     }
 
@@ -957,7 +1106,7 @@ struct MainTabView: View {
             AchievementStore.markSeen(kind, appState: appState, uid: authService.firebaseUser?.uid)
             unlockedAchievement = kind
         } else {
-            stampCardKind = kind
+            stampCardRoute = StampCardRoute(kind: kind, mode: stamp.isPlaced ? .card : .stamping)
         }
     }
 
@@ -1044,7 +1193,11 @@ struct MainTabView: View {
         showPhoneNumberNudgeModal = false
         showPushNudgeModal = false
         Task {
-            guard let book = await BookRepository().getBook(id: bookId) else { return }
+            // Wait for the real doc: a cold start's first Firestore read often
+            // outlasts the 2s list budget, and the placeholder it yields
+            // ("Book" by "Unknown") must never be presented as the book.
+            guard let book = await BookRepository.shared.getBook(id: bookId, timeout: nil),
+                  !book.isMetadataLoadTimeoutPlaceholder else { return }
             try? await Task.sleep(nanoseconds: 450_000_000)
             await MainActor.run {
                 deepLinkBook = DeepLinkBook(book: book, readerUid: readerUid, openOnReviews: openOnReviews)
@@ -1197,12 +1350,28 @@ struct MainTabView: View {
         .sensoryFeedback(.selection, trigger: selectedTab)
     }
 
+    /// One event per arrival on Discover, tagged with how they got there, and
+    /// the same entry point stamped on everything they do during the visit.
+    private func logEnteredDiscover(from previous: Tab) {
+        let entry = pendingDiscoverEntry ?? .other
+        pendingDiscoverEntry = nil
+        appState.discoverEntryPoint = entry.rawValue
+        Analytics.amplitude?.track(eventType: "Entered Discover", eventProperties: [
+            "entry_point": entry.rawValue,
+            "previous_tab": previous.rawValue,
+        ])
+    }
+
     /// `selectedTab` as a position in the bar, for the sliding lens. The HStack
     /// above lists tabs in `Tab.allCases` order, which is what makes this hold.
     private var selectedTabIndex: Binding<Int> {
         Binding(
             get: { Tab.allCases.firstIndex(of: selectedTab) ?? 0 },
-            set: { selectedTab = Tab.allCases[min(max($0, 0), Tab.allCases.count - 1)] }
+            set: {
+                let tab = Tab.allCases[min(max($0, 0), Tab.allCases.count - 1)]
+                if tab == .discover { pendingDiscoverEntry = .tabBar }
+                selectedTab = tab
+            }
         )
     }
 
@@ -1214,6 +1383,7 @@ struct MainTabView: View {
         // in: the back arrow only belongs to the "Discover more" trip.
         appState.discoverEnteredFromFeed = false
         if selectedTab != tab {
+            if tab == .discover { pendingDiscoverEntry = .tabBar }
             withAnimation(SlidingLensMotion.settle) {
                 selectedTab = tab
             }
@@ -1343,16 +1513,16 @@ private struct DeepLinkBookProfileSheet: View {
             BookProfileView(
                 book: book,
                 readBooksForSimilar: appState.readBooks,
-                onWantToRead: { appState.addToWantToRead(book: book); dismiss() },
-                onStartReading: { appState.addToQueue(book: book, shelf: .readingNow); dismiss() },
+                onWantToRead: { appState.addToWantToRead(book: book) },
+                onStartReading: { appState.addToQueue(book: book, shelf: .readingNow) },
                 onConfirmRead: { date, rating, post, caption, tier in
                     appState.addAsRead(book: book, dateFinished: date, rating: rating, postToFeed: post, caption: caption, tier: tier)
                     dismiss()
                 },
                 isOnReadList: appState.isBookOnReadList(bookId: book.id),
                 isInQueue: appState.isBookInQueue(bookId: book.id),
-                onRemoveFromQueue: { appState.removeFromQueue(book: book); dismiss() },
-                onMarkAsDNF: { appState.markAsDNF(book: book); dismiss() },
+                onRemoveFromQueue: { appState.removeFromQueue(book: book) },
+                onMarkAsDNF: { appState.markAsDNF(book: book) },
                 readEntryForReview: appState.userReadBook(forBookId: book.id),
                 canEditReadReview: true,
                 sourceReaderUid: readerUid,

@@ -19,7 +19,7 @@ struct PushNotificationPromptView: View {
                 .foregroundStyle(Theme.accent, Theme.textSecondary)
                 .accessibilityHidden(true)
 
-            Text("SPINE works best with push notifications enabled")
+            Text("Spine works best with push notifications enabled")
                 .font(Theme.title2())
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.center)

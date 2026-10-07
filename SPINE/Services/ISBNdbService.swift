@@ -6,16 +6,32 @@
 //  ISBNdb → Google Books → Open Library, orchestrated in GoogleBooksService's
 //  search hub; this client only talks to ISBNdb.
 //
-//  The account is the Premium plan: 3 requests/second, so every request is paced
-//  through a serial throttle — bursts (Goodreads-import prefetch, bulk import)
-//  queue up instead of tripping 429s. Failures open a short circuit breaker so
-//  the chain falls through to Google fast instead of stalling per lookup.
+//  The account is the Premium plan, marketed as "3 requests/second" but enforced
+//  as 180 requests per rolling 60s window, account-wide (verified 2026-10-05 via
+//  GET /key: `ratelimit-policy: "rate";q=180;w=60`), plus 15,000/day resetting
+//  00:00 UTC. Each device still paces its own requests through a serial
+//  throttle. Other devices share the window, so 429s are possible: those wait
+//  the server's advertised `t` and retry. Outages and an exhausted daily quota
+//  open a circuit breaker so the chain falls through to Google fast instead of
+//  stalling per lookup.
+//
+//  Documented error contract (isbndb.com/isbndb-api-documentation-v2, v2.8.0):
+//  bodies are {"message": …, "errorMessage": …}. 400 invalid request, 401 bad /
+//  inactive key, 404 not in catalog (often added within 24h), 429 with
+//  "Per minute quota exceeded, please try again later" or "Daily quota
+//  exceeded, please try again later", 503 search backend down (Retry-After).
+//  Every response carries `ratelimit: "rate";r=<left>;t=<seconds to wait>`
+//  (and a "daily" item the same way).
 //
 
 import Foundation
 
 /// Paces requests so consecutive starts are at least `minInterval` apart
-/// (ISBNdb enforces a per-second cap server-side).
+/// (ISBNdb enforces a per-second cap server-side). A slot is claimed only by
+/// a request that actually goes out: a waiter cancelled before its turn (the
+/// user typed past that search) leaves no gap behind it. The old version
+/// reserved a slot up front, so type-ahead queued fresh searches behind
+/// abandoned ones.
 private actor ISBNdbRequestPacer {
     private let minInterval: TimeInterval
     private var nextAllowed = Date.distantPast
@@ -25,13 +41,22 @@ private actor ISBNdbRequestPacer {
     }
 
     func waitTurn() async throws {
-        let now = Date()
-        let start = max(now, nextAllowed)
-        nextAllowed = start.addingTimeInterval(minInterval)
-        let delay = start.timeIntervalSince(now)
-        if delay > 0 {
-            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        while true {
+            try Task.checkCancellation()
+            let now = Date()
+            if now >= nextAllowed {
+                nextAllowed = now.addingTimeInterval(minInterval)
+                return
+            }
+            // Actor reentrancy: other waiters run while this one sleeps, and
+            // whoever wakes first after `nextAllowed` takes the slot.
+            try await Task.sleep(nanoseconds: UInt64(nextAllowed.timeIntervalSince(now) * 1_000_000_000))
         }
+    }
+
+    /// Hold every request from this device back for `seconds` (after a 429).
+    func backOff(for seconds: TimeInterval) {
+        nextAllowed = max(nextAllowed, Date().addingTimeInterval(seconds))
     }
 }
 
@@ -105,12 +130,30 @@ final class ISBNdbService {
     // Premium = 3 req/s; 0.35s spacing stays just under it (was 1.05 on Basic).
     private let pacer = ISBNdbRequestPacer(minInterval: 0.35)
 
-    // Circuit breaker, same shape as OpenLibraryService's: two consecutive
-    // failures fail lookups fast for a while so the Google fallback runs
-    // immediately instead of after a timeout per book.
+    // Circuit breaker: when ISBNdb is genuinely unavailable, fail lookups fast
+    // so the Google fallback runs immediately instead of after a timeout per
+    // book. Kinds of trip:
+    //   - outage (network errors, 5xx): two consecutive failures → 2 minutes.
+    //   - daily quota exhausted: first hit → until the 00:00 UTC reset (the
+    //     header's `t`), capped at an hour so a mid-day plan upgrade is picked
+    //     up; re-probing costs one failed request.
+    //   - per-minute window drained with a long wait: pause for that wait.
+    // A per-minute 429 with a short wait is NOT a failure: the window is
+    // shared by every device, so it backs off `t` seconds and retries
+    // (`getData`) instead of pausing ISBNdb on this device.
     private let breakerQueue = DispatchQueue(label: "com.spine.isbndb.breaker")
     private var consecutiveFailures = 0
     private var unavailableUntil: Date?
+    private static let outagePause: TimeInterval = 2 * 60
+    /// Daily-quota pause when the header doesn't say how long until reset.
+    private static let quotaPause: TimeInterval = 30 * 60
+    private static let maxQuotaPause: TimeInterval = 60 * 60
+    /// 429 retries per request. Each waits the server's `t` (or ~1s when
+    /// absent) plus jitter, so colliding devices don't retry in lockstep.
+    private static let rateLimitRetries = 3
+    /// Longest wait a user should sit through for a drained per-minute window;
+    /// beyond this, this request goes to Google and ISBNdb pauses for `t`.
+    private static let maxRateLimitWait: TimeInterval = 3
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -141,13 +184,61 @@ final class ISBNdbService {
         }
     }
 
-    private func recordFailure() {
-        breakerQueue.sync {
+    private func recordFailure(status: Int) {
+        let opened: Bool = breakerQueue.sync {
             consecutiveFailures += 1
-            if consecutiveFailures >= 2 {
-                unavailableUntil = Date().addingTimeInterval(2 * 60)
+            guard consecutiveFailures >= 2 else { return false }
+            let wasOpen = (unavailableUntil ?? .distantPast) > Date()
+            unavailableUntil = Date().addingTimeInterval(Self.outagePause)
+            return !wasOpen
+        }
+        if opened { trackPause(reason: "error", status: status, seconds: Self.outagePause) }
+    }
+
+    /// Pause ISBNdb on this device for `seconds` (daily quota, or a long
+    /// per-minute wait), tracked once per transition into the paused state.
+    private func pause(reason: String, status: Int, seconds: TimeInterval) {
+        let opened: Bool = breakerQueue.sync {
+            let wasOpen = (unavailableUntil ?? .distantPast) > Date()
+            unavailableUntil = max(unavailableUntil ?? .distantPast, Date().addingTimeInterval(seconds))
+            return !wasOpen
+        }
+        if opened { trackPause(reason: reason, status: status, seconds: seconds) }
+    }
+
+    /// One event each time this device stops calling ISBNdb — the number to
+    /// watch when deciding whether the plan's limits are hurting.
+    private func trackPause(reason: String, status: Int, seconds: TimeInterval) {
+        Analytics.amplitude?.track(eventType: "ISBNdb Paused", eventProperties: [
+            "reason": reason,
+            "http_status": status,
+            "pause_seconds": Int(seconds)
+        ])
+    }
+
+    /// Both limits answer 429; only the body tells them apart ("Daily quota
+    /// exceeded…" vs "Per minute quota exceeded…"), so match "daily" — a bare
+    /// "quota" match would treat every per-minute 429 as a day-long outage.
+    private static func isDailyQuotaExhausted(_ data: Data) -> Bool {
+        String(decoding: data.prefix(2_000), as: UTF8.self).range(of: "daily quota", options: .caseInsensitive) != nil
+    }
+
+    private static func retryAfter(_ http: HTTPURLResponse) -> TimeInterval? {
+        http.value(forHTTPHeaderField: "Retry-After").flatMap { TimeInterval($0.trimmingCharacters(in: .whitespaces)) }
+    }
+
+    /// Seconds to wait for the named limit ("rate" or "daily") from the
+    /// `ratelimit` header, e.g. `"rate";r=0;t=12, "daily";r=48999;t=56312`.
+    private static func waitSeconds(_ http: HTTPURLResponse, limit: String) -> TimeInterval? {
+        guard let header = http.value(forHTTPHeaderField: "ratelimit") else { return nil }
+        for item in header.split(separator: ",") {
+            let parts = item.trimmingCharacters(in: .whitespaces).split(separator: ";")
+            guard parts.first?.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) == limit else { continue }
+            for part in parts.dropFirst() where part.hasPrefix("t=") {
+                return TimeInterval(part.dropFirst(2))
             }
         }
+        return nil
     }
 
     private func recordSuccess() {
@@ -187,22 +278,30 @@ final class ISBNdbService {
     /// Bulk ISBN lookup via `POST /books`: one paced request resolves up to
     /// 1,000 ISBNs (the Premium-plan cap; Basic allows 100). Each ISBN in the
     /// body bills one search — same daily quota as single lookups, but N round
-    /// trips collapse into one. Returns books keyed by the *requested* digits
-    /// (which also become each Book's id, matching `lookupISBN`); ISBNs ISBNdb
-    /// doesn't know are simply absent. Throws only for service problems.
-    func lookupISBNs(_ isbns: [String]) async throws -> [String: Book] {
+    /// trips collapse into one. `books` is keyed by the *requested* digits
+    /// (which also become each Book's id, matching `lookupISBN`). ISBNs ISBNdb
+    /// doesn't know are absent from `books` and listed in `confirmedMissing` —
+    /// but only for chunks that came back as a clean 200, so a rejected request
+    /// never reads as "ISBNdb doesn't have these". Throws only for service problems.
+    struct BulkLookupResult {
+        var books: [String: Book] = [:]
+        var confirmedMissing: Set<String> = []
+    }
+
+    func lookupISBNs(_ isbns: [String]) async throws -> BulkLookupResult {
         let requested = isbns
             .map { $0.filter(\.isNumber) }
             .filter { $0.count == 10 || $0.count == 13 }
-        guard !requested.isEmpty else { return [:] }
-        var results: [String: Book] = [:]
+        var result = BulkLookupResult()
+        guard !requested.isEmpty else { return result }
         var start = 0
         while start < requested.count {
             let chunk = Array(requested[start..<min(start + Self.bulkChunkSize, requested.count)])
             start += Self.bulkChunkSize
             let body = "isbns=" + chunk.joined(separator: ",")
-            guard let data = try await getData(path: "/books", postBody: body) else { continue }
-            let records = (try? JSONDecoder().decode(ISBNdbBulkResponse.self, from: data).data) ?? []
+            guard let data = try await getData(path: "/books", postBody: body),
+                  let response = try? JSONDecoder().decode(ISBNdbBulkResponse.self, from: data) else { continue }
+            let records = response.data ?? []
             // Index records under both ISBN forms so a requested ISBN-10 finds a
             // record ISBNdb keyed by its ISBN-13 (and vice versa via equivalence).
             var byDigits: [String: ISBNdbBook] = [:]
@@ -211,15 +310,18 @@ final class ISBNdbService {
                     byDigits[key] = record
                 }
             }
-            for digits in chunk where results[digits] == nil {
+            for digits in chunk where result.books[digits] == nil {
                 let record = byDigits[digits]
                     ?? byDigits.first { ISBNMatcher.equivalent($0.key, digits) }?.value
                 if let record, let match = map(record, queriedISBN: digits) {
-                    results[digits] = match.book
+                    result.books[digits] = match.book
+                    result.confirmedMissing.remove(digits)
+                } else if record == nil {
+                    result.confirmedMissing.insert(digits)
                 }
             }
         }
-        return results
+        return result
     }
 
     /// Premium-plan cap on ISBNs per bulk request (Basic: 100).
@@ -264,7 +366,17 @@ final class ISBNdbService {
             request.httpBody = Data(postBody.utf8)
         }
 
-        var attempt = 0
+        var rateLimitedRetries = 0
+        var retried503 = false
+        // One event per request that hit the per-second cap: how often devices
+        // collide, and whether backing off was enough.
+        func trackRateLimited(recovered: Bool) {
+            guard rateLimitedRetries > 0 else { return }
+            Analytics.amplitude?.track(eventType: "ISBNdb Rate Limited", eventProperties: [
+                "retries": rateLimitedRetries,
+                "recovered": recovered
+            ])
+        }
         while true {
             try await pacer.waitTurn()
             let (data, response): (Data, URLResponse)
@@ -273,28 +385,53 @@ final class ISBNdbService {
             } catch let urlError as URLError where urlError.code == .cancelled {
                 throw CancellationError()
             } catch {
-                recordFailure()
+                recordFailure(status: -2)
                 throw NSError(domain: "ISBNdb", code: -2, userInfo: [NSLocalizedDescriptionKey: "Can't reach ISBNdb. Check your connection."])
             }
             guard let http = response as? HTTPURLResponse else {
-                recordFailure()
+                recordFailure(status: -1)
                 throw NSError(domain: "ISBNdb", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response from ISBNdb."])
+            }
+            if http.statusCode == 429, Self.isDailyQuotaExhausted(data) {
+                let untilReset = Self.waitSeconds(http, limit: "daily").map { min($0, Self.maxQuotaPause) }
+                pause(reason: "daily_quota", status: 429, seconds: untilReset ?? Self.quotaPause)
+                throw NSError(domain: "ISBNdb", code: 429, userInfo: [NSLocalizedDescriptionKey: "ISBNdb's daily limit is used up."])
             }
             switch http.statusCode {
             case 200:
                 recordSuccess()
+                trackRateLimited(recovered: true)
                 return data
             case 400, 404:
                 // Unknown ISBN / no results — the service itself is healthy.
                 recordSuccess()
+                trackRateLimited(recovered: true)
                 return nil
-            case 429 where attempt == 0:
-                // Rode over the per-second cap (e.g. another device on the same
-                // account) — one paced retry before giving up.
-                attempt += 1
+            case 429:
+                // Per-minute window drained (shared by every device on the
+                // account). Short wait: back off this device's queue by the
+                // server's `t` and retry. Long wait, or retries used up: this
+                // request goes to Google; a long wait also pauses ISBNdb here
+                // for exactly that long instead of a guessed duration.
+                let wait = Self.waitSeconds(http, limit: "rate") ?? 1
+                guard wait <= Self.maxRateLimitWait, rateLimitedRetries < Self.rateLimitRetries else {
+                    rateLimitedRetries = max(rateLimitedRetries, 1)
+                    trackRateLimited(recovered: false)
+                    if wait > Self.maxRateLimitWait {
+                        pause(reason: "rate_window", status: 429, seconds: wait)
+                    }
+                    throw NSError(domain: "ISBNdb", code: 429, userInfo: [NSLocalizedDescriptionKey: "ISBNdb is busy right now."])
+                }
+                rateLimitedRetries += 1
+                await pacer.backOff(for: max(wait, 0.5) + Double.random(in: 0...0.5))
+                continue
+            case 503 where (Self.retryAfter(http) ?? .infinity) <= Self.maxRateLimitWait && !retried503:
+                // Search backend briefly down; the docs say retry after Retry-After.
+                retried503 = true
+                await pacer.backOff(for: Self.retryAfter(http) ?? 1)
                 continue
             default:
-                recordFailure()
+                recordFailure(status: http.statusCode)
                 throw NSError(domain: "ISBNdb", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "ISBNdb request failed (HTTP \(http.statusCode))."])
             }
         }

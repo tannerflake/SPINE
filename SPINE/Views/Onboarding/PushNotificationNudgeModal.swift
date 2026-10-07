@@ -13,7 +13,7 @@ struct PushNotificationNudgeModal: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            Text("SPINE is best with push notifications!")
+            Text("Spine is best with push notifications!")
                 .font(Theme.title2())
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.center)

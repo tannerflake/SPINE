@@ -61,7 +61,14 @@ final class BookSummaryMoreService {
         }
         input += "\n\nWrite the three-paragraph summary."
         // Needs real knowledge of the book's contents (and spoiler judgment) — smarter tier.
-        let response = try await ClaudeService.shared.sendMessageDetailed(system: system, userMessage: input, maxTokens: 1024, tier: .complex)
+        var response = try await ClaudeService.shared.sendMessageDetailed(system: system, userMessage: input, maxTokens: 1024, tier: .complex)
+        if !ClaudeService.isLikelyEnglish(response.text) {
+            // Foreign-edition description made the model answer in that language.
+            response = try await ClaudeService.shared.sendMessageDetailed(system: system, userMessage: input + ClaudeService.englishRetryNudge, maxTokens: 1024, tier: .complex)
+            guard ClaudeService.isLikelyEnglish(response.text) else {
+                throw NSError(domain: "BookSummaryMoreService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Couldn't write this summary in English."])
+            }
+        }
         let summary = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !summary.isEmpty else {
             throw NSError(domain: "BookSummaryMoreService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Couldn't read the summary response."])

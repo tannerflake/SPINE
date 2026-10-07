@@ -77,13 +77,15 @@ final class RecommendationRepository {
                 let generation = generationCounter.next()
                 let list = snapshot.documents.compactMap { self.recommendation(from: $0.data(), docId: $0.documentID) }
                 Task {
+                    // One batched read, no per-book timeout placeholder.
+                    let books = await self.bookRepo.getBooks(ids: list.map(\.bookId))
                     var resolved: [BookRecommendation] = []
                     for var rec in list {
-                        rec.book = await self.bookRepo.getBook(id: rec.bookId)
+                        rec.book = books[rec.bookId]
                         resolved.append(rec)
                     }
                     resolved.sort { $0.createdAt > $1.createdAt }
-                    await MainActor.run {
+                    await MainActor.run { [resolved] in
                         guard generationCounter.shouldDeliver(generation) else { return }
                         onUpdate(resolved)
                     }

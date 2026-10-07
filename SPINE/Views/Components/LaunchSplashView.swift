@@ -52,12 +52,12 @@ struct LaunchSplashView: View {
                     .foregroundStyle(Theme.textPrimary)
                     .scaleEffect(logoBreathing ? 1.05 : 1.0)
 
-                Text("SPINE")
+                Text(BrandWordmark.text)
                     .font(.system(size: 40, weight: .bold))
-                    .tracking(10)
+                    .tracking(BrandWordmark.tracking(10))
                     .foregroundStyle(Theme.textPrimary)
                     // Optical centering: tracking adds trailing space after the last glyph.
-                    .offset(x: 5)
+                    .offset(x: BrandWordmark.tracking(10) / 2)
                     .fixedSize()
                     .padding(.top, Self.wordmarkSpacing)
                     .opacity(entered ? 1 : 0)

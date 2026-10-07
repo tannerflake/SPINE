@@ -94,9 +94,17 @@ final class BookRefresherService {
         }
         input += "\n\nWrite the refresher JSON."
         // Plot/character recall with full spoilers — fabrication risk is high on small models.
-        let response = try await ClaudeService.shared.sendMessageDetailed(system: system, userMessage: input, maxTokens: 2048, tier: .complex)
-        guard let refresher = Self.parseRefresher(from: response.text) else {
+        var response = try await ClaudeService.shared.sendMessageDetailed(system: system, userMessage: input, maxTokens: 2048, tier: .complex)
+        guard var refresher = Self.parseRefresher(from: response.text) else {
             throw NSError(domain: "BookRefresherService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Couldn't read the refresher response."])
+        }
+        if !ClaudeService.isLikelyEnglish(refresher.plot) {
+            // Foreign-edition description made the model answer in that language.
+            response = try await ClaudeService.shared.sendMessageDetailed(system: system, userMessage: input + ClaudeService.englishRetryNudge, maxTokens: 2048, tier: .complex)
+            guard let retried = Self.parseRefresher(from: response.text), ClaudeService.isLikelyEnglish(retried.plot) else {
+                throw NSError(domain: "BookRefresherService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Couldn't write this refresher in English."])
+            }
+            refresher = retried
         }
         queue.sync { refresherCache[book.id] = refresher }
         await AIContentCacheRepository.shared.storeRefresher(refresher, bookId: book.id, model: response.model)

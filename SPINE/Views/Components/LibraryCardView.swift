@@ -121,6 +121,12 @@ struct LibraryCardFace: View {
     /// Named coordinate space the `cardZone` modifier measures against.
     static let coordinateSpace = "libraryCardFace"
 
+    /// Blank band under the identity row, and how far down it the thin rule
+    /// sits. Shared with the wizard's animated copy of the card so both come
+    /// out the same size.
+    static let stampFieldHeight: CGFloat = 71
+    static let stampFieldRuleOffset: CGFloat = 40
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
@@ -128,13 +134,19 @@ struct LibraryCardFace: View {
                 .fill(palette.ink)
                 .frame(height: 2)
             identityRow
-            goalStamp
-                .rotationEffect(.degrees(-1.8))
-                .cardZone("goal")
-            Rectangle()
-                .fill(palette.ink.opacity(0.18))
-                .frame(height: 1)
-            footer
+            // Open paper under the identity row, room for stamps. Holds the
+            // height the goal line and "member since" footer used to take, so
+            // the card keeps its old proportions, with the thin rule where it
+            // always sat. The rule is an overlay on purpose: as its own row in
+            // this stack it squeezed the name down to its minimum scale.
+            Color.clear
+                .frame(height: Self.stampFieldHeight)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(palette.ink.opacity(0.18))
+                        .frame(height: 1)
+                        .padding(.top, Self.stampFieldRuleOffset)
+                }
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -160,7 +172,7 @@ struct LibraryCardFace: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Library card number \(details.cardNumber). \(details.name), at \(details.handle). Member since \(details.memberSinceText)."
+            "Library card number \(details.cardNumber). \(details.name), at \(details.handle)."
         )
     }
 
@@ -179,9 +191,9 @@ struct LibraryCardFace: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("SPINE")
+            Text(BrandWordmark.text)
                 .font(.system(size: 15, weight: .heavy))
-                .tracking(4)
+                .tracking(BrandWordmark.tracking(4))
                 .foregroundStyle(palette.ink)
                 .cardZone("brand")
             Spacer()
@@ -198,16 +210,19 @@ struct LibraryCardFace: View {
         HStack(spacing: 16) {
             photoCircle
                 .rotationEffect(.degrees(-2))
+                .cardZone("photo", circular: true)
                 .overlay(alignment: .topLeading) {
                     if details.isOGEligible {
+                        // Its own zone: it overhangs the photo's top-left
+                        // corner, and padding the photo's zone to cover it
+                        // walled off open paper around the circle.
                         ogStamp
+                            .cardZone("og")
                             .rotationEffect(.degrees(-14))
                             .offset(x: -12, y: -9)
                     }
                 }
                 .zIndex(1)
-                // The OG mark overhangs the photo's top-left corner.
-                .cardZone("photo", inset: -12)
             // Long names have to shrink rather than push the card wider: in a
             // fixed-width frame the overflow clips the card's own border.
             VStack(alignment: .leading, spacing: 3) {
@@ -266,35 +281,6 @@ struct LibraryCardFace: View {
         // by touch, same as holding the avatar on a profile page.
         .contentShape(Circle())
         .onLongPressGesture(minimumDuration: 0.35) { onPhotoLongPress?() }
-    }
-
-    private var goalStamp: some View {
-        Text(details.goalText)
-            .font(.system(size: 12, weight: .heavy))
-            .tracking(1.4)
-            .foregroundStyle(palette.ink)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(palette.ink, lineWidth: 1.5)
-            )
-    }
-
-    private var footer: some View {
-        HStack {
-            Text("MEMBER SINCE \(details.memberSinceText)")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(1.2)
-                .foregroundStyle(palette.tertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .cardZone("memberSince")
-            Spacer()
-        }
-        .frame(minHeight: 16)
     }
 }
 

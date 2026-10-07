@@ -3,8 +3,8 @@
 //  SPINE
 //
 //  Three ways in: share the code/link into the group chat, text a specific
-//  contact (who then lands in the club automatically when they sign up with
-//  that number), or add readers already on SPINE.
+//  contact (who gets an in-app invite when they sign up with that number), or
+//  invite readers already on SPINE. Invites are always accepted by the invitee.
 //
 
 import SwiftUI
@@ -29,7 +29,7 @@ struct ClubInviteSheet: View {
     private var uid: String? { authService.firebaseUser?.uid ?? appState.viewerUid }
 
     private var inviteText: String {
-        "Join my book club \u{201C}\(club.name)\u{201D} on SPINE. Get the app: \(AppLinks.appStore) then open the Clubs tab and enter code \(club.inviteCode). Already have SPINE? Tap \(club.inviteURL.absoluteString)"
+        "Join my book club \u{201C}\(club.name)\u{201D} on Spine. Get the app: \(AppLinks.appStore) then open the Clubs tab and enter code \(club.inviteCode). Already have Spine? Tap \(club.inviteURL.absoluteString)"
     }
 
     private var filteredContacts: [SyncedContact] {
@@ -58,13 +58,13 @@ struct ClubInviteSheet: View {
                                     withAnimation(.snappy) { showContacts.toggle() }
                                     if showContacts { loadContactsIfNeeded() }
                                 }
-                                ClubSecondaryButton(title: "Add SPINE readers", icon: "person.badge.plus") { showMemberPicker = true }
+                                ClubSecondaryButton(title: "Invite Spine readers", icon: "person.badge.plus") { showMemberPicker = true }
                             }
                         }
                         if showContacts {
                             contactsSection
                         }
-                        Text("Drop the invite in your group chat and everyone lands in the same club. People you text by number are added the moment they sign up with it.")
+                        Text("Drop the invite in your group chat and everyone lands in the same club. People you text by number get an invite the moment they sign up with it.")
                             .font(.system(size: 13))
                             .foregroundStyle(Theme.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -93,11 +93,11 @@ struct ClubInviteSheet: View {
             }
             .sheet(isPresented: $showMemberPicker) {
                 ClubMemberPickerView(
-                    excludedUids: Set(club.memberIds),
-                    title: "Add to \(club.name)",
-                    confirmLabel: "Add"
+                    excludedUids: Set(club.memberIds).union(club.pendingInvites.keys),
+                    title: "Invite to \(club.name)",
+                    confirmLabel: "Invite"
                 ) { picked in
-                    addMembers(picked)
+                    invite(picked)
                 }
             }
         }
@@ -194,7 +194,7 @@ struct ClubInviteSheet: View {
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
                 if invited {
-                    Text("Invited. They'll join automatically with this number.")
+                    Text("Invited. They'll get an invite when they join Spine.")
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.textSecondary)
                         .lineLimit(2)
@@ -236,7 +236,7 @@ struct ClubInviteSheet: View {
         }
     }
 
-    /// Registers the number's hash so the person is auto-added when they join
+    /// Registers the number's hash so the person gets an invite when they join
     /// SPINE with it. Only the hash leaves the device.
     private func markInvited(_ contact: SyncedContact) {
         invitedContactIds.insert(contact.id)
@@ -246,16 +246,17 @@ struct ClubInviteSheet: View {
         }
     }
 
-    private func addMembers(_ picked: [ClubMemberPickerView.Selection]) {
-        guard let uid, !picked.isEmpty else { return }
+    private func invite(_ picked: [ClubMemberPickerView.Selection]) {
+        guard !picked.isEmpty else { return }
+        let message = picked.count == 1 ? "\(picked[0].user.displayName) will get an invite" : "\(picked.count) readers will get an invite"
         if ClubsPreview.isActive {
-            ToastCenter.shared.show(Toast(style: .info, status: "ADDED", message: "\(picked.count) added"))
+            ToastCenter.shared.show(Toast(style: .info, status: "INVITED", message: message))
             return
         }
         Task {
             do {
-                try await BookClubService.shared.addMembers(clubId: club.id, actorUid: uid, users: picked.map { (uid: $0.uid, user: $0.user) })
-                ToastCenter.shared.show(Toast(style: .info, status: "ADDED", message: picked.count == 1 ? "\(picked[0].user.displayName) is in" : "\(picked.count) readers added"))
+                try await BookClubService.shared.inviteMembers(clubId: club.id, uids: picked.map(\.uid))
+                ToastCenter.shared.show(Toast(style: .info, status: "INVITED", message: message))
             } catch {
                 ToastCenter.shared.show(Toast(style: .error, status: "ERROR", message: error.localizedDescription))
             }

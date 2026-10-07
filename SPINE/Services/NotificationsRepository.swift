@@ -29,6 +29,12 @@ struct UserNotification: Identifiable, Equatable {
     var achievementId: String? = nil
     /// Set on monthly_recap rows: the `YYYY-MM` month the recap covers.
     var recapMonth: String? = nil
+    /// Set on club_* rows: the club the tap opens (or the invite it answers).
+    var clubId: String? = nil
+    /// Set on friend_review_posted rows (docs written after 2026-10-04): the
+    /// tier the friend ranked the book, "S"..."F". Older rows only carry it
+    /// as the body's "S-Tier." prefix; see `UserNotification.tierAndBodyText`.
+    var tier: String? = nil
     /// The user who triggered the notification (follower, liker, commenter, blend partner).
     let actorId: String?
     let coverURL: String?
@@ -109,10 +115,32 @@ final class NotificationsRepository {
             blendId: d["blendId"] as? String,
             achievementId: d["achievementId"] as? String,
             recapMonth: d["recapMonth"] as? String,
+            clubId: d["clubId"] as? String,
+            tier: d["tier"] as? String,
             actorId: actor,
             coverURL: d["coverURL"] as? String,
             createdAt: (d["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
             read: (d["read"] as? Bool) ?? true
         )
+    }
+}
+
+extension UserNotification {
+    /// The tier to draw as a badge, and the body with any spelled-out tier
+    /// removed. The server composes friend-review bodies as "S-Tier. “Teaser…”"
+    /// (push alerts have no badge to show), so in-app the prefix comes off and
+    /// the tier goes back on as a `TierBadge`. Prefers the `tier` field; falls
+    /// back to the prefix for rows written before the field existed.
+    var tierAndBodyText: (tier: String?, text: String) {
+        var text = body
+        var found = tier.flatMap { spineTierLabels.contains($0) ? $0 : nil }
+        for letter in spineTierLabels {
+            let prefix = "\(letter)-Tier."
+            guard text.hasPrefix(prefix) else { continue }
+            if found == nil { found = letter }
+            text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+            break
+        }
+        return (found, text)
     }
 }

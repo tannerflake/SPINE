@@ -352,12 +352,9 @@ struct SearchView: View {
             // a spinner block above the list shoved every row down on each
             // keystroke and read as a blank page mid-typing.
             if isSearching && results.isEmpty {
-                VStack(spacing: 14) {
-                    SpinningSpineLogo(size: 72)
-                    Text("Searching…").font(Theme.callout()).foregroundStyle(Theme.textSecondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
+                SpinningSpineLogo(size: 144)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
             }
 
             if let err = searchError {
@@ -387,49 +384,67 @@ struct SearchView: View {
                 .padding()
             }
 
-            ScrollView {
-                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    recentsSection
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        recentsSection
+                            .padding()
+                            .padding(.bottom, mainTabBarOverlapExtraHeight + 12)
+                    } else {
+                        LazyVStack(spacing: 12) {
+                            if isSearching && !results.isEmpty {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Searching…")
+                                }
+                                .font(Theme.caption())
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(maxWidth: .infinity)
+                            }
+                            if let completed = completedQuery, !isSearching {
+                                completionBanner(completed)
+                            }
+                            ForEach(results) { book in
+                                BookSearchRow(book: book) {
+                                    openBookProfile(book)
+                                }
+                            }
+                            .opacity(isSearching ? 0.5 : 1)
+                            .animation(.easeInOut(duration: 0.15), value: isSearching)
+                            if hasSearched && !isSearching && !results.isEmpty && !showingAllEditions {
+                                VStack(spacing: 4) {
+                                    Text("Can't find what you're looking for?")
+                                        .font(Theme.caption())
+                                        .foregroundStyle(Theme.textSecondary)
+                                    Button("Show all results") { showAllEditions() }
+                                        .font(Theme.callout())
+                                        .foregroundStyle(Theme.accent)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 8)
+                            }
+                        }
                         .padding()
                         .padding(.bottom, mainTabBarOverlapExtraHeight + 12)
-                } else {
-                    LazyVStack(spacing: 12) {
-                        if isSearching && !results.isEmpty {
-                            HStack(spacing: 8) {
-                                ProgressView().controlSize(.small)
-                                Text("Searching…")
-                            }
-                            .font(Theme.caption())
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(maxWidth: .infinity)
-                        }
-                        if let completed = completedQuery, !isSearching {
-                            completionBanner(completed)
-                        }
-                        ForEach(results) { book in
-                            BookSearchRow(book: book) {
-                                openBookProfile(book)
-                            }
-                        }
-                        .opacity(isSearching ? 0.5 : 1)
-                        .animation(.easeInOut(duration: 0.15), value: isSearching)
-                        if hasSearched && !isSearching && !results.isEmpty && !showingAllEditions {
-                            VStack(spacing: 4) {
-                                Text("Can't find what you're looking for?")
-                                    .font(Theme.caption())
-                                    .foregroundStyle(Theme.textSecondary)
-                                Button("Show all results") { showAllEditions() }
-                                    .font(Theme.callout())
-                                    .foregroundStyle(Theme.accent)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 8)
-                        }
+                        .id(Self.resultsTopID)
                     }
-                    .padding()
-                    .padding(.bottom, mainTabBarOverlapExtraHeight + 12)
                 }
+                // Someone who scrolled deep into results and then edits the query
+                // otherwise never sees the new list land above them and reads search
+                // as broken. Glide back to the top as they type (so "Searching…" is
+                // in view) and again whenever a fresh result set arrives.
+                .onChange(of: query) { _, _ in scrollResultsToTop(proxy) }
+                .onChange(of: results.map(\.id)) { _, _ in scrollResultsToTop(proxy) }
             }
+        }
+    }
+
+    private static let resultsTopID = "searchResultsTop"
+
+    private func scrollResultsToTop(_ proxy: ScrollViewProxy) {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        withAnimation(.smooth(duration: 0.45)) {
+            proxy.scrollTo(Self.resultsTopID, anchor: .top)
         }
     }
 
@@ -443,11 +458,8 @@ struct SearchView: View {
         let sections = readerSections
         return Group {
             if directory.isLoading {
-                VStack(spacing: 14) {
-                    SpinningSpineLogo(size: 72)
-                    Text("Loading readers…").font(Theme.callout()).foregroundStyle(Theme.textSecondary)
-                }
-                .frame(maxWidth: .infinity)
+                SpinningSpineLogo(size: 144)
+                    .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
                 Spacer(minLength: 0)
             } else if sections.followed.isEmpty && sections.others.isEmpty {
@@ -475,7 +487,7 @@ struct SearchView: View {
                         }
                         if !sections.others.isEmpty {
                             if !sections.followed.isEmpty {
-                                readerSectionHeader("Other SPINE users")
+                                readerSectionHeader("Other Spine users")
                                     .padding(.top, 8)
                             }
                             ForEach(sections.others) { reader in
@@ -516,6 +528,12 @@ struct SearchView: View {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 size: 40
+            )
+            .avatarZoomOnHold(
+                urlString: user.profileImageURL,
+                displayName: user.displayName,
+                firstName: user.firstName,
+                lastName: user.lastName
             )
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.displayName)

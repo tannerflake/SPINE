@@ -64,6 +64,7 @@ struct UserFeedView: View {
             Theme.background.ignoresSafeArea()
             if !hasLoaded {
                 loadingView
+                    .transition(.spinnerFadeOut)
             } else if posts.isEmpty {
                 emptyState
             } else {
@@ -221,12 +222,7 @@ struct UserFeedView: View {
     // MARK: - Chrome
 
     private var loadingView: some View {
-        VStack(spacing: 14) {
-            SpinningSpineLogo(size: 72)
-            Text("Loading posts…")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Theme.textTertiary)
-        }
+        SpinningSpineLogo(size: 144)
     }
 
     private var emptyState: some View {

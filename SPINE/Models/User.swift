@@ -57,7 +57,7 @@ struct User: Identifiable, Codable, Equatable {
         firstName: "Tanner",
         lastName: nil,
         profileSetupCompleted: true,
-        bio: "Building SPINE.",
+        bio: "Building Spine.",
         phoneNumber: nil,
         profileImageURL: nil,
         joinedAt: Date(),

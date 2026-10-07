@@ -3,7 +3,9 @@
  *
  * The pass is a storeCard whose strip image is rendered BY THE APP (SwiftUI is
  * the source of truth for the card's look): a band of the card's paper carrying
- * the placed achievement stamps and the OG mark. The app uploads that art here;
+ * the identity row (photo, OG mark, name, handle) and the placed achievement
+ * stamps, so the pass front is logo row + card art, like the card in the app.
+ * The app uploads that art here;
  * these functions sign passes, run Apple's pass-update web service, and send
  * the (empty) APNs pushes that make Wallet re-fetch after a stamp lands.
  *
@@ -36,8 +38,8 @@ import type { DocumentData } from "firebase-admin/firestore";
 const walletApp = getApps().length ? getApps()[0]! : initializeApp();
 const walletDb = getFirestore(walletApp, "wellread");
 
-const walletPassCert = defineSecret("WALLET_PASS_CERT_PEM");
-const walletPassKey = defineSecret("WALLET_PASS_KEY_PEM");
+export const walletPassCert = defineSecret("WALLET_PASS_CERT_PEM");
+export const walletPassKey = defineSecret("WALLET_PASS_KEY_PEM");
 
 export const PASS_TYPE_ID = "pass.com.wellread.app.librarycard";
 const TEAM_ID = "T32N9X64JM";
@@ -96,6 +98,7 @@ function goalField(user: DocumentData): { label: string; value: string } {
  * back lists what was earned; the strip shows what was pressed. */
 const ACHIEVEMENT_TITLES: Record<string, string> = {
   ranked25: "25 Books Ranked",
+  ranked50: "50 Books Ranked",
 };
 
 function earnedStampsLine(user: DocumentData): string | null {
@@ -105,6 +108,49 @@ function earnedStampsLine(user: DocumentData): string | null {
     .filter((t): t is string => Boolean(t));
   if (titles.length === 0) return null;
   return titles.join(", ");
+}
+
+/** Tiers a ranked book can sit in; mirrors TIER_VALUES in index.ts. */
+const RANKED_TIERS = ["S", "A", "B", "C", "D", "F"];
+/** The app's day boundary, matching APP_DAY_TIMEZONE in index.ts. */
+const STATS_TIMEZONE = "America/Chicago";
+
+function yearOf(date: Date): number {
+  return Number(new Intl.DateTimeFormat("en-US", { timeZone: STATS_TIMEZONE, year: "numeric" }).format(date));
+}
+
+function toDate(value: unknown): Date | null {
+  if (!value) return null;
+  const maybe = value as { toDate?: () => Date };
+  if (typeof maybe.toDate === "function") return maybe.toDate();
+  return value instanceof Date ? value : null;
+}
+
+/** The reading stats printed under the card. Ranked = books in a tier (the
+ * same count the stamps are awarded on); read this year = finished books with
+ * any read date, re-reads included, in the current app-time year, the rule
+ * the app's goal bar uses. */
+async function readingStats(
+  uid: string,
+  user: DocumentData
+): Promise<{ ranked: number; readThisYear: number; goal: number | null; stamps: number }> {
+  const books = walletDb.collection("userBooks").where("userId", "==", uid);
+  const [rankedSnap, readSnap] = await Promise.all([
+    books.where("tier", "in", RANKED_TIERS).count().get(),
+    books.where("status", "==", "Read").select("dateFinished", "additionalReadDates").get(),
+  ]);
+  const year = yearOf(new Date());
+  let readThisYear = 0;
+  for (const doc of readSnap.docs) {
+    const data = doc.data();
+    const dates = [toDate(data.dateFinished), ...((data.additionalReadDates as unknown[] | undefined) ?? []).map(toDate)];
+    if (dates.some((d) => d !== null && yearOf(d) === year)) readThisYear += 1;
+  }
+  const goal = user.readingGoal as number | undefined;
+  const stamps = Object.keys((user.achievements ?? {}) as Record<string, unknown>).filter(
+    (id) => ACHIEVEMENT_TITLES[id]
+  ).length;
+  return { ranked: rankedSnap.data().count, readThisYear, goal: goal && goal > 0 ? goal : null, stamps };
 }
 
 /** Builds and signs the .pkpass for one member from the live user doc, the
@@ -123,50 +169,53 @@ async function buildPass(uid: string): Promise<Buffer> {
   const cardNumber = passDoc.cardNumber as number;
   const goal = goalField(user);
   const stampsLine = earnedStampsLine(user);
+  const stats = await readingStats(uid, user);
 
   const passJson: Record<string, unknown> = {
     formatVersion: 1,
     passTypeIdentifier: PASS_TYPE_ID,
     teamIdentifier: TEAM_ID,
-    organizationName: "SPINE",
-    description: "SPINE Library Card",
+    organizationName: "Spine",
+    description: "Spine Library Card",
     serialNumber: uid,
     webServiceURL: WEB_SERVICE_URL,
     authenticationToken: passDoc.authToken as string,
     backgroundColor: PAPER,
     foregroundColor: INK,
     labelColor: SECONDARY_INK,
-    logoText: "SPINE",
+    // No logoText: the SPINE wordmark is logo.png (SF Pro heavy, the card's
+    // tracking), which prints larger than Wallet's logo text ever would and
+    // makes the card number beside it read as the smaller of the two.
     sharingProhibited: true,
-    barcodes: [
-      {
-        format: "PKBarcodeFormatQR",
-        message: SITE_URL,
-        messageEncoding: "iso-8859-1",
-        altText: `CARD № ${cardNumber}`,
-      },
-    ],
+    // No barcode for now: it took the bottom third of the pass and the card
+    // in the app has none. Wallet lays the front out as logo row, strip,
+    // then nothing, which reads like the card's open paper.
     storeCard: {
-      headerFields: [{ key: "card", label: "CARD", value: `№ ${cardNumber}` }],
-      // No primaryFields: they would print over the strip art.
+      // No label: the number alone, so it sits level with the wordmark.
+      headerFields: [{ key: "card", value: `№ ${cardNumber}` }],
+      // The strip art IS the card (photo, name, handle, stamps). Under it,
+      // on the pass's open paper, the member's reading stats as native
+      // fields, refreshed by the userBooks trigger below.
       secondaryFields: [
-        { key: "member", label: "MEMBER", value: cardName(user) },
+        { key: "ranked", label: "BOOKS RANKED", value: `${stats.ranked}` },
         {
-          key: "since",
-          label: "SINCE",
-          value: memberSinceText(user),
-          textAlignment: "PKTextAlignmentRight",
+          key: "goal",
+          label: "READING GOAL",
+          value: stats.goal ? `${stats.readThisYear} / ${stats.goal}` : `${stats.readThisYear} read`,
         },
+        { key: "stamps", label: "STAMPS UNLOCKED", value: `${stats.stamps}` },
       ],
-      auxiliaryFields: [{ key: "goal", label: goal.label, value: goal.value }],
       backFields: [
+        { key: "member", label: "MEMBER", value: cardName(user) },
         { key: "handle", label: "HANDLE", value: `@${(user.username as string) ?? ""}` },
+        { key: "since", label: "MEMBER SINCE", value: memberSinceText(user) },
+        { key: "goal", label: goal.label, value: goal.value },
         ...(stampsLine ? [{ key: "stamps", label: "STAMPS EARNED", value: stampsLine }] : []),
         {
           key: "stampNote",
           label: "STAMPS",
           value:
-            "Stamps you press on your card in SPINE show up here on their own. Keep reading and ranking to earn more.",
+            "Stamps you press on your card in Spine show up here on their own. Keep reading and ranking to earn more.",
         },
         {
           key: "about",
@@ -183,6 +232,9 @@ async function buildPass(uid: string): Promise<Buffer> {
       "icon.png": readFileSync(assetPath("icon.png")),
       "icon@2x.png": readFileSync(assetPath("icon@2x.png")),
       "icon@3x.png": readFileSync(assetPath("icon@3x.png")),
+      "logo.png": readFileSync(assetPath("logo.png")),
+      "logo@2x.png": readFileSync(assetPath("logo@2x.png")),
+      "logo@3x.png": readFileSync(assetPath("logo@3x.png")),
     },
     {
       wwdr: readFileSync(assetPath("wwdr-g4.pem")),
@@ -304,8 +356,8 @@ async function notifyPassChanged(uid: string, cert: string, key: string): Promis
 /**
  * Add to Apple Wallet: the app sends the strip art (1x/2x/3x PNGs, base64) and
  * the card number it already displays; back comes the signed .pkpass, base64.
- * Re-adding refreshes art and reuses the existing serial + auth token, so
- * Wallet replaces the pass in place instead of duplicating it.
+ * Re-adding refreshes art and the card number and reuses the existing serial
+ * + auth token, so Wallet replaces the pass in place instead of duplicating it.
  */
 export const createWalletPass = onCall(
   { region: "us-central1", secrets: [walletPassCert, walletPassKey], memory: "512MiB" },
@@ -322,7 +374,10 @@ export const createWalletPass = onCall(
     const ref = walletDb.collection("walletPasses").doc(uid);
     const existing = await ref.get();
     if (existing.exists) {
-      await ref.update({ updatedAtMs: Date.now() });
+      // Re-adding takes the number the app shows today: it is the one source
+      // of truth for what the card says, and a pass frozen by an older build
+      // (before test accounts were excluded from the count) drifted from it.
+      await ref.update({ cardNumber, updatedAtMs: Date.now() });
     } else {
       await ref.set({
         // Wallet echoes this on every web-service call; 32 hex chars.
@@ -359,6 +414,39 @@ export const updateWalletCardArt = onCall(
     return { active: true, pushed };
   }
 );
+
+/**
+ * The stats under the card go stale the moment a book is ranked or finished,
+ * so any userBooks write that touches tier, status, or a read date pushes the
+ * member's pass (Wallet then re-fetches it from the web service, which
+ * rebuilds from live data). Members without a pass cost one doc read.
+ */
+/**
+ * A userBooks write that may change the card's stats (books read, tiers, read
+ * dates) tells Wallet to refresh the pass. Runs inside the single
+ * `onUserBookWritten` trigger in index.ts (which declares the pass secrets)
+ * rather than as its own trigger, so one library write wakes one function.
+ */
+export async function handleUserBookChangedForWallet(
+  before: DocumentData | undefined,
+  after: DocumentData | undefined
+): Promise<void> {
+  const uid = ((after ?? before)?.userId as string | undefined)?.trim();
+  if (!uid) return;
+
+  const watched = ["tier", "status", "dateFinished", "additionalReadDates"];
+  const changed = watched.some((key) => JSON.stringify(before?.[key] ?? null) !== JSON.stringify(after?.[key] ?? null));
+  if (!changed) return;
+
+  const passDoc = await walletDb.collection("walletPasses").doc(uid).get();
+  if (!passDoc.exists) return;
+  try {
+    const pushed = await notifyPassChanged(uid, walletPassCert.value(), walletPassKey.value());
+    logger.info(`walletPass: stats changed for ${uid}, pushed ${pushed} device(s)`);
+  } catch (err) {
+    logger.warn(`walletPass: stats push failed for ${uid}: ${(err as Error).message}`);
+  }
+}
 
 // MARK: - Apple's pass web service
 

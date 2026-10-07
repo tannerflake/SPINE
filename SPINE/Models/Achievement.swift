@@ -11,12 +11,14 @@
 //
 
 import Foundation
+import CoreGraphics
 import FirebaseFirestore
 
 /// Every stamp the app knows how to draw. The raw value is the Firestore key
 /// under `achievements` and the id the push carries as `achievementId`.
 enum AchievementKind: String, CaseIterable, Identifiable, Codable {
     case ranked25 = "ranked25"
+    case ranked50 = "ranked50"
 
     var id: String { rawValue }
 
@@ -24,6 +26,7 @@ enum AchievementKind: String, CaseIterable, Identifiable, Codable {
     var title: String {
         switch self {
         case .ranked25: return "25 Books Ranked"
+        case .ranked50: return "50 Books Ranked"
         }
     }
 
@@ -31,6 +34,7 @@ enum AchievementKind: String, CaseIterable, Identifiable, Codable {
     var unlockTitle: String {
         switch self {
         case .ranked25: return "25 books ranked!"
+        case .ranked50: return "50 books ranked!"
         }
     }
 
@@ -39,6 +43,8 @@ enum AchievementKind: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .ranked25:
             return "You have sorted 25 books into tiers. That earns a stamp for your library card."
+        case .ranked50:
+            return "You have sorted 50 books into tiers. That earns another stamp for your library card."
         }
     }
 
@@ -46,14 +52,15 @@ enum AchievementKind: String, CaseIterable, Identifiable, Codable {
     var caption: String {
         switch self {
         case .ranked25: return "Rank 25 books"
+        case .ranked50: return "Rank 50 books"
         }
     }
 
     /// What a locked stamp asks for, shown when it is tapped in the bank.
     var howToUnlock: String {
         switch self {
-        case .ranked25:
-            return "Sort 25 of the books you have read into your tier list. Every ranked book counts, whatever the tier."
+        case .ranked25: return "Rank 25 books to unlock this stamp"
+        case .ranked50: return "Rank 50 books to unlock this stamp"
         }
     }
 
@@ -62,6 +69,17 @@ enum AchievementKind: String, CaseIterable, Identifiable, Codable {
     var assetName: String {
         switch self {
         case .ranked25: return "stamp-ranked-25"
+        case .ranked50: return "stamp-ranked-50"
+        }
+    }
+
+    /// Multiplier on the card's base stamp size. The 50 stamp is a tall oval
+    /// with less ink per frame than the round 25, so it prints a little larger
+    /// to carry the same weight. Placement validation uses the scaled frame.
+    var frameScale: CGFloat {
+        switch self {
+        case .ranked25: return 1
+        case .ranked50: return 1.15
         }
     }
 
@@ -70,6 +88,7 @@ enum AchievementKind: String, CaseIterable, Identifiable, Codable {
     var rankedBooksThreshold: Int? {
         switch self {
         case .ranked25: return 25
+        case .ranked50: return 50
         }
     }
 }

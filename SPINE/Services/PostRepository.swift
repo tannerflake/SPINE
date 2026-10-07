@@ -35,6 +35,9 @@ private actor FeedChunkMerger {
     /// `posts` can be short of the limit purely because hidden accounts dropped out.
     private var rawCountByChunk: [Int: Int] = [:]
     private var appliedGeneration: [Int: Int] = [:]
+    /// Whether each chunk's latest snapshot came from the local cache rather
+    /// than the server (see the `settled` flag on emits).
+    private var fromCacheByChunk: [Int: Bool] = [:]
     private var hasEmitted = false
     private let totalChunks: Int
     private let limit: Int
@@ -44,20 +47,23 @@ private actor FeedChunkMerger {
     /// author's older post must survive even when the community chunk alone
     /// fills the page.
     private let trimsToLimit: Bool
-    private let onUpdate: ([Post], Bool) -> Void
+    /// (posts, hasMore, settled). `settled` is true once every chunk has heard
+    /// from the server, i.e. the merge is no longer a cache-only guess.
+    private let onUpdate: ([Post], Bool, Bool) -> Void
 
-    init(totalChunks: Int, limit: Int, trimsToLimit: Bool = true, onUpdate: @escaping ([Post], Bool) -> Void) {
+    init(totalChunks: Int, limit: Int, trimsToLimit: Bool = true, onUpdate: @escaping ([Post], Bool, Bool) -> Void) {
         self.totalChunks = totalChunks
         self.limit = limit
         self.trimsToLimit = trimsToLimit
         self.onUpdate = onUpdate
     }
 
-    func update(chunk: Int, generation: Int, posts: [Post], rawCount: Int) async {
+    func update(chunk: Int, generation: Int, posts: [Post], rawCount: Int, fromCache: Bool) async {
         guard generation > appliedGeneration[chunk, default: 0] else { return }
         appliedGeneration[chunk] = generation
         postsByChunk[chunk] = posts
         rawCountByChunk[chunk] = rawCount
+        fromCacheByChunk[chunk] = fromCache
         guard hasEmitted || postsByChunk.count == totalChunks else { return }
         hasEmitted = true
         await emit()
@@ -85,9 +91,12 @@ private actor FeedChunkMerger {
             merged = sorted.filter { seen.insert($0.id).inserted }
         }
         // Any chunk that came back full means Firestore had more to give at this
-        // depth, so a larger limit would surface older posts.
+        // depth, so a larger limit would surface older posts. (The unified
+        // feed's followed chunks have their own smaller cap and never page,
+        // so only chunks sized to `limit` can say so.)
         let hasMore = rawCountByChunk.values.contains { $0 >= limit }
-        await MainActor.run { onUpdate(merged, hasMore) }
+        let settled = fromCacheByChunk.count == totalChunks && !fromCacheByChunk.values.contains(true)
+        await MainActor.run { onUpdate(merged, hasMore, settled) }
     }
 }
 
@@ -128,7 +137,7 @@ final class PostRepository {
                 .order(by: "createdAt", descending: true)
                 .limit(to: limit) as Query
         }
-        return listen(queries: queries, limit: limit, onUpdate: onUpdate)
+        return listen(queries: queries, limit: limit) { posts, hasMore, _ in onUpdate(posts, hasMore) }
     }
 
     /// Listens to every post on Spine (the feed's "everyone" scope), newest
@@ -137,19 +146,31 @@ final class PostRepository {
         let query = db.collection(posts)
             .order(by: "createdAt", descending: true)
             .limit(to: limit) as Query
-        return listen(queries: [query], limit: limit, onUpdate: onUpdate)
+        return listen(queries: [query], limit: limit) { posts, hasMore, _ in onUpdate(posts, hasMore) }
     }
 
-    /// The unified feed's listener: the newest `limit` posts on SPINE plus the
-    /// newest `limit` from each block of up to 30 followed authors (the viewer
-    /// included, so their own history stays in the feed past the community
-    /// window), merged newest first and deduplicated. The feed itself decides
-    /// which of these are "new for you" (see `FeedItem.unifiedItems`); this
-    /// only guarantees a followed author's recent posts are all present even
-    /// when the community has posted hundreds of times since.
-    func listenUnifiedFeed(viewerUid: String, followedIds: [String], limit: Int = feedPageSize, onUpdate: @escaping ([Post], Bool) -> Void) -> FeedListenerHandle {
-        let ids = Array(Set(followedIds + [viewerUid]))
+    /// Most posts one block of 30 followed authors contributes on top of the
+    /// community window. Small on purpose: a member following 800 people has
+    /// 27 blocks, and these only exist to keep a friend's recent post in the
+    /// feed after the community has posted past it.
+    static let followedChunkLimit = 30
+
+    /// The unified feed's listener: the newest `limit` posts on SPINE plus,
+    /// from each block of up to 30 followed authors, their posts inside
+    /// `FeedItem.freshWindow` (capped per block), merged newest first and
+    /// deduplicated. The feed itself decides which of these are "new for
+    /// you" (see `FeedItem.unifiedItems`); this only guarantees a followed
+    /// author's recent posts are present even when the community has posted
+    /// hundreds of times since. Paging deepens the community window only.
+    ///
+    /// `onUpdate` gets (posts, hasMore, settled); see `FeedChunkMerger`. The
+    /// feed freezes on its first settled delivery, so this listener asks for
+    /// metadata changes too: otherwise a cache that already matches the server
+    /// never produces a server-stamped snapshot.
+    func listenUnifiedFeed(viewerUid: String, followedIds: [String], limit: Int = feedPageSize, onUpdate: @escaping ([Post], Bool, Bool) -> Void) -> FeedListenerHandle {
+        let ids = Array(Set(followedIds).subtracting([viewerUid]))
         let chunks = stride(from: 0, to: ids.count, by: 30).map { Array(ids[$0..<min($0 + 30, ids.count)]) }
+        let windowStart = Timestamp(date: Date().addingTimeInterval(-FeedItem.freshWindow))
         var queries: [Query] = [
             db.collection(posts)
                 .order(by: "createdAt", descending: true)
@@ -158,16 +179,17 @@ final class PostRepository {
         queries += chunks.map {
             db.collection(posts)
                 .whereField("userId", in: $0)
+                .whereField("createdAt", isGreaterThan: windowStart)
                 .order(by: "createdAt", descending: true)
-                .limit(to: limit) as Query
+                .limit(to: Self.followedChunkLimit) as Query
         }
-        return listen(queries: queries, limit: limit, trimsToLimit: false, onUpdate: onUpdate)
+        return listen(queries: queries, limit: limit, trimsToLimit: false, includeMetadataChanges: true, onUpdate: onUpdate)
     }
 
     /// Shared listener plumbing: one snapshot registration per query, merged
     /// newest-first through `FeedChunkMerger` (first emit waits for every
     /// chunk's first snapshot so the initial paint is one shot).
-    private func listen(queries: [Query], limit: Int, trimsToLimit: Bool = true, onUpdate: @escaping ([Post], Bool) -> Void) -> FeedListenerHandle {
+    private func listen(queries: [Query], limit: Int, trimsToLimit: Bool = true, includeMetadataChanges: Bool = false, onUpdate: @escaping ([Post], Bool, Bool) -> Void) -> FeedListenerHandle {
         let handle = FeedListenerHandle()
         let merger = FeedChunkMerger(totalChunks: queries.count, limit: limit, trimsToLimit: trimsToLimit, onUpdate: onUpdate)
         for (chunkIndex, query) in queries.enumerated() {
@@ -175,13 +197,14 @@ final class PostRepository {
             // this counter assigns generations in snapshot order.
             var latestGeneration = 0
             let registration = query
-                .addSnapshotListener { [weak self] snapshot, _ in
+                .addSnapshotListener(includeMetadataChanges: includeMetadataChanges) { [weak self] snapshot, _ in
                     guard let self = self, let snapshot = snapshot else { return }
                     latestGeneration += 1
                     let generation = latestGeneration
+                    let fromCache = snapshot.metadata.isFromCache
                     Task {
                         let list = await self.hydratedPosts(from: snapshot.documents)
-                        await merger.update(chunk: chunkIndex, generation: generation, posts: list, rawCount: snapshot.documents.count)
+                        await merger.update(chunk: chunkIndex, generation: generation, posts: list, rawCount: snapshot.documents.count, fromCache: fromCache)
                     }
                 }
             handle.registrations.append(registration)
@@ -225,7 +248,9 @@ final class PostRepository {
             let snapshot = try await db.collection(posts).document(postId).getDocument()
             guard snapshot.exists, let data = snapshot.data() else { return nil }
             if let uid = data["userId"] as? String, HiddenAccounts.isHiddenFromCurrentViewer(uid: uid) { return nil }
-            return await post(from: data, docId: snapshot.documentID)
+            // Single-post callers (push/bell deep links) present this post on
+            // its own, so wait for the real book instead of the 2s placeholder.
+            return await post(from: data, docId: snapshot.documentID, waitForBookMetadata: true)
         } catch {
             return nil
         }
@@ -311,10 +336,21 @@ final class PostRepository {
         }
     }
 
-    private func post(from data: [String: Any], docId: String) async -> Post? {
+    /// Hydrates book and author concurrently (one round trip, not two).
+    /// `waitForBookMetadata` skips the 2s book-doc budget for posts that will be
+    /// shown on their own.
+    private func post(from data: [String: Any], docId: String, waitForBookMetadata: Bool = false) async -> Post? {
         guard var post = parsePost(from: data, docId: docId) else { return nil }
-        if let bid = post.bookId { post.book = await bookRepo.getBook(id: bid) }
-        post.user = await userRepo.getUser(uid: post.userId)
+        let bookId = post.bookId
+        let userId = post.userId
+        let timeout: TimeInterval? = waitForBookMetadata ? nil : 2
+        async let book: Book? = {
+            guard let bookId else { return nil }
+            return await bookRepo.getBook(id: bookId, timeout: timeout)
+        }()
+        async let user = userRepo.getUser(uid: userId)
+        post.book = await book
+        post.user = await user
         return post
     }
 

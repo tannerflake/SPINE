@@ -282,8 +282,9 @@ enum PersonSearch {
 /// How connected a reader you don't follow is to you: people you both follow,
 /// plus people you follow who follow them, plus one if they already follow you.
 ///
-/// The founder is excluded from every term — he follows and is followed by the
-/// whole roster, so counting him would hand every pair one meaningless mutual.
+/// The founder is excluded from every term — he follows the whole roster (and
+/// older accounts all follow him), so counting him would hand every pair one
+/// meaningless mutual.
 ///
 /// Shared by the Social tab's people strip and the Users scope of Search, so
 /// "people you might know" means the same thing in both places.

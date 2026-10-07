@@ -38,7 +38,7 @@ final class GoodreadsImportService {
     /// "import all") doesn't redo the cache check for rows prefetched earlier.
     private var prefetchedDigits = Set<String>()
 
-    /// Warm the shared search cache for every row ISBN in one pass, so the
+    /// Warm the shared search cache for the given rows' ISBNs in one pass, so the
     /// per-row `matchRow` lookups that follow are cache hits instead of one
     /// paced API request each:
     ///   1. Batched Firestore check of which `isbn:` cache entries are already
@@ -67,12 +67,21 @@ final class GoodreadsImportService {
         // lowercased normalized query, no prefixes (author merge and language
         // restriction don't apply to ISBN lookups).
         func cacheKey(_ digits: String) -> String { "isbn:\(digits)" }
-        let fresh = await BookSearchCacheService.shared.freshKeys(cacheKeys: digitsList.map(cacheKey))
-        let missing = digitsList.filter { !fresh.contains(cacheKey($0)) }
-        guard !missing.isEmpty,
-              let resolved = try? await ISBNdbService.shared.lookupISBNs(missing) else { return }
-        for (digits, book) in resolved {
-            BookSearchCacheService.shared.store(cacheKey: cacheKey(digits), books: [book], source: .isbndb)
+        // ISBNs ISBNdb already answered "unknown" for (any user, last 7 days):
+        // don't pay for them again.
+        func missKey(_ digits: String) -> String { "isbndb-miss:\(digits)" }
+        let cache = BookSearchCacheService.shared
+        async let fresh = cache.freshKeys(cacheKeys: digitsList.map(cacheKey))
+        async let knownMisses = cache.freshKeys(cacheKeys: digitsList.map(missKey), includeEmpty: true)
+        let (hits, misses) = await (fresh, knownMisses)
+        let toFetch = digitsList.filter { !hits.contains(cacheKey($0)) && !misses.contains(missKey($0)) }
+        guard !toFetch.isEmpty,
+              let result = try? await ISBNdbService.shared.lookupISBNs(toFetch) else { return }
+        for (digits, book) in result.books {
+            cache.store(cacheKey: cacheKey(digits), books: [book], source: .isbndb)
+        }
+        for digits in result.confirmedMissing {
+            cache.storeMiss(cacheKey: missKey(digits), source: .isbndb)
         }
     }
 

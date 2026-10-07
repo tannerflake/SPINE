@@ -94,7 +94,7 @@ final class ShareViewController: UIViewController {
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
         modalCard.addSubview(messageLabel)
 
-        openButton.setTitle("Open SPINE", for: .normal)
+        openButton.setTitle("Open Spine", for: .normal)
         openButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
         openButton.addTarget(self, action: #selector(openThenFinish), for: .touchUpInside)
         openButton.translatesAutoresizingMaskIntoConstraints = false
@@ -197,7 +197,7 @@ final class ShareViewController: UIViewController {
                         } else if let url = payload as? URL {
                             if url.isFileURL { self.handleFileURL(url) } else { self.routeWebURL(url) }
                         } else {
-                            self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to SPINE.")
+                            self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to Spine.")
                         }
                     }
                     return
@@ -224,7 +224,7 @@ final class ShareViewController: UIViewController {
                         } else if let url = payload as? URL {
                             if url.isFileURL { self.handleFileURL(url) } else { self.routeWebURL(url) }
                         } else {
-                            self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to SPINE.")
+                            self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to Spine.")
                         }
                     }
                     return
@@ -234,7 +234,7 @@ final class ShareViewController: UIViewController {
                 return
             }
         }
-        saveErrorAndShowModal(message: "No file or link was received. In Goodreads, download your library CSV, save it to Files, then share that file to SPINE.")
+        saveErrorAndShowModal(message: "No file or link was received. In Goodreads, download your library CSV, save it to Files, then share that file to Spine.")
     }
 
     /// Try loading the item using the provider's registered type identifiers (for native app shares that use custom UTIs).
@@ -251,7 +251,7 @@ final class ShareViewController: UIViewController {
             loadItemFromProvider(provider, typeId: typeId)
             return
         }
-        saveErrorAndShowModal(message: "No CSV file was received. Goodreads often shares a link, not the file. Download the CSV, save to Files, then share that file to SPINE.")
+        saveErrorAndShowModal(message: "No CSV file was received. Goodreads often shares a link, not the file. Download the CSV, save to Files, then share that file to Spine.")
     }
 
     private func loadItemFromProvider(_ provider: NSItemProvider, typeId: String) {
@@ -264,7 +264,7 @@ final class ShareViewController: UIViewController {
             } else if let str = payload as? String {
                 self.handleTextOrDataItem(str)
             } else {
-                self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to SPINE.")
+                self.saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to Spine.")
             }
         }
     }
@@ -276,7 +276,7 @@ final class ShareViewController: UIViewController {
             } else if let str = String(data: data, encoding: .utf8) {
                 handleTextOrDataItem(str)
             } else {
-                saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to SPINE.")
+                saveErrorAndShowModal(message: "Couldn't read the shared content. Share a link, a web page, or a Goodreads CSV file to Spine.")
             }
             return
         }
@@ -305,7 +305,7 @@ final class ShareViewController: UIViewController {
             saveLinkAndShowModal(url: nil, title: nil, description: nil, text: trimmed)
             return
         }
-        saveErrorAndShowModal(message: "Couldn't read the shared text. Share a link, a web page, or a Goodreads CSV file to SPINE.")
+        saveErrorAndShowModal(message: "Couldn't read the shared text. Share a link, a web page, or a Goodreads CSV file to Spine.")
     }
 
     /// A non-file URL: Goodreads export links keep their import flow; every other
@@ -350,7 +350,7 @@ final class ShareViewController: UIViewController {
             }
         }
         guard saved else {
-            saveErrorAndShowModal(message: "Couldn't save the link. Copy it and paste it into SPINE's search instead.")
+            saveErrorAndShowModal(message: "Couldn't save the link. Copy it and paste it into Spine's search instead.")
             return
         }
         defaults?.set(true, forKey: pendingLinkImportKey)
@@ -359,7 +359,7 @@ final class ShareViewController: UIViewController {
         openTarget = spineLinkImportURL
         DispatchQueue.main.async { [weak self] in
             self?.titleLabel.text = "Add to your queue"
-            self?.showModal(message: "Link received. Tap Open SPINE to find the books.", linkReceived: true)
+            self?.showModal(message: "Link received. Tap Open Spine to find the books.", linkReceived: true)
         }
     }
 
@@ -377,7 +377,7 @@ final class ShareViewController: UIViewController {
     /// Save CSV data to app group or pasteboard, then show modal with "Open SPINE".
     private func handleCSVData(_ data: Data) {
         guard Self.isGoodreadsCSV(data) else {
-            saveErrorAndShowModal(message: "That didn't look like a Goodreads export. Download your library CSV from goodreads.com/review/import, then share the file to SPINE.")
+            saveErrorAndShowModal(message: "That didn't look like a Goodreads export. Download your library CSV from goodreads.com/review/import, then share the file to Spine.")
             return
         }
         if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId) {
@@ -392,7 +392,7 @@ final class ShareViewController: UIViewController {
                 UserDefaults(suiteName: appGroupId)?.synchronize()
                 clearCSVPasteboardKeychainFlag()
                 DispatchQueue.main.async { [weak self] in
-                    self?.showModal(message: "Import ready. Tap Open SPINE to continue.", linkReceived: true)
+                    self?.showModal(message: "Import ready. Tap Open Spine to continue.", linkReceived: true)
                 }
                 return
             } catch { }
@@ -400,7 +400,7 @@ final class ShareViewController: UIViewController {
         UIPasteboard.general.setData(data, forPasteboardType: pasteboardTypeCSV)
         setKeychainCSVPasteboardFlag()
         DispatchQueue.main.async { [weak self] in
-            self?.showModal(message: "Import ready. Tap Open SPINE to continue.", linkReceived: true)
+            self?.showModal(message: "Import ready. Tap Open Spine to continue.", linkReceived: true)
         }
     }
 
@@ -427,18 +427,17 @@ final class ShareViewController: UIViewController {
 
     private func copyToAppGroupAndShowModal(fileURL: URL) {
         guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId) else {
-            saveErrorAndShowModal(message: "Couldn't save the file. Save the CSV to Files, then share that file to SPINE.")
+            saveErrorAndShowModal(message: "Couldn't save the file. Save the CSV to Files, then share that file to Spine.")
             return
         }
         let destURL = container.appendingPathComponent(sharedFileName)
         _ = try? FileManager.default.removeItem(at: destURL)
         do {
-            if fileURL.startAccessingSecurityScopedResource() {
-                defer { fileURL.stopAccessingSecurityScopedResource() }
-            }
+            let accessing = fileURL.startAccessingSecurityScopedResource()
+            defer { if accessing { fileURL.stopAccessingSecurityScopedResource() } }
             try FileManager.default.copyItem(at: fileURL, to: destURL)
         } catch {
-            saveErrorAndShowModal(message: "Couldn't read the file. Save the Goodreads CSV to Files, then share that file to SPINE.")
+            saveErrorAndShowModal(message: "Couldn't read the file. Save the Goodreads CSV to Files, then share that file to Spine.")
             return
         }
         UserDefaults(suiteName: appGroupId)?.set(true, forKey: pendingImportKey)
@@ -449,7 +448,7 @@ final class ShareViewController: UIViewController {
             try? FileManager.default.removeItem(at: c.appendingPathComponent(pendingImportURLFileName))
         }
         DispatchQueue.main.async { [weak self] in
-            self?.showModal(message: "Import ready. Tap Open SPINE to continue.", linkReceived: true)
+            self?.showModal(message: "Import ready. Tap Open Spine to continue.", linkReceived: true)
         }
     }
 
@@ -468,7 +467,7 @@ final class ShareViewController: UIViewController {
             try? urlString.write(to: fileURL, atomically: true, encoding: .utf8)
         }
         DispatchQueue.main.async { [weak self] in
-            self?.showModal(message: "Link received. Tap Open SPINE to continue.", linkReceived: true)
+            self?.showModal(message: "Link received. Tap Open Spine to continue.", linkReceived: true)
         }
     }
 
@@ -483,7 +482,7 @@ final class ShareViewController: UIViewController {
             try? FileManager.default.removeItem(at: container.appendingPathComponent(pendingImportURLFileName))
         }
         DispatchQueue.main.async { [weak self] in
-            self?.showModal(message: message + "\n\nTap Open SPINE to try again or use a CSV file.", linkReceived: false)
+            self?.showModal(message: message + "\n\nTap Open Spine to try again or use a CSV file.", linkReceived: false)
         }
     }
 

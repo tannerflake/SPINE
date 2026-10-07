@@ -7,7 +7,8 @@ import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from "firebas
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
-import type { DocumentData, Firestore } from "firebase-admin/firestore";
+import type { DocumentData, DocumentReference, Firestore } from "firebase-admin/firestore";
+import { handleUserBookChangedForWallet, walletPassCert, walletPassKey } from "./wallet";
 
 const app = getApps().length ? getApps()[0]! : initializeApp();
 const db: Firestore = getFirestore(app, "wellread");
@@ -71,8 +72,9 @@ const TITLE_EMOJI: Record<string, string> = {
   blend_ready: "🔀",
   book_recommended: "📖",
   achievement_unlocked: "🏅",
-  monthly_recap: "📚",
+  monthly_recap: "🎁",
   club_added: "📚",
+  club_invite: "💌",
   club_member_joined: "👋",
   club_new_book: "📖",
   club_meeting_moved: "📅",
@@ -158,6 +160,33 @@ async function tokensForUser(uid: string): Promise<string[]> {
   return snap.docs.map((d) => d.data().token as string).filter((t): t is string => typeof t === "string" && t.length > 0);
 }
 
+/** "3.10" vs "3.8" → positive; missing/garbage versions sort lowest. */
+function compareAppVersions(a: string | undefined, b: string): number {
+  const parse = (v: string | undefined) => (v ?? "").split(".").map((n) => parseInt(n, 10) || 0);
+  const x = parse(a);
+  const y = parse(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/**
+ * True when at least one of the user's registered devices reports an app
+ * version >= `minVersion`. Token docs stamp `appVersion` on every launch
+ * (UserRepository.saveFCMToken, builds after 3.8); a token without the field
+ * is an older build and counts as too old. Use before sending a push whose
+ * tap handler only exists in newer builds, so nobody taps into nothing.
+ */
+async function userHasDeviceOnVersion(uid: string, minVersion: string): Promise<boolean> {
+  const snap = await db.collection("users").doc(uid).collection("fcmTokens").get();
+  return snap.docs.some((d) => {
+    const v = d.data().appVersion;
+    return typeof v === "string" && v.length > 0 && compareAppVersions(v, minVersion) >= 0;
+  });
+}
+
 /**
  * Data-only background push (no alert, no sound) — wakes the app so it can
  * react, e.g. clearing a withdrawn blend invite from Notification Center.
@@ -193,7 +222,7 @@ async function sendToUser(
     return;
   }
   // iOS often drops or mishandles alerts with an empty body; keep a short fallback.
-  const bodyText = body.trim().length > 0 ? body.trim() : "Tap to open SPINE";
+  const bodyText = body.trim().length > 0 ? body.trim() : "Tap to open Spine";
   // Book covers ride along as a rich-notification image: `fcmOptions.imageUrl` puts the URL in
   // the APNs payload and `mutableContent` routes it through the app's Notification Service
   // Extension, which downloads and attaches the thumbnail. `coverImageURL` in data is the
@@ -247,6 +276,7 @@ async function writeNotification(
   actorId: string | null,
   coverURL?: string | null
 ): Promise<void> {
+  if (actorId && !(await testActorCanNotify(actorId, uid))) return;
   try {
     await db.collection("users").doc(uid).collection("notifications").add({
       ...data,
@@ -272,6 +302,10 @@ async function notifyUser(
   imageUrl?: string | null,
   emojiOverride?: string
 ): Promise<void> {
+  if (actorId && !(await testActorCanNotify(actorId, uid))) {
+    logger.info("notification suppressed: test-account actor", { uid, actorId, type: data.type });
+    return;
+  }
   const fullTitle = withEmoji(data.type ?? "", title, emojiOverride);
   await writeNotification(uid, fullTitle, body, data, actorId, imageUrl);
   await sendToUser(uid, fullTitle, body, data, imageUrl);
@@ -359,7 +393,7 @@ export const sendTestPushNotification = onCall(
         await sendToUser(
           uid,
           withEmoji("new_follower", "Alex followed you"),
-          "See what they're reading on SPINE.",
+          "See what they're reading on Spine.",
           { type: "new_follower", followerId: uid }
         );
         break;
@@ -441,8 +475,8 @@ export const deleteAccount = onCall(
   }
 );
 
-/** Tanner's Firebase Auth uid (@tan). New accounts follow him by default (seeded client-side);
- * this side follows them back, since Firestore rules only let clients write their own doc. */
+/** Tanner's Firebase Auth uid (@tan). He auto-follows every new account (done here, since
+ * Firestore rules only let clients write their own doc). New accounts don't follow him back. */
 const FOUNDER_UID = "jCaSGxcYgHZd6OzXfxmGNn1GZBj2";
 
 /** Accounts hidden app-wide except from specific viewers (mirrors `HiddenAccounts` in the iOS app).
@@ -459,9 +493,54 @@ function hiddenAccountCanNotify(actorUid: string, recipientUid: string): boolean
   return recipientUid === actorUid || allowed.includes(recipientUid);
 }
 
+/** Tanner's test logins, matched by email because they get deleted and recreated
+ * with a new uid every onboarding run. Mirrors `TestAccountSignatures` in the iOS app. */
+const TEST_ACCOUNT_EMAILS = new Set([
+  "tanner@tinyhealth.com",
+  "tanner+onboarding@tinyhealth.com",
+  "tflakeeeee@gmail.com",
+  "review@spynesapp.com",
+  "review@spinesapp.com",
+]);
+
+function isTestAccountEmail(email: unknown): boolean {
+  return typeof email === "string" && TEST_ACCOUNT_EMAILS.has(email.trim().toLowerCase());
+}
+
+const TEST_ACTOR_CACHE_MS = 10 * 60 * 1000;
+const testActorCache = new Map<string, { isTest: boolean; at: number }>();
+
+/** True when `uid`'s doc is flagged `isTestAccount` or carries a test email. Cached per instance. */
+async function isTestAccountUid(uid: string): Promise<boolean> {
+  const hit = testActorCache.get(uid);
+  if (hit && Date.now() - hit.at < TEST_ACTOR_CACHE_MS) return hit.isTest;
+  let isTest = false;
+  try {
+    const data = (await db.collection("users").doc(uid).get()).data();
+    isTest = data?.isTestAccount === true || isTestAccountEmail(data?.email);
+  } catch (e) {
+    logger.error("test-account lookup failed", { uid, error: (e as Error).message });
+  }
+  testActorCache.set(uid, { isTest, at: Date.now() });
+  return isTest;
+}
+
+/**
+ * Test accounts (onboarding logins, App Review) never alert real members, whatever
+ * the event: joins, follows, likes, comments, blends, clubs. Only the founder and
+ * the account itself hear from them. Enforced in `notifyUser`/`writeNotification`
+ * so no individual trigger can forget it.
+ */
+async function testActorCanNotify(actorUid: string, recipientUid: string): Promise<boolean> {
+  if (recipientUid === actorUid || recipientUid === FOUNDER_UID) return true;
+  return !(await isTestAccountUid(actorUid));
+}
+
 /**
  * New account created: the founder auto-follows the new member, and gets a push that
- * someone joined (the new doc is already seeded following him).
+ * someone joined. App builds before 2026-09-30 seed new accounts already following the
+ * founder; that seed is undone here so new members start out following nobody. Only the
+ * brand-new doc is touched, never an existing member's follows.
  */
 export const onUserCreated = onDocumentCreated(
   {
@@ -472,6 +551,26 @@ export const onUserCreated = onDocumentCreated(
     const uid = event.params.uid as string;
     if (!uid || uid === FOUNDER_UID) return;
     const first = firstNameFromUser(event.data?.data());
+    // Flag Tanner's recreated test logins here too, so app builds that predate an
+    // email's addition to `TestAccountSignatures` can't leave one unflagged.
+    let authEmail: string | undefined;
+    try {
+      authEmail = (await getAuth(app).getUser(uid)).email;
+    } catch (e) {
+      logger.warn("onUserCreated auth lookup failed", { uid, error: (e as Error).message });
+    }
+    const isTest =
+      event.data?.data()?.isTestAccount === true ||
+      isTestAccountEmail(event.data?.data()?.email) ||
+      isTestAccountEmail(authEmail);
+    if (isTest && event.data?.data()?.isTestAccount !== true) {
+      try {
+        await db.collection("users").doc(uid).update({ isTestAccount: true, ogIneligible: true });
+      } catch (e) {
+        logger.error("test-account flag failed", { uid, error: (e as Error).message });
+      }
+    }
+    if (isTest) testActorCache.set(uid, { isTest: true, at: Date.now() });
     try {
       await db.collection("users").doc(FOUNDER_UID).update({
         following: FieldValue.arrayUnion(uid),
@@ -479,10 +578,21 @@ export const onUserCreated = onDocumentCreated(
     } catch (e) {
       logger.error("founder auto-follow failed", { uid, error: (e as Error).message });
     }
+    const seeded = (event.data?.data()?.following as string[] | undefined) ?? [];
+    if (seeded.includes(FOUNDER_UID)) {
+      try {
+        await db.collection("users").doc(uid).update({
+          following: FieldValue.arrayRemove(FOUNDER_UID),
+        });
+      } catch (e) {
+        logger.error("legacy founder follow seed removal failed", { uid, error: (e as Error).message });
+      }
+    }
+    if (isTest) return;
     await notifyUser(
       FOUNDER_UID,
-      `${first} joined SPINE`,
-      "They follow you, and you now follow them back.",
+      `${first} joined Spine`,
+      "You now follow them.",
       { type: "new_follower", followerId: uid },
       uid,
       null,
@@ -522,7 +632,7 @@ export const onUserFollowingChanged = onDocumentUpdated(
       await notifyUser(
         target,
         `${first} followed you`,
-        "See what they're reading on SPINE.",
+        "See what they're reading on Spine.",
         { type: "new_follower", followerId: followerUid },
         followerUid
       );
@@ -573,7 +683,7 @@ export const notifyContactsOfJoin = onCall(
     }
     // Test accounts are invisible everywhere else; they don't get to announce
     // themselves to real members either.
-    if (joiner.isTestAccount === true) return { notified: 0 };
+    if (joiner.isTestAccount === true || isTestAccountEmail(joiner.email)) return { notified: 0 };
 
     // Only a genuinely new member "joined". Without this, any later contact
     // re-sync would re-announce an account that has been here for months.
@@ -613,7 +723,7 @@ export const notifyContactsOfJoin = onCall(
 
       await notifyUser(
         target,
-        `${first} joined SPINE`,
+        `${first} joined Spine`,
         `${fullName} is in your contacts. Tap to follow.`,
         { type: "contact_joined", followerId: joinerUid },
         joinerUid,
@@ -714,7 +824,7 @@ export const onFriendReviewPosted = onDocumentCreated(
     const teaser = quotedTeaser(caption);
     const tierPrefix = tier ? `${tier}-Tier.` : "";
     const body = [tierPrefix, teaser].filter((s) => s.length > 0).join(" ")
-      || (book ? "See what they thought." : "See what they're reading on SPINE.");
+      || (book ? "See what they thought." : "See what they're reading on Spine.");
     const emoji = FINISHED_BOOK_EMOJI;
 
     // Rating-spree cap: past three finished books today, skip the push (the
@@ -746,9 +856,12 @@ export const onFriendReviewPosted = onDocumentCreated(
     const recipients = (await recipientUidsWhoFollow(authorId))
       .filter((uid) => hiddenAccountCanNotify(authorId, uid))
       .filter((uid) => !mentionedUids.has(uid));
-    const payload = {
+    // `tier` rides along so the in-app feed can draw the tier badge instead of
+    // reading "S-Tier." out of the body (the push alert still says it in words).
+    const payload: Record<string, string> = {
       type: "friend_review_posted",
       postId,
+      ...(tier ? { tier } : {}),
     };
     for (const uid of recipients) {
       if (pushCapped) {
@@ -1191,14 +1304,16 @@ async function adjustBookPopularity(userId: string, bookId: string, add: boolean
   if (!key) return;
   const docId = createHash("sha256").update(key).digest("hex").slice(0, 40);
   const ref = db.collection("bookStats").doc(docId);
-  await db.runTransaction(async (tx) => {
+  const { wasPopular, isPopular } = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const userIds = new Set<string>((snap.data()?.userIds as string[] | undefined) ?? []);
+    const wasPopular = userIds.size >= POPULAR_MIN_USERS;
     if (add) userIds.add(userId);
     else userIds.delete(userId);
+    const isPopular = userIds.size >= POPULAR_MIN_USERS;
     if (userIds.size === 0) {
       if (snap.exists) tx.delete(ref);
-      return;
+      return { wasPopular, isPopular };
     }
     tx.set(ref, {
       key,
@@ -1208,31 +1323,157 @@ async function adjustBookPopularity(userId: string, bookId: string, add: boolean
       count: userIds.size,
       updatedAt: FieldValue.serverTimestamp(),
     });
+    return { wasPopular, isPopular };
   });
+  // Keep the one-doc popularity summary the app reads in step (see rebuildPopularKeysSummary).
+  if (wasPopular !== isPopular) {
+    await popularKeysSummaryRef().set(
+      {
+        keys: isPopular ? FieldValue.arrayUnion(key) : FieldValue.arrayRemove(key),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
 }
 
-export const onUserBookWritten = onDocumentWritten(
+/* ------------------------------------------------------------------------- *
+ * Summary docs (`summaries/…`)
+ *
+ * Small server-maintained answers to questions the app used to answer by
+ * scanning whole collections from every phone: who is reading what right now
+ * (every "Reading now" row in the database, per cold launch, per device) and
+ * which works are popular (thousands of bookStats docs, hourly per device).
+ * Each is one document the client reads once. Maintained incrementally by
+ * the userBooks trigger and rebuilt from scratch nightly so drift self-heals.
+ * ------------------------------------------------------------------------- */
+
+const SUMMARIES = "summaries";
+const READING_NOW_SUMMARY = "readingNow";
+const POPULAR_KEYS_SUMMARY = "popularKeys";
+/** Mirrors `BookPopularityService.minUsers` / `maxKeys` in the app. */
+const POPULAR_MIN_USERS = 2;
+const POPULAR_MAX_KEYS = 3000;
+/** Covers per reader kept in the reading-now summary (the strip fans 2–3, the widget 2). */
+const READING_NOW_MAX_BOOKS_PER_READER = 4;
+const QUEUE_STATUS = "Queue";
+const READING_NOW_SHELF = "readingNow";
+
+function popularKeysSummaryRef(): DocumentReference {
+  return db.collection(SUMMARIES).doc(POPULAR_KEYS_SUMMARY);
+}
+
+function readingNowSummaryRef(): DocumentReference {
+  return db.collection(SUMMARIES).doc(READING_NOW_SUMMARY);
+}
+
+type ReadingNowEntry = { bookId: string; title: string; author: string; coverURL: string };
+
+/** One reader's reading-now covers, in shelf order, as the app draws them. */
+async function readingNowEntries(uid: string): Promise<ReadingNowEntry[]> {
+  const rows = await db
+    .collection("userBooks")
+    .where("userId", "==", uid)
+    .where("queueShelf", "==", READING_NOW_SHELF)
+    .get();
+  const ordered = rows.docs
+    .map((d) => d.data())
+    .filter((d) => d.status === QUEUE_STATUS)
+    .sort((a, b) => ((a.queueOrder as number | undefined) ?? Number.MAX_SAFE_INTEGER) - ((b.queueOrder as number | undefined) ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, READING_NOW_MAX_BOOKS_PER_READER);
+  const books = await Promise.all(ordered.map((d) => db.collection("books").doc(d.bookId as string).get()));
+  const entries: ReadingNowEntry[] = [];
+  for (let i = 0; i < ordered.length; i++) {
+    const book = books[i]?.data();
+    if (!book) continue;
+    entries.push({
+      bookId: ordered[i]!.bookId as string,
+      title: ((book.title as string | undefined) ?? "").trim(),
+      author: ((book.author as string | undefined) ?? "").trim(),
+      coverURL: (((book.coverOverrideURL as string | undefined) ?? (book.coverURL as string | undefined)) ?? "").trim(),
+    });
+  }
+  return entries;
+}
+
+/** Does this userBooks write change anyone's reading-now shelf? */
+function touchesReadingNow(before: DocumentData | undefined, after: DocumentData | undefined): boolean {
+  const onShelf = (d: DocumentData | undefined) => !!d && d.queueShelf === READING_NOW_SHELF && d.status === QUEUE_STATUS;
+  if (!onShelf(before) && !onShelf(after)) return false;
+  if (onShelf(before) !== onShelf(after)) return true;
+  return ["bookId", "queueOrder"].some((k) => JSON.stringify(before?.[k] ?? null) !== JSON.stringify(after?.[k] ?? null));
+}
+
+async function refreshReadingNowSummary(uid: string): Promise<void> {
+  const entries = await readingNowEntries(uid);
+  await readingNowSummaryRef().set(
+    {
+      byUid: { [uid]: entries.length > 0 ? entries : FieldValue.delete() },
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+/** Full rebuild from the userBooks collection (one scan, nightly). */
+async function rebuildReadingNowSummary(): Promise<number> {
+  const rows = await db.collection("userBooks").where("queueShelf", "==", READING_NOW_SHELF).get();
+  const uids = new Set<string>();
+  for (const d of rows.docs) {
+    const data = d.data();
+    if (data.status === QUEUE_STATUS && typeof data.userId === "string" && data.userId) uids.add(data.userId);
+  }
+  const byUid: Record<string, ReadingNowEntry[]> = {};
+  for (const uid of uids) {
+    const entries = await readingNowEntries(uid);
+    if (entries.length > 0) byUid[uid] = entries;
+  }
+  await readingNowSummaryRef().set({ byUid, updatedAt: FieldValue.serverTimestamp() });
+  return Object.keys(byUid).length;
+}
+
+/** Full rebuild from bookStats (one query, nightly). */
+async function rebuildPopularKeysSummary(): Promise<number> {
+  const snap = await db
+    .collection("bookStats")
+    .where("count", ">=", POPULAR_MIN_USERS)
+    .orderBy("count", "desc")
+    .limit(POPULAR_MAX_KEYS)
+    .get();
+  const keys = snap.docs.map((d) => d.data().key as string | undefined).filter((k): k is string => !!k);
+  await popularKeysSummaryRef().set({ keys, updatedAt: FieldValue.serverTimestamp() });
+  return keys.length;
+}
+
+export const rebuildSummaries = onSchedule(
   {
-    document: "userBooks/{userBookId}",
-    database: DATABASE_ID,
+    schedule: "every day 04:00",
+    timeZone: "America/Chicago",
+    timeoutSeconds: 540,
+    memory: "512MiB",
   },
-  async (event) => {
-    const before = event.data?.before?.exists ? event.data.before.data() : undefined;
-    const after = event.data?.after?.exists ? event.data.after.data() : undefined;
-    const beforeUser = (before?.userId as string | undefined) ?? "";
-    const beforeBook = (before?.bookId as string | undefined) ?? "";
-    const afterUser = (after?.userId as string | undefined) ?? "";
-    const afterBook = (after?.bookId as string | undefined) ?? "";
-    // Status/tier/rating edits keep the same membership — nothing to do.
-    if (beforeUser === afterUser && beforeBook === afterBook) return;
-    try {
-      if (before && beforeBook) await adjustBookPopularity(beforeUser, beforeBook, false);
-      if (after && afterBook) await adjustBookPopularity(afterUser, afterBook, true);
-    } catch (err) {
-      logger.error("bookStats update failed", { beforeBook, afterBook, err });
-    }
+  async () => {
+    const readers = await rebuildReadingNowSummary();
+    const keys = await rebuildPopularKeysSummary();
+    logger.info("summaries rebuilt", { readers, keys });
   }
 );
+
+/** Membership changed (new row, deleted row, or remapped bookId): move the bookStats count. */
+async function handleBookPopularity(before: DocumentData | undefined, after: DocumentData | undefined): Promise<void> {
+  const beforeUser = (before?.userId as string | undefined) ?? "";
+  const beforeBook = (before?.bookId as string | undefined) ?? "";
+  const afterUser = (after?.userId as string | undefined) ?? "";
+  const afterBook = (after?.bookId as string | undefined) ?? "";
+  // Status/tier/rating edits keep the same membership — nothing to do.
+  if (beforeUser === afterUser && beforeBook === afterBook) return;
+  try {
+    if (before && beforeBook) await adjustBookPopularity(beforeUser, beforeBook, false);
+    if (after && afterBook) await adjustBookPopularity(afterUser, afterBook, true);
+  } catch (err) {
+    logger.error("bookStats update failed", { beforeBook, afterBook, err });
+  }
+}
 
 /**
  * Dedup backstop: old app versions shelve whatever book id their search source
@@ -1240,36 +1481,26 @@ export const onUserBookWritten = onDocumentWritten(
  * merge), remap the new userBook to the canonical doc. Current clients resolve
  * before writing (BookRepository.ensureCanonicalBook); this catches the rest.
  * The bookId update re-fires onUserBookWritten, which moves the popularity
- * count to the canonical book.
+ * count to the canonical book. Runs first inside that trigger (create only).
  */
-export const onUserBookCreatedDedup = onDocumentCreated(
-  {
-    document: "userBooks/{userBookId}",
-    database: DATABASE_ID,
-  },
-  async (event) => {
-    const bookId = event.data?.data()?.bookId as string | undefined;
-    if (!bookId) return;
-    try {
-      let canonicalId = bookId;
-      for (let hops = 0; hops < 3; hops++) {
-        const snap = await db.collection("books").doc(canonicalId).get();
-        const target = snap.exists ? (snap.data()?.mergedInto as string | undefined) : undefined;
-        if (!target) break;
-        canonicalId = target;
-      }
-      if (canonicalId === bookId) return;
-      await event.data!.ref.update({ bookId: canonicalId });
-      logger.info("Remapped userBook to canonical book", {
-        userBookId: event.params.userBookId,
-        from: bookId,
-        to: canonicalId,
-      });
-    } catch (err) {
-      logger.error("userBook dedup remap failed", { bookId, err });
+async function handleDedupRemap(ref: DocumentReference, after: DocumentData, userBookId: string): Promise<void> {
+  const bookId = after.bookId as string | undefined;
+  if (!bookId) return;
+  try {
+    let canonicalId = bookId;
+    for (let hops = 0; hops < 3; hops++) {
+      const snap = await db.collection("books").doc(canonicalId).get();
+      const target = snap.exists ? (snap.data()?.mergedInto as string | undefined) : undefined;
+      if (!target) break;
+      canonicalId = target;
     }
+    if (canonicalId === bookId) return;
+    await ref.update({ bookId: canonicalId });
+    logger.info("Remapped userBook to canonical book", { userBookId, from: bookId, to: canonicalId });
+  } catch (err) {
+    logger.error("userBook dedup remap failed", { bookId, err });
   }
-);
+}
 
 /* ------------------------------------------------------------------------- *
  * Founder blend outreach
@@ -1353,51 +1584,44 @@ async function blendParticipant(uid: string): Promise<Record<string, unknown>> {
  * already have a blend pair doc with him (requested, declined, or watched),
  * were scheduled before, or are a test account.
  */
-export const onUserBookRankedForFounderBlend = onDocumentWritten(
-  {
-    document: "userBooks/{userBookId}",
-    database: DATABASE_ID,
-  },
-  async (event) => {
-    const after = event.data?.after?.exists ? event.data.after.data() : undefined;
-    if (!after) return;
-    const beforeTier = normalizedTier(event.data?.before?.exists ? event.data.before.data() : undefined);
-    const afterTier = normalizedTier(after);
-    // Only a newly ranked book can raise the count. Re-tiering an already
-    // ranked book leaves it unchanged.
-    if (beforeTier !== null || afterTier === null) return;
+async function handleFounderBlendSchedule(before: DocumentData | undefined, after: DocumentData | undefined): Promise<void> {
+  if (!after) return;
+  const beforeTier = normalizedTier(before);
+  const afterTier = normalizedTier(after);
+  // Only a newly ranked book can raise the count. Re-tiering an already
+  // ranked book leaves it unchanged.
+  if (beforeTier !== null || afterTier === null) return;
 
-    const uid = (after.userId as string | undefined)?.trim();
-    if (!uid || uid === FOUNDER_UID) return;
+  const uid = (after.userId as string | undefined)?.trim();
+  if (!uid || uid === FOUNDER_UID) return;
 
-    try {
-      const scheduleRef = db.collection(FOUNDER_BLEND_SCHEDULES).doc(uid);
-      if ((await scheduleRef.get()).exists) return;
+  try {
+    const scheduleRef = db.collection(FOUNDER_BLEND_SCHEDULES).doc(uid);
+    if ((await scheduleRef.get()).exists) return;
 
-      const pairId = blendPairId(uid, FOUNDER_UID);
-      if ((await db.collection("bookBlends").doc(pairId).get()).exists) return;
+    const pairId = blendPairId(uid, FOUNDER_UID);
+    if ((await db.collection("bookBlends").doc(pairId).get()).exists) return;
 
-      const user = await db.collection("users").doc(uid).get();
-      if (!user.exists || user.data()?.isTestAccount === true) return;
+    const user = await db.collection("users").doc(uid).get();
+    if (!user.exists || user.data()?.isTestAccount === true) return;
 
-      const rankedCount = await rankedBookCount(uid);
-      if (rankedCount < FOUNDER_BLEND_RANK_THRESHOLD) return;
+    const rankedCount = await rankedBookCount(uid);
+    if (rankedCount < FOUNDER_BLEND_RANK_THRESHOLD) return;
 
-      await scheduleRef.create({
-        uid,
-        rankedCount,
-        status: "scheduled",
-        createdAt: FieldValue.serverTimestamp(),
-        dueAt: Timestamp.fromMillis(Date.now() + FOUNDER_BLEND_DELAY_MS),
-      });
-      logger.info("founder blend scheduled", { uid, rankedCount });
-    } catch (err) {
-      // ALREADY_EXISTS means a sibling write won the race — that's the intended outcome.
-      if ((err as { code?: number }).code === 6) return;
-      logger.error("founder blend scheduling failed", { uid, error: (err as Error).message });
-    }
+    await scheduleRef.create({
+      uid,
+      rankedCount,
+      status: "scheduled",
+      createdAt: FieldValue.serverTimestamp(),
+      dueAt: Timestamp.fromMillis(Date.now() + FOUNDER_BLEND_DELAY_MS),
+    });
+    logger.info("founder blend scheduled", { uid, rankedCount });
+  } catch (err) {
+    // ALREADY_EXISTS means a sibling write won the race — that's the intended outcome.
+    if ((err as { code?: number }).code === 6) return;
+    logger.error("founder blend scheduling failed", { uid, error: (err as Error).message });
   }
-);
+}
 
 // MARK: - Achievement stamps
 
@@ -1418,6 +1642,12 @@ const RANKED_ACHIEVEMENTS: ReadonlyArray<{ id: string; threshold: number; title:
     threshold: 25,
     title: "25 books ranked!",
     body: "You earned a stamp. Tap to put it on your library card.",
+  },
+  {
+    id: "ranked50",
+    threshold: 50,
+    title: "50 books ranked!",
+    body: "You earned another stamp. Tap to put it on your library card.",
   },
 ];
 
@@ -1481,27 +1711,68 @@ function heldAchievements(data: DocumentData | undefined): Record<string, unknow
  * Same unranked → ranked gate as the founder blend trigger; re-tiering an
  * already ranked book cannot raise the count.
  */
-export const onUserBookRankedForAchievements = onDocumentWritten(
+async function handleRankedAchievements(before: DocumentData | undefined, after: DocumentData | undefined): Promise<void> {
+  if (!after) return;
+  const beforeTier = normalizedTier(before);
+  const afterTier = normalizedTier(after);
+  if (beforeTier !== null || afterTier === null) return;
+
+  const uid = (after.userId as string | undefined)?.trim();
+  if (!uid) return;
+
+  try {
+    const user = await db.collection("users").doc(uid).get();
+    if (!user.exists) return;
+    await awardDueRankedAchievements(uid, heldAchievements(user.data()));
+  } catch (err) {
+    logger.error("achievement award failed", { uid, error: (err as Error).message });
+  }
+}
+
+/**
+ * THE userBooks trigger. Every library write used to wake five separate
+ * functions (popularity, dedup remap, founder blend, achievements, Wallet),
+ * four of which returned early almost every time — a 1,174-book import alone
+ * cost 2.8M invocations. One function now fans out in-process; each handler
+ * keeps its own early exits and error handling so one failing never blocks
+ * the others.
+ */
+export const onUserBookWritten = onDocumentWritten(
   {
     document: "userBooks/{userBookId}",
     database: DATABASE_ID,
+    secrets: [walletPassCert, walletPassKey],
   },
   async (event) => {
+    const before = event.data?.before?.exists ? event.data.before.data() : undefined;
     const after = event.data?.after?.exists ? event.data.after.data() : undefined;
-    if (!after) return;
-    const beforeTier = normalizedTier(event.data?.before?.exists ? event.data.before.data() : undefined);
-    const afterTier = normalizedTier(after);
-    if (beforeTier !== null || afterTier === null) return;
+    const userBookId = event.params.userBookId as string;
 
-    const uid = (after.userId as string | undefined)?.trim();
-    if (!uid) return;
+    // A tombstoned book id is remapped first: that update re-fires this trigger
+    // with the canonical id, and the popularity handler then moves the count.
+    if (!before && after && event.data?.after) {
+      await handleDedupRemap(event.data.after.ref, after, userBookId);
+    }
 
-    try {
-      const user = await db.collection("users").doc(uid).get();
-      if (!user.exists) return;
-      await awardDueRankedAchievements(uid, heldAchievements(user.data()));
-    } catch (err) {
-      logger.error("achievement award failed", { uid, error: (err as Error).message });
+    const work: Promise<void>[] = [
+      handleBookPopularity(before, after),
+      handleFounderBlendSchedule(before, after),
+      handleRankedAchievements(before, after),
+      handleUserBookChangedForWallet(before, after),
+    ];
+    if (touchesReadingNow(before, after)) {
+      const uid = ((after ?? before)?.userId as string | undefined)?.trim();
+      if (uid) {
+        work.push(
+          refreshReadingNowSummary(uid).catch((err) =>
+            logger.error("readingNow summary refresh failed", { uid, error: (err as Error).message })
+          )
+        );
+      }
+    }
+    const results = await Promise.allSettled(work);
+    for (const r of results) {
+      if (r.status === "rejected") logger.error("userBooks handler failed", { userBookId, error: String(r.reason) });
     }
   }
 );
@@ -1777,24 +2048,34 @@ async function finishedBookCountsForMonth(year: number, month: number): Promise<
 }
 
 /**
- * "See your September reading": for every member who finished a book last
+ * "Your September Wrapped": for every member who finished a book last
  * month, write `users/{uid}.monthlyRecap` (one slot, overwritten each month,
  * so a long absence never stacks recaps) and send the push + bell row. The
  * app shows a modal for the same field, so readers without push permission
  * hear about it on their next visit. Idempotent per month: a member whose
  * slot already holds this month is skipped.
+ *
+ * The push + bell row only go to members with a device on a build that can
+ * open them (>= MONTHLY_RECAP_MIN_APP_VERSION, read off their fcmTokens).
+ * Everyone else still gets the slot, so the modal greets them the first time
+ * they launch a current build. Lesson from 2026-09: the push went to 248
+ * readers while most were still on 3.7, where tapping it did nothing.
  */
+const MONTHLY_RECAP_MIN_APP_VERSION = "3.8";
+
 async function sendMonthlyRecaps(opts: {
   year: number;
   month: number;
   dryRun: boolean;
   notify: boolean;
   onlyUid?: string;
-}): Promise<{ eligible: number; sent: number; skipped: number; uids: string[] }> {
+}): Promise<{ eligible: number; sent: number; notified: number; heldForOldBuild: number; skipped: number; uids: string[] }> {
   const key = monthKey(opts.year, opts.month);
   const monthName = MONTH_NAMES[opts.month - 1] ?? key;
   const counts = await finishedBookCountsForMonth(opts.year, opts.month);
   let sent = 0;
+  let notified = 0;
+  let heldForOldBuild = 0;
   let skipped = 0;
   const uids: string[] = [];
 
@@ -1822,21 +2103,26 @@ async function sendMonthlyRecaps(opts: {
         },
       });
       if (opts.notify) {
-        await notifyUser(
-          uid,
-          `See your ${monthName} reading`,
-          "Customize and share your reading.",
-          { type: "monthly_recap", recapMonth: key },
-          null
-        );
+        if (await userHasDeviceOnVersion(uid, MONTHLY_RECAP_MIN_APP_VERSION)) {
+          await notifyUser(
+            uid,
+            `Your ${monthName} Wrapped`,
+            "See your reads from last month!",
+            { type: "monthly_recap", recapMonth: key },
+            null
+          );
+          notified += 1;
+        } else {
+          heldForOldBuild += 1;
+        }
       }
       sent += 1;
     } catch (err) {
       logger.error("monthly recap failed", { uid, month: key, error: (err as Error).message });
     }
   }
-  logger.info("monthly recaps", { month: key, eligible: uids.length, sent, skipped, dryRun: opts.dryRun });
-  return { eligible: uids.length, sent, skipped, uids };
+  logger.info("monthly recaps", { month: key, eligible: uids.length, sent, notified, heldForOldBuild, skipped, dryRun: opts.dryRun });
+  return { eligible: uids.length, sent, notified, heldForOldBuild, skipped, uids };
 }
 
 /** 10am Chicago on the first of every month, for the month that just ended. */
@@ -1926,21 +2212,29 @@ function formatMeeting(ts: Timestamp): string {
 }
 
 /**
- * Adds `uid` to a club inside a transaction. Returns the club name, or null when
- * nothing changed (already a member) / the club is full (throws).
+ * Adds `uid` to a club inside a transaction. Membership is always something the
+ * joiner did themselves (a code, a public club, an accepted invite), so the
+ * joiner is the actor: `onClubWritten` treats any member added by someone else
+ * as an unconsented add and turns it back into an invite. Any pending invite
+ * for this club is closed out in the same transaction.
  */
-async function addMemberToClub(clubId: string, uid: string, actorUid: string): Promise<{ clubName: string; alreadyMember: boolean }> {
+async function addMemberToClub(clubId: string, uid: string): Promise<{ clubName: string; alreadyMember: boolean }> {
   const clubRef = db.collection("clubs").doc(clubId);
+  const inviteRef = db.collection("clubInvites").doc(clubInviteId(clubId, uid));
   const userSnap = await db.collection("users").doc(uid).get();
   const snapshot = clubMemberSnapshot(userSnap.data());
   return db.runTransaction(async (tx) => {
     const clubSnap = await tx.get(clubRef);
+    const inviteSnap = await tx.get(inviteRef);
     const club = clubSnap.data();
     if (!clubSnap.exists || !club) {
       throw new HttpsError("not-found", "That club no longer exists.");
     }
     const memberIds = (club.memberIds as string[] | undefined) ?? [];
     const clubName = (club.name as string | undefined) ?? "your club";
+    if (inviteSnap.exists && inviteSnap.data()?.status === "pending") {
+      tx.update(inviteRef, { status: "accepted", respondedAt: FieldValue.serverTimestamp() });
+    }
     if (memberIds.includes(uid)) return { clubName, alreadyMember: true };
     if (memberIds.length >= CLUB_MAX_MEMBERS) {
       throw new HttpsError("resource-exhausted", "That club is full.");
@@ -1948,12 +2242,226 @@ async function addMemberToClub(clubId: string, uid: string, actorUid: string): P
     tx.update(clubRef, {
       memberIds: FieldValue.arrayUnion(uid),
       [`members.${uid}`]: snapshot,
+      [`pendingInvites.${uid}`]: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
-      updatedBy: actorUid,
+      updatedBy: uid,
     });
     return { clubName, alreadyMember: false };
   });
 }
+
+// --- Invites -----------------------------------------------------------------
+// Nobody is put in a club by someone else. Inviting writes `clubInvites/{clubId}_{uid}`
+// (readable by the invitee only), a snapshot under the club's `pendingInvites`
+// (so members see who is on the way), and a `club_invite` push + bell row. The
+// invitee joins by accepting (`respondToClubInvite`), which is the only path
+// that turns an invite into membership.
+
+/** A declined invite can't be re-sent by the same club for this long. */
+const CLUB_INVITE_DECLINE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const CLUB_INVITE_BATCH_MAX = 50;
+
+function clubInviteId(clubId: string, uid: string): string {
+  return `${clubId}_${uid}`;
+}
+
+function clubPersonSnapshot(user: DocumentData | undefined): { firstName: string; displayName: string; username: string; photoURL: string | null } {
+  const { firstName, displayName, username, photoURL } = clubMemberSnapshot(user);
+  return { firstName, displayName, username, photoURL };
+}
+
+/**
+ * Invites `inviteeUids` to a club on behalf of `inviterUid`. Skips members,
+ * people with an open invite, anyone who declined this club in the last week,
+ * and hidden accounts the inviter can't reach. Returns how many were invited.
+ */
+async function createClubInvites(clubId: string, inviterUid: string, inviteeUids: string[]): Promise<number> {
+  const clubRef = db.collection("clubs").doc(clubId);
+  const clubSnap = await clubRef.get();
+  const club = clubSnap.data();
+  if (!clubSnap.exists || !club) return 0;
+  const memberIds = (club.memberIds as string[] | undefined) ?? [];
+  const clubName = (club.name as string | undefined) ?? "a book club";
+  const members = (club.members ?? {}) as Record<string, DocumentData>;
+  const inviterSnap = await db.collection("users").doc(inviterUid).get();
+  const inviter = clubPersonSnapshot(inviterSnap.data());
+  const pick = club.currentPick as DocumentData | undefined | null;
+  const previewMembers = [...memberIds]
+    .sort((a, b) => ((members[a]?.joinedAt as Timestamp | undefined)?.toMillis() ?? 0) - ((members[b]?.joinedAt as Timestamp | undefined)?.toMillis() ?? 0))
+    .slice(0, 5)
+    .map((m) => ({
+      firstName: (members[m]?.firstName as string | undefined) ?? "",
+      displayName: (members[m]?.displayName as string | undefined) ?? "Reader",
+      photoURL: (members[m]?.photoURL as string | undefined) ?? null,
+    }));
+
+  const unique = Array.from(new Set(inviteeUids))
+    .filter((u) => u && u !== inviterUid && !memberIds.includes(u))
+    .slice(0, CLUB_INVITE_BATCH_MAX);
+  let invited = 0;
+  for (const inviteeUid of unique) {
+    if (!hiddenAccountCanNotify(inviterUid, inviteeUid)) continue;
+    const inviteRef = db.collection("clubInvites").doc(clubInviteId(clubId, inviteeUid));
+    const existing = (await inviteRef.get()).data();
+    if (existing?.status === "pending") continue;
+    const respondedAt = (existing?.respondedAt as Timestamp | undefined)?.toMillis() ?? 0;
+    if (existing?.status === "declined" && Date.now() - respondedAt < CLUB_INVITE_DECLINE_COOLDOWN_MS) continue;
+    const inviteeSnap = await db.collection("users").doc(inviteeUid).get();
+    if (!inviteeSnap.exists) continue;
+
+    await inviteRef.set({
+      clubId,
+      clubName,
+      inviteeUid,
+      inviterUid,
+      inviter,
+      memberCount: memberIds.length,
+      members: previewMembers,
+      currentPick: pick?.title
+        ? { title: pick.title, author: pick.author ?? "", coverURL: pick.coverURL ?? "" }
+        : null,
+      visibility: (club.visibility as string | undefined) ?? "private",
+      status: "pending",
+      createdAt: FieldValue.serverTimestamp(),
+      respondedAt: null,
+    });
+    await clubRef.update({
+      [`pendingInvites.${inviteeUid}`]: {
+        ...clubPersonSnapshot(inviteeSnap.data()),
+        invitedBy: inviterUid,
+        invitedAt: Timestamp.now(),
+      },
+    }).catch(() => undefined);
+    await notifyUser(
+      inviteeUid,
+      `${inviter.firstName} invited you to join ${clubName}`,
+      "Tap to join.",
+      { type: "club_invite", clubId },
+      inviterUid
+    );
+    invited += 1;
+  }
+  return invited;
+}
+
+/** Invites readers already on SPINE. Any member may invite; joining is up to the invitee. */
+export const inviteToClub = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+    const raw = request.data as { clubId?: unknown; uids?: unknown } | undefined;
+    const clubId = typeof raw?.clubId === "string" ? raw.clubId : "";
+    const uids = (Array.isArray(raw?.uids) ? raw.uids : []).filter((u): u is string => typeof u === "string" && u.length > 0);
+    if (!clubId || uids.length === 0) {
+      throw new HttpsError("invalid-argument", "clubId and uids are required.");
+    }
+    const club = (await db.collection("clubs").doc(clubId).get()).data();
+    if (!club) {
+      throw new HttpsError("not-found", "That club no longer exists.");
+    }
+    if (!((club.memberIds as string[] | undefined) ?? []).includes(uid)) {
+      throw new HttpsError("permission-denied", "Only members can invite.");
+    }
+    const count = await createClubInvites(clubId, uid, uids);
+    logger.info("club invites sent", { clubId, uid, requested: uids.length, count });
+    return { count };
+  }
+);
+
+/** Accept (joins the club) or decline an invite. Returns { clubId, joined }. */
+export const respondToClubInvite = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+    const raw = request.data as { clubId?: unknown; accept?: unknown } | undefined;
+    const clubId = typeof raw?.clubId === "string" ? raw.clubId : "";
+    const accept = raw?.accept === true;
+    if (!clubId) {
+      throw new HttpsError("invalid-argument", "clubId is required.");
+    }
+    const inviteRef = db.collection("clubInvites").doc(clubInviteId(clubId, uid));
+    const invite = (await inviteRef.get()).data();
+    if (!invite) {
+      throw new HttpsError("not-found", "That invite is gone.");
+    }
+    if (invite.status !== "pending") {
+      if (accept && invite.status === "accepted") return { clubId, joined: true };
+      throw new HttpsError("failed-precondition", "That invite is no longer open.");
+    }
+    if (accept) {
+      const result = await addMemberToClub(clubId, uid);
+      logger.info("club invite accepted", { clubId, uid, alreadyMember: result.alreadyMember });
+      return { clubId, joined: true };
+    }
+    await inviteRef.update({ status: "declined", respondedAt: FieldValue.serverTimestamp() });
+    await db.collection("clubs").doc(clubId)
+      .update({ [`pendingInvites.${uid}`]: FieldValue.delete() })
+      .catch(() => undefined);
+    logger.info("club invite declined", { clubId, uid });
+    return { clubId, joined: false };
+  }
+);
+
+/** Any member takes back an invite that hasn't been answered yet. */
+export const cancelClubInvite = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+    const raw = request.data as { clubId?: unknown; uid?: unknown } | undefined;
+    const clubId = typeof raw?.clubId === "string" ? raw.clubId : "";
+    const inviteeUid = typeof raw?.uid === "string" ? raw.uid : "";
+    if (!clubId || !inviteeUid) {
+      throw new HttpsError("invalid-argument", "clubId and uid are required.");
+    }
+    const clubRef = db.collection("clubs").doc(clubId);
+    const club = (await clubRef.get()).data();
+    if (!club || !((club.memberIds as string[] | undefined) ?? []).includes(uid)) {
+      throw new HttpsError("permission-denied", "Only members can do that.");
+    }
+    const inviteRef = db.collection("clubInvites").doc(clubInviteId(clubId, inviteeUid));
+    const invite = (await inviteRef.get()).data();
+    if (invite?.status === "pending") {
+      await inviteRef.update({ status: "cancelled", respondedAt: FieldValue.serverTimestamp() });
+    }
+    await clubRef.update({ [`pendingInvites.${inviteeUid}`]: FieldValue.delete() });
+    return { ok: true };
+  }
+);
+
+/** Joins a public club straight from the browse list. */
+export const joinPublicClub = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+    const raw = request.data as { clubId?: unknown } | undefined;
+    const clubId = typeof raw?.clubId === "string" ? raw.clubId : "";
+    if (!clubId) {
+      throw new HttpsError("invalid-argument", "clubId is required.");
+    }
+    const club = (await db.collection("clubs").doc(clubId).get()).data();
+    if (!club) {
+      throw new HttpsError("not-found", "That club no longer exists.");
+    }
+    if (club.visibility !== "public") {
+      throw new HttpsError("permission-denied", "That club is invite only.");
+    }
+    const result = await addMemberToClub(clubId, uid);
+    logger.info("public club joined", { clubId, uid, alreadyMember: result.alreadyMember });
+    return { clubId, ...result };
+  }
+);
 
 /** Redeems a six-character invite code for the caller. Returns { clubId, clubName, alreadyMember }. */
 export const joinClubByCode = onCall(
@@ -1973,7 +2481,7 @@ export const joinClubByCode = onCall(
     if (!codeSnap.exists || !clubId) {
       throw new HttpsError("not-found", "No club with that code.");
     }
-    const result = await addMemberToClub(clubId, uid, uid);
+    const result = await addMemberToClub(clubId, uid);
     logger.info("club join by code", { clubId, uid, alreadyMember: result.alreadyMember });
     return { clubId, ...result };
   }
@@ -1982,7 +2490,7 @@ export const joinClubByCode = onCall(
 /**
  * Registers hashed phone numbers (SHA-256 of the last ten digits) the caller
  * texted an invite to. When a user later saves that number on their profile,
- * `onUserWrittenForClubInvites` drops them into the club. Raw numbers never
+ * `onUserWrittenForClubInvites` sends them an in-app invite to accept. Raw numbers never
  * reach the server.
  */
 export const inviteClubPhones = onCall(
@@ -2037,7 +2545,7 @@ function clubPhoneHash(phoneNumber: string): string | null {
 
 /**
  * A user doc gained (or changed) its phone number: if anyone texted that number
- * a club invite, add them to those clubs and let them know.
+ * a club invite, send them the in-app invite for each of those clubs.
  */
 export const onUserWrittenForClubInvites = onDocumentWritten(
   {
@@ -2064,15 +2572,16 @@ export const onUserWrittenForClubInvites = onDocumentWritten(
     const clubIds = ((invite.clubIds as string[] | undefined) ?? []).slice(0, 10);
     const invitedBy = (invite.invitedBy ?? {}) as Record<string, string>;
     for (const clubId of clubIds) {
-      const actor = invitedBy[clubId] ?? uid;
+      const inviter = invitedBy[clubId];
+      if (!inviter) continue;
       try {
-        const result = await addMemberToClub(clubId, uid, actor);
-        logger.info("club phone invite matched", { clubId, uid, alreadyMember: result.alreadyMember });
+        const count = await createClubInvites(clubId, inviter, [uid]);
+        logger.info("club phone invite matched", { clubId, uid, invited: count });
       } catch (err) {
         logger.warn("club phone invite failed", { clubId, uid, err: String(err) });
       }
     }
-    // One-shot: the number has been matched; the club doc now carries membership.
+    // One-shot: the number has been matched; the invite doc takes it from here.
     await inviteRef.delete();
   }
 );
@@ -2098,6 +2607,9 @@ export const onClubWritten = onDocumentWritten(
       if (code) {
         await db.collection("clubInviteCodes").doc(code).delete().catch(() => undefined);
       }
+      // Open invites to a club that no longer exists would dead-end on Join.
+      const invites = await db.collection("clubInvites").where("clubId", "==", clubId).where("status", "==", "pending").get();
+      await Promise.all(invites.docs.map((d) => d.ref.update({ status: "cancelled", respondedAt: FieldValue.serverTimestamp() })));
       return;
     }
 
@@ -2126,38 +2638,33 @@ export const onClubWritten = onDocumentWritten(
       logger.info("club admin promoted", { clubId, uid: eldest });
     }
 
-    // New members.
-    const newMembers = memberIds.filter((m) => !priorMemberIds.includes(m));
-    if (newMembers.length > 0) {
-      const actorName = actor ? clubMemberFirstName(after, actor) : "Someone";
-      for (const uid of newMembers) {
-        if (uid === actor) continue;
-        if (actor && !hiddenAccountCanNotify(actor, uid)) continue;
-        await notifyUser(
-          uid,
-          `You're in ${clubName}`,
-          actor && actor !== uid
-            ? `${actorName} added you. See what the club is reading.`
-            : "See what the club is reading.",
-          { type: "club_added", clubId },
-          actor
-        );
+    // New members. Only the joiner may add themselves (a code, a public club,
+    // an accepted invite; all of which write `updatedBy` = the joiner). Anyone
+    // else put in by another member, which older app builds still do when
+    // creating a club or "adding" readers, is taken back out and invited instead.
+    const addedIds = memberIds.filter((m) => !priorMemberIds.includes(m));
+    const unconsented = addedIds.filter((m) => m !== actor);
+    const newMembers = addedIds.filter((m) => m === actor && before);
+    if (unconsented.length > 0) {
+      const removal: Record<string, unknown> = {
+        memberIds: FieldValue.arrayRemove(...unconsented),
+        adminIds: FieldValue.arrayRemove(...unconsented),
+      };
+      for (const uid of unconsented) removal[`members.${uid}`] = FieldValue.delete();
+      await event.data!.after.ref.update(removal);
+      if (actor) {
+        const count = await createClubInvites(clubId, actor, unconsented);
+        logger.info("club direct add converted to invites", { clubId, actor, count, uids: unconsented });
       }
-      // Tell the existing room, unless this is the club being created.
-      if (before) {
-        const joinedNames = newMembers.map((m) => clubMemberFirstName(after, m));
-        const body =
-          joinedNames.length === 1
-            ? `${joinedNames[0]} joined ${clubName}.`
-            : joinedNames.length === 2
-              ? `${joinedNames[0]} and ${joinedNames[1]} joined ${clubName}.`
-              : `${joinedNames[0]} and ${joinedNames.length - 1} others joined ${clubName}.`;
-        const firstNew = newMembers[0]!;
-        for (const uid of priorMemberIds) {
-          if (uid === actor || newMembers.includes(uid)) continue;
-          if (!hiddenAccountCanNotify(firstNew, uid)) continue;
-          await notifyUser(uid, "New member", body, { type: "club_member_joined", clubId }, firstNew);
-        }
+    }
+    if (newMembers.length > 0) {
+      // Tell the existing room. There is only ever one joiner per write.
+      const joiner = newMembers[0]!;
+      const body = `${clubMemberFirstName(after, joiner)} joined ${clubName}.`;
+      for (const uid of priorMemberIds) {
+        if (uid === joiner) continue;
+        if (!hiddenAccountCanNotify(joiner, uid)) continue;
+        await notifyUser(uid, "New member", body, { type: "club_member_joined", clubId }, joiner);
       }
     }
 

@@ -282,18 +282,11 @@ struct WizardGoodreadsStep: View {
 
             Spacer()
 
-            HStack {
+            HStack(alignment: .top, spacing: 36) {
                 Spacer()
-                Image("goodreads-logo")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 132, height: 132)
-                    .clipShape(RoundedRectangle(cornerRadius: 29, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 29, style: .continuous)
-                            .stroke(Theme.textPrimary.opacity(0.12), lineWidth: 1)
-                    )
-                    .shadow(color: Theme.shadowInk.opacity(0.18), radius: 14, x: 0, y: 8)
+                ForEach(LibraryImportSource.allCases) { source in
+                    ImportSourceTile(source: source, iconSize: 108)
+                }
                 Spacer()
             }
             .wizardReveal(delay: 0.3)
@@ -304,7 +297,9 @@ struct WizardGoodreadsStep: View {
                 WizardCTAButton(title: "Import my books") {
                     // -uiPreviewOnboardingWizard runs may sit on a leftover
                     // simulator session; the real import would write to it.
-                    if model.previewMode {
+                    // -uiPreviewWizardImport opts back in to see the picker.
+                    if model.previewMode,
+                       !ProcessInfo.processInfo.arguments.contains("-uiPreviewWizardImport") {
                         model.finish()
                     } else {
                         showImport = true

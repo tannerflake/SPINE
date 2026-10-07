@@ -29,7 +29,7 @@ struct WelcomeSpinesGoodreadsModal: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            Text("Welcome to SPINE")
+            Text("Welcome to Spine")
                 .font(Theme.largeTitle())
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.center)

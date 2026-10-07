@@ -25,6 +25,8 @@ final class BookSearchCacheService {
     /// a later search can upgrade the entry.
     private let primaryTTL: TimeInterval = 30 * 24 * 3600
     private let openLibraryTTL: TimeInterval = 24 * 3600
+    /// `storeMiss` markers ("ISBNdb doesn't have this ISBN").
+    private let missTTL: TimeInterval = 7 * 24 * 3600
 
     /// Don't let a slow Firestore round trip delay live search — past this, treat as a miss.
     private let lookupTimeout: UInt64 = 1_200_000_000
@@ -106,7 +108,9 @@ final class BookSearchCacheService {
     /// Goodreads import to decide which ISBNs actually need the bulk API fetch.
     /// Best-effort: a failed batch just reports its keys as missing (worst case
     /// a redundant API fetch, whose write-through then repairs the entry).
-    func freshKeys(cacheKeys: [String]) async -> Set<String> {
+    /// `includeEmpty` also counts fresh empty entries — the negative markers
+    /// written by `storeMiss`, which are empty by design.
+    func freshKeys(cacheKeys: [String], includeEmpty: Bool = false) async -> Set<String> {
         guard !cacheKeys.isEmpty else { return [] }
         var keyByDocId: [String: String] = [:]
         for key in cacheKeys { keyByDocId[docId(for: key)] = key }
@@ -123,9 +127,11 @@ final class BookSearchCacheService {
                 let data = doc.data()
                 guard let updated = (data["updatedAt"] as? Timestamp)?.dateValue() else { continue }
                 let source = Source(rawValue: data["source"] as? String ?? "") ?? .openLibrary
-                let ttl = source == .openLibrary ? openLibraryTTL : primaryTTL
+                guard let books = data["books"] as? [[String: Any]], includeEmpty || !books.isEmpty else { continue }
+                // Negative markers expire sooner: ISBNdb says missing ISBNs are
+                // often added within a day, so re-check them after a week.
+                let ttl = books.isEmpty ? missTTL : (source == .openLibrary ? openLibraryTTL : primaryTTL)
                 guard Date().timeIntervalSince(updated) < ttl,
-                      let books = data["books"] as? [[String: Any]], !books.isEmpty,
                       let key = keyByDocId[doc.documentID] else { continue }
                 fresh.insert(key)
             }
@@ -142,6 +148,22 @@ final class BookSearchCacheService {
             "schemaVersion": Self.currentSchemaVersion,
             "updatedAt": FieldValue.serverTimestamp(),
             "books": books.prefix(30).map(data(from:))
+        ]
+        db.collection(collection).document(docId(for: cacheKey)).setData(payload)
+    }
+
+    /// Negative marker: the source answered and doesn't have this key. Written
+    /// under its own key namespace (never a real search key), and `entry(from:)`
+    /// treats empty entries as misses, so search lookups can't see it. Lets the
+    /// import's ISBN prefetch skip ISBNs ISBNdb already said it doesn't know,
+    /// instead of billing them again on every resume or re-upload.
+    func storeMiss(cacheKey: String, source: Source) {
+        let payload: [String: Any] = [
+            "query": String(cacheKey.prefix(200)),
+            "source": source.rawValue,
+            "schemaVersion": Self.currentSchemaVersion,
+            "updatedAt": FieldValue.serverTimestamp(),
+            "books": [[String: Any]]()
         ]
         db.collection(collection).document(docId(for: cacheKey)).setData(payload)
     }

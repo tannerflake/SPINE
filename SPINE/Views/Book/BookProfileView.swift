@@ -46,6 +46,12 @@ struct BookProfileView: View {
     /// When `false`, hides the "Recommend to a Friend" section. Discover suppresses it
     /// since those are books the user hasn't read yet.
     var showRecommend: Bool = true
+    /// Keep the action bar's scroll clearance even with no action bar of our
+    /// own: Discover draws its swipe buttons over the page from outside.
+    var reservesActionBarSpace: Bool = false
+    /// "Bad cover?" under the hero cover. Discover's swipe cards drop it (and
+    /// its reserved row) so the page sits higher in the card.
+    var showsCoverFix: Bool = true
     /// UID of the reader whose tier list or feed post led here. Their row is
     /// included in "Reviews" even when the viewer doesn't follow them, pinned
     /// to the top of the section, and gently highlighted.
@@ -83,6 +89,9 @@ struct BookProfileView: View {
     /// The progress card's frame in window space, used to aim the confetti.
     @State private var progressCardFrame: CGRect = .zero
     @State private var progressFinishPop: Bool = false
+    /// Bumped on routine (non-finish) progress commits: pops the percent and
+    /// swings the hero ribbon.
+    @State private var progressCommitTick: Int = 0
     /// Ribbon springs to saved values but tracks the finger directly mid-drag.
     private var heroRibbonAnimation: Animation? {
         liveProgress == nil ? .spring(response: 0.32, dampingFraction: 0.82) : nil
@@ -272,7 +281,7 @@ struct BookProfileView: View {
                 }
                 // Extra room when the floating action bar is up, so the last card
                 // can scroll clear of the buttons.
-                .padding(.bottom, showActionBar ? 108 : 32)
+                .padding(.bottom, showActionBar ? 108 : (reservesActionBarSpace ? 132 : 32))
             }
             .background(Theme.background)
             .onAppear { pageScrollProxy = proxy }
@@ -381,7 +390,7 @@ struct BookProfileView: View {
         .alert("Can't send texts", isPresented: $cantSendTextAlert) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("This device can't send text messages. You can still share SPINE from the App Store: \(AppLinks.appStore)")
+            Text("This device can't send text messages. You can still share Spine from the App Store: \(AppLinks.appStore)")
         }
         .navigationBarTitleDisplayMode(.inline)
         .task(id: book.id) {
@@ -510,9 +519,11 @@ struct BookProfileView: View {
             // Real layout slot (not an overlay hanging outside the cover's
             // bounds — those don't hit-test reliably) with reserved height so
             // the cover doesn't jump when the control appears.
-            coverFixControl
-                .frame(height: 22, alignment: .leading)
-                .opacity(coverFixState == .hidden ? 0 : 1)
+            if showsCoverFix {
+                coverFixControl
+                    .frame(height: 22, alignment: .leading)
+                    .opacity(coverFixState == .hidden ? 0 : 1)
+            }
             BookCoverView(book: book, size: 220)
                 .shadow(color: Theme.shadowInk.opacity(0.18), radius: 14, x: 0, y: 6)
                 .overlay(alignment: .topLeading) {
@@ -520,7 +531,8 @@ struct BookProfileView: View {
                         CoverProgressRibbon(
                             fraction: liveProgress ?? reading.progressFraction,
                             coverWidth: 220,
-                            coverHeight: 330
+                            coverHeight: 330,
+                            sway: progressCommitTick
                         )
                         .animation(heroRibbonAnimation, value: liveProgress ?? reading.progressFraction)
                     }
@@ -613,7 +625,10 @@ struct BookProfileView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 12)
-        .task(id: coverEpoch) { await refreshCoverFixAvailability() }
+        .task(id: coverEpoch) {
+            guard showsCoverFix else { return }
+            await refreshCoverFixAvailability()
+        }
     }
 
     // MARK: - Cover regeneration
@@ -941,8 +956,9 @@ struct BookProfileView: View {
                     Text("\(percent)")
                         .font(.system(size: 44, weight: .bold))
                         .monospacedDigit()
-                        .foregroundStyle(Theme.textPrimary)
+                        .foregroundStyle(liveProgress != nil ? (ReadingProgressTint.tint(for: fraction) ?? Theme.textPrimary) : Theme.textPrimary)
                         .contentTransition(.numericText(value: Double(percent)))
+                        .readingProgressReadoutMotion(dragging: liveProgress != nil, commitTick: progressCommitTick)
                     Text("%")
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(Theme.textSecondary)
@@ -965,8 +981,8 @@ struct BookProfileView: View {
                 onLiveChange: { liveProgress = $0 },
                 onCommit: { value in
                     let previous = ub.progressFraction
-                    liveProgress = nil
                     appState.setReadingProgress(userBookId: ub.id, progress: value)
+                    liveProgress = nil
                     if FinishCelebration.crossedFinishLine(previous: previous, committed: value) {
                         FinishCelebration.haptic()
                         fireProgressConfetti()
@@ -974,6 +990,8 @@ struct BookProfileView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
                             withAnimation(.spring(response: 0.45, dampingFraction: 0.7)) { progressFinishPop = false }
                         }
+                    } else if value < 0.999, value > 0.0001 {
+                        progressCommitTick += 1
                     }
                 }
             )
@@ -1477,6 +1495,12 @@ struct BookProfileView: View {
             firstName: user.firstName,
             lastName: user.lastName,
             size: size
+        )
+        .avatarZoomOnHold(
+            urlString: user.profileImageURL,
+            displayName: user.displayName,
+            firstName: user.firstName,
+            lastName: user.lastName
         )
     }
 

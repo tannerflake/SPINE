@@ -14,9 +14,8 @@ import SwiftUI
 ///
 /// Two groups: people you follow (reading-now first, then alphabetical), and
 /// everyone else ranked by similarity — mutual connections between you and the
-/// candidate, with the founder excluded from every term because he follows and
-/// is followed by the whole roster (counting him would hand every pair one
-/// meaningless mutual). Readers with no connection to you fall back to
+/// candidate, with the founder excluded from every term because he follows the
+/// whole roster (counting him would hand every pair one meaningless mutual). Readers with no connection to you fall back to
 /// activity: reading a book now first, then most books ranked.
 @MainActor
 final class PeopleStripModel: ObservableObject {
@@ -38,14 +37,19 @@ final class PeopleStripModel: ObservableObject {
         /// `PeopleSimilarity.mutualCount`), frozen alongside `score`. Zero for
         /// readers you already follow, who never show the count.
         let mutualCount: Int
+        /// They already follow the signed-in member, who hasn't followed back.
+        /// Leads the suggestion order (see `sortDiscoverable`). Always false
+        /// for readers you follow.
+        let followsYou: Bool
 
         var id: String { uid }
 
-        init(uid: String, user: User, score: Int, mutualCount: Int = 0) {
+        init(uid: String, user: User, score: Int, mutualCount: Int = 0, followsYou: Bool = false) {
             self.uid = uid
             self.user = user
             self.score = score
             self.mutualCount = mutualCount
+            self.followsYou = followsYou
         }
     }
 
@@ -73,15 +77,17 @@ final class PeopleStripModel: ObservableObject {
     // MARK: - Loading
 
     /// First load for this member. A no-op once loaded, so returning to the tab
-    /// doesn't refetch the roster.
+    /// doesn't refetch the roster. A roster saved to disk within
+    /// `PeopleRosterCache.maxAge` is used as-is: the roster is hundreds of user
+    /// documents, and who is on Spine barely changes between launches.
     func loadIfNeeded(currentUid: String?, following: [String]) async {
         guard !hasLoadedOnce || currentUid != self.currentUid else { return }
-        await reload(currentUid: currentUid, following: following)
+        await reload(currentUid: currentUid, following: following, allowCachedRoster: true)
     }
 
     /// Pull to refresh: refetches the roster and covers, then reranks. The
     /// previous list stays on screen until both land.
-    func reload(currentUid: String?, following: [String]) async {
+    func reload(currentUid: String?, following: [String], allowCachedRoster: Bool = false) async {
         generation += 1
         let token = generation
         // A different member (sign-out / sign-in) must not see the previous
@@ -105,9 +111,14 @@ final class PeopleStripModel: ObservableObject {
         }
         #endif
 
-        async let rosterFetch = userRepo.fetchAllReaderProfiles(
-            excludingUid: currentUid, limit: Self.rosterLimit
-        )
+        if !allowCachedRoster { ReadingNowSummary.shared.invalidate() }
+        let cachedRoster = allowCachedRoster ? PeopleRosterCache.load(uid: currentUid) : nil
+        async let rosterFetch: [(uid: String, user: User)] = {
+            if let cachedRoster { return cachedRoster }
+            let fetched = await userRepo.fetchAllReaderProfiles(excludingUid: currentUid, limit: Self.rosterLimit)
+            if !fetched.isEmpty { PeopleRosterCache.save(fetched, uid: currentUid) }
+            return fetched
+        }()
         async let coversFetch = userBookRepo.fetchAllReadingNowBooks()
         var (roster, covers) = await (rosterFetch, coversFetch)
         guard token == generation else { return }
@@ -138,7 +149,8 @@ final class PeopleStripModel: ObservableObject {
                             candidateUid: row.uid,
                             candidateFollowing: row.user.following,
                             peers: followedRows
-                        )
+                        ),
+                        followsYou: followsCurrentUser(row.user.following)
                     )
                 }
         )
@@ -193,15 +205,21 @@ final class PeopleStripModel: ObservableObject {
                             candidateUid: reader.uid,
                             candidateFollowing: reader.user.following,
                             peers: followedRows
-                        )
+                        ),
+                        followsYou: followsCurrentUser(reader.user.following)
                     )
                 }
         )
     }
 
+    private func followsCurrentUser(_ candidateFollowing: [String]) -> Bool {
+        guard let currentUid else { return false }
+        return candidateFollowing.contains(currentUid)
+    }
+
     #if DEBUG
     private func seedUIPreviewRoster() {
-        func reader(_ uid: String, _ name: String, books: Int, score: Int, mutuals: Int = 0) -> Reader {
+        func reader(_ uid: String, _ name: String, books: Int, score: Int, mutuals: Int = 0, followsYou: Bool = false) -> Reader {
             var u = User.demo
             u.id = UUID()
             u.username = name.lowercased()
@@ -210,10 +228,12 @@ final class PeopleStripModel: ObservableObject {
             u.firstName = parts.first
             u.lastName = parts.count > 1 ? parts.last : nil
             u.totalBooksRead = books
-            return Reader(uid: uid, user: u, score: score, mutualCount: mutuals)
+            return Reader(uid: uid, user: u, score: score, mutualCount: mutuals, followsYou: followsYou)
         }
         followed = [reader("pv-june", "June", books: 42, score: 0)]
-        discoverable = [
+        discoverable = sortDiscoverable([
+            // Follows you, not followed back: leads the row regardless of score.
+            reader("pv-11", "Dara Olumide", books: 19, score: 0, followsYou: true),
             reader("pv-1", "Priya Natarajan", books: 118, score: 4, mutuals: 4),
             reader("pv-2", "Marcus Hale", books: 67, score: 3, mutuals: 3),
             reader("pv-3", "Ana Lucía Reyes", books: 54, score: 2, mutuals: 2),
@@ -225,7 +245,7 @@ final class PeopleStripModel: ObservableObject {
             reader("pv-8", "Felix Aramburu", books: 40, score: 0),
             reader("pv-9", "Ines Castellanos", books: 27, score: 0),
             reader("pv-10", "Kofi Mensah", books: 15, score: 0)
-        ]
+        ])
         isLoadingInitial = false
     }
     #endif
@@ -242,11 +262,13 @@ final class PeopleStripModel: ObservableObject {
         }
     }
 
-    /// Everyone else: most similar to you first. Past the readers with any
+    /// Everyone else: readers who already follow you (and you haven't followed
+    /// back) first, then most similar to you. Past the readers with any
     /// connection, activity breaks the tie — reading a book now, then most
     /// books ranked, then name.
     private func sortDiscoverable(_ readers: [Reader]) -> [Reader] {
         readers.sorted { a, b in
+            if a.followsYou != b.followsYou { return a.followsYou }
             if a.score != b.score { return a.score > b.score }
             let aReading = isReadingNow(a.uid)
             let bReading = isReadingNow(b.uid)
@@ -319,6 +341,11 @@ struct PeopleStrip: View {
     /// frame), which lets the sticky header compute the group boundary statically.
     private static let peopleCellWidth: CGFloat = 84
     private static let peopleCellSpacing: CGFloat = 12
+    /// Extra breathing room after the FOLLOWING / ALL USERS hairline, on top
+    /// of the cell spacing. The first discoverable reader's reading-now fan
+    /// overhangs its avatar toward the divider, so cell spacing alone reads
+    /// crowded. The sticky "ALL USERS" label shifts by the same amount.
+    private static let dividerTrailingGap: CGFloat = 12
     /// Story-circle size, Instagram-scale (was 64).
     private static let avatarSize: CGFloat = 76
 
@@ -395,6 +422,7 @@ struct PeopleStrip: View {
                 .padding(.bottom, 10)
             }
             .disabled(true)
+            .modifier(PeopleStripEdgeFade(scrollX: 0))
         }
         .accessibilityLabel("Loading readers")
     }
@@ -405,7 +433,7 @@ struct PeopleStrip: View {
         guard n > 0 else { return Theme.horizontalPadding }
         return Theme.horizontalPadding
             + n * (Self.peopleCellWidth + Self.peopleCellSpacing)
-            + Theme.chromeHairline + Self.peopleCellSpacing
+            + Theme.chromeHairline + Self.dividerTrailingGap + Self.peopleCellSpacing
     }
 
     /// One label line above the strip, behaving like a horizontal sticky
@@ -461,6 +489,7 @@ struct PeopleStrip: View {
                     Rectangle()
                         .fill(Theme.chrome.opacity(0.35))
                         .frame(width: Theme.chromeHairline, height: Self.avatarSize)
+                        .padding(.trailing, Self.dividerTrailingGap)
                         .accessibilityHidden(true)
                 }
                 ForEach(model.discoverable) { reader in
@@ -474,6 +503,7 @@ struct PeopleStrip: View {
             .padding(.bottom, 10)
         }
         .modifier(PeopleStripScrollTracking(scrollX: $scrollX))
+        .modifier(PeopleStripEdgeFade(scrollX: scrollX))
     }
 
     /// Avatar + name cell. Not-yet-followed readers get a quick-follow plus
@@ -566,6 +596,41 @@ struct PeopleStrip: View {
 }
 
 /// Streams the people strip's horizontal content offset into `scrollX`.
+/// Soft-edge mask for the horizontal strip so avatars dissolve at the screen
+/// edge instead of being sliced by the ScrollView bounds. The right edge always
+/// fades (it's the "there's more" affordance); the left edge only fades once
+/// the strip has scrolled, so the first avatar reads crisp at rest.
+private struct PeopleStripEdgeFade: ViewModifier {
+    var scrollX: CGFloat
+    private static let fadeWidth: CGFloat = 36
+
+    func body(content: Content) -> some View {
+        content.mask(
+            HStack(spacing: 0) {
+                LinearGradient(
+                    colors: [.black.opacity(leadingOpacity), .black],
+                    startPoint: .leading, endPoint: .trailing
+                )
+                .frame(width: Self.fadeWidth)
+                Rectangle().fill(.black)
+                LinearGradient(
+                    colors: [.black, .black.opacity(0)],
+                    startPoint: .leading, endPoint: .trailing
+                )
+                .frame(width: Self.fadeWidth)
+            }
+            // Let the mask span the overhanging quick-follow plus and labels.
+            .padding(.vertical, -8)
+        )
+    }
+
+    /// 1 at rest → 0 once the strip has scrolled past the fade width.
+    private var leadingOpacity: Double {
+        let t = min(max(scrollX / Self.fadeWidth, 0), 1)
+        return 1 - Double(t)
+    }
+}
+
 /// Uses `onScrollGeometryChange` where available; on iOS 17 the offset stays 0,
 /// so the header labels sit at their resting positions instead of tracking.
 private struct PeopleStripScrollTracking: ViewModifier {
@@ -580,5 +645,45 @@ private struct PeopleStripScrollTracking: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// The strip's roster on disk (Caches), so a cold launch paints the people
+/// strip without re-reading hundreds of user documents. Pull to refresh and
+/// anything older than `maxAge` go back to Firestore.
+enum PeopleRosterCache {
+    static let maxAge: TimeInterval = 6 * 60 * 60
+
+    private struct Row: Codable {
+        let uid: String
+        let user: User
+    }
+
+    private struct Payload: Codable {
+        let savedAt: Date
+        let rows: [Row]
+    }
+
+    private static func url(uid: String?) -> URL? {
+        guard let dir = try? FileManager.default.url(
+            for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+        ) else { return nil }
+        return dir.appendingPathComponent("peopleStripRoster-\(uid ?? "anon").json")
+    }
+
+    static func load(uid: String?) -> [(uid: String, user: User)]? {
+        guard let url = url(uid: uid),
+              let data = try? Data(contentsOf: url),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              Date().timeIntervalSince(payload.savedAt) < maxAge,
+              !payload.rows.isEmpty else { return nil }
+        return payload.rows.map { ($0.uid, $0.user) }
+    }
+
+    static func save(_ rows: [(uid: String, user: User)], uid: String?) {
+        guard let url = url(uid: uid) else { return }
+        let payload = Payload(savedAt: Date(), rows: rows.map { Row(uid: $0.uid, user: $0.user) })
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        try? data.write(to: url, options: .atomic)
     }
 }

@@ -2,8 +2,8 @@
 //  ClubMemberPickerView.swift
 //  SPINE
 //
-//  Multi-select over the reader roster (people you follow first), used when
-//  starting a club and when adding members later.
+//  Multi-select over the reader roster (people you follow first), used to pick
+//  who gets an invite when starting a club and later.
 //
 
 import SwiftUI
@@ -18,7 +18,7 @@ struct ClubMemberPickerView: View {
 
     let excludedUids: Set<String>
     var initialSelection: [Selection] = []
-    var title = "Add members"
+    var title = "Invite readers"
     var confirmLabel = "Done"
     let onDone: ([Selection]) -> Void
 
@@ -64,6 +64,7 @@ struct ClubMemberPickerView: View {
                                 ForEach(selected) { s in
                                     VStack(spacing: 4) {
                                         UserAvatarView(urlString: s.user.profileImageURL, displayName: s.user.displayName, firstName: s.user.firstName, lastName: s.user.lastName, size: 40)
+                                            .avatarZoomOnHold(urlString: s.user.profileImageURL, displayName: s.user.displayName, firstName: s.user.firstName, lastName: s.user.lastName)
                                             .overlay(alignment: .topTrailing) {
                                                 Image(systemName: "xmark.circle.fill")
                                                     .font(.system(size: 14))
@@ -95,7 +96,7 @@ struct ClubMemberPickerView: View {
                                 }
                                 .padding(.top, 30)
                             } else if candidates.isEmpty {
-                                Text(query.isEmpty ? "Nobody left to add." : "No readers match \u{201C}\(query)\u{201D}.")
+                                Text(query.isEmpty ? "Nobody left to invite." : "No readers match \u{201C}\(query)\u{201D}.")
                                     .font(Theme.callout())
                                     .foregroundStyle(Theme.textSecondary)
                                     .padding(.top, 30)
@@ -167,6 +168,7 @@ struct ClubMemberPickerView: View {
         } label: {
             HStack(spacing: 11) {
                 UserAvatarView(urlString: reader.user.profileImageURL, displayName: reader.user.displayName, firstName: reader.user.firstName, lastName: reader.user.lastName, size: 40)
+                    .avatarZoomOnHold(urlString: reader.user.profileImageURL, displayName: reader.user.displayName, firstName: reader.user.firstName, lastName: reader.user.lastName)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(reader.user.displayName)
                         .font(.system(size: 15, weight: .semibold))

@@ -4,11 +4,12 @@
 //
 //  "We made something for you": the in-app twin of the monthly recap push,
 //  so a reader without notifications still hears that last month's reading
-//  is ready to share. A fan of the month's covers, the count, and one button
-//  into the share hub (floating shelf, that month, photo picker up). Shown
-//  once per recap; the function only ever holds the latest month, so nobody
-//  comes back from a long break to a stack of these. Copy rule: no em-dashes
-//  in user-facing text.
+//  is ready to share. "Your {Month} Reading" over a fan of the month's covers,
+//  and one button into the share hub (floating shelf, that month).
+//  No secondary button: sliding the sheet down is the "not now". Shown once
+//  per recap; the function only ever holds the latest month, so nobody comes
+//  back from a long break to a stack of these. Copy rule: no em-dashes in
+//  user-facing text.
 //
 
 import SwiftUI
@@ -18,20 +19,12 @@ struct MonthlyRecapModal: View {
     /// Books finished that month, from the local library (newest first).
     let books: [UserBook]
     let onShare: () -> Void
-    let onNotNow: () -> Void
 
     @State private var fanned = false
     @State private var showCopy = false
 
-    private var count: Int { max(books.count, recap.bookCount) }
-
     private var headline: String {
-        "Your \(recap.monthName) reading"
-    }
-
-    private var bodyCopy: String {
-        let noun = count == 1 ? "book" : "books"
-        return "You finished \(count) \(noun) in \(recap.monthName). We made a shareable of it. Add a photo, pick the books, and post it."
+        "Your \(recap.monthName) Reading"
     }
 
     var body: some View {
@@ -41,47 +34,24 @@ struct MonthlyRecapModal: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                Text(recap.monthName.uppercased())
-                    .font(.system(size: 12, weight: .heavy))
-                    .tracking(4)
-                    .foregroundStyle(Theme.textTertiary)
-                    .padding(.bottom, 26)
-                    .opacity(showCopy ? 1 : 0)
-
-                coverFan
-                    .padding(.bottom, 34)
-
                 Text(headline)
                     .font(.system(size: 26, weight: .bold))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.textPrimary)
                     .padding(.horizontal, 28)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 30)
                     .opacity(showCopy ? 1 : 0)
                     .offset(y: showCopy ? 0 : 8)
 
-                Text(bodyCopy)
-                    .font(Theme.callout())
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(Theme.textSecondary)
-                    .padding(.horizontal, 36)
-                    .opacity(showCopy ? 1 : 0)
-                    .offset(y: showCopy ? 0 : 8)
+                coverFan
 
                 Spacer()
 
-                VStack(spacing: 8) {
-                    Button(action: onShare) {
-                        Label("Customize and share", systemImage: "square.and.arrow.up")
-                    }
+                Button("View your month wrapped", action: onShare)
                     .buttonStyle(.spinePrimary)
-
-                    Button("Not now", action: onNotNow)
-                        .buttonStyle(.spineTertiary)
-                }
-                .padding(.horizontal, 28)
-                .padding(.bottom, 18)
-                .opacity(showCopy ? 1 : 0)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 18)
+                    .opacity(showCopy ? 1 : 0)
             }
         }
         .onAppear {

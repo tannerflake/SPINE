@@ -6,13 +6,16 @@
 //  header: "FOLLOWING" (current readers leading) pins at the left until
 //  "ALL USERS" (quick-follow plus on each avatar) scrolls in and replaces
 //  it. Below, one unified feed: everything you haven't seen yet from people
-//  you follow leads, then the "You're all caught up" break, then every post
+//  you follow leads, then the "You're caught up" break, then every post
 //  on SPINE in plain newest-first order (see `FeedItem.unifiedItems`). Seen
 //  marks are recorded as posts scroll into view (a carousel counts as seen
 //  with its first slide) but the layout is frozen per session, so nothing
-//  moves under the reader; the next reload — pull to refresh, tab re-tap at
-//  the top, reopening the feed at rest at the top, or a fresh launch — drops
-//  what's been seen back into place. Two pseudo posts are folded in —
+//  moves under the reader. New posts are held back the same way (see
+//  `AppState.reloadFeed`): only a hard reload — pull to refresh, tab re-tap
+//  at the top, a fresh launch, or coming back after a long while away —
+//  brings them in and drops what's been seen back into place. Opening a
+//  book or profile and coming back, or switching tabs, changes nothing.
+//  Two pseudo posts are folded in —
 //  "Selected for you" three items down and "Readers to follow" six below
 //  that — see FeedInterstitials.swift. Ink/paper palette; every post is a
 //  tier-row chunk (colored tier pillar + surface-tinted body), 8pt apart
@@ -63,6 +66,9 @@ struct FeedView: View {
     /// Tracks scroll position so re-tapping the Feed tab knows whether to scroll to
     /// top or refresh (near the top already).
     @State private var isScrolledToFeedTop = true
+    /// A pull-to-refresh is loading; the scroll view holds a gap at the top
+    /// for its spinner (see FeedPullToRefresh).
+    @State private var isPullRefreshing = false
     /// Profile sheet opened by tapping an @mention inside a review caption.
     @State private var mentionProfileToView: MentionedReader? = nil
     /// Bell in the FEED row: pushes the notifications feed. Notifications are
@@ -74,7 +80,6 @@ struct FeedView: View {
     /// marker sits still when it's scrolled back to (or rebuilt by the lazy
     /// stack) within the same session.
     @State private var caughtUpAnimatedToken: Int? = nil
-    @Environment(\.scenePhase) private var scenePhase
 
     private struct MentionedReader: Identifiable {
         let uid: String
@@ -113,28 +118,36 @@ struct FeedView: View {
                                         .padding(.trailing, Theme.horizontalPadding - 3)
                                 }
                             feedFriendsDivider
-                            if appState.isFeedLoading {
-                                feedBodyLoadingView
-                            } else {
-                                LazyVStack(spacing: feedRowSpacing) {
-                                    ForEach(feedItems) { item in
-                                        feedItemView(item)
-                                            .id(item.id)
+                            ZStack(alignment: .top) {
+                                if appState.isFeedLoading {
+                                    feedBodyLoadingView
+                                        .transition(.spinnerFadeOut)
+                                } else {
+                                    LazyVStack(spacing: feedRowSpacing) {
+                                        ForEach(feedItems) { item in
+                                            feedItemView(item)
+                                                .id(item.id)
+                                        }
+                                        feedFooter
                                     }
-                                    feedFooter
+                                    .padding(.bottom, 100)
                                 }
-                                .padding(.bottom, 100)
                             }
                         }
                         .id(Self.feedTopAnchorId)
+                        .overlay(alignment: .top) {
+                            FeedPullToRefresh(isHolding: $isPullRefreshing) { await refreshFeed() }
+                        }
                     }
+                    // Holds the pull-to-refresh gap open while it loads.
+                    .contentMargins(.top, isPullRefreshing ? FeedPullToRefreshModel.holdHeight : 0, for: .scrollContent)
                     .modifier(FeedScrollTopTracking(isAtTop: $isScrolledToFeedTop))
                     .modifier(FeedScrollOffsetTracking { appState.feedScrollOffsetY = $0 })
                     .modifier(FeedScrollOffsetRestore(offset: appState.feedScrollRestoreOffsetY) {
                         appState.feedScrollRestoreOffsetY = nil
                     })
-                    .refreshable {
-                        await refreshFeed()
+                    .onReceive(NotificationCenter.default.publisher(for: .spineFeedReloadedAfterAway)) { _ in
+                        scrollProxy.scrollTo(Self.feedTopAnchorId, anchor: .top)
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .spineFeedTabTappedAgain)) { _ in
                         // Pushed into a profile/book (or the notifications
@@ -173,13 +186,16 @@ struct FeedView: View {
                     book: book,
                     readBooksForSimilar: appState.readBooks,
                     onNotInterested: nil,
-                    onWantToRead: { appState.addToWantToRead(book: book); selectedBookForProfile = nil },
-                    onStartReading: { appState.addToQueue(book: book, shelf: .readingNow); selectedBookForProfile = nil },
+                    // Shelf actions keep the profile open (its buttons flip in
+                    // place and the queue-note prompt lands here); the reader
+                    // goes back to the feed when they're ready.
+                    onWantToRead: { appState.addToWantToRead(book: book) },
+                    onStartReading: { appState.addToQueue(book: book, shelf: .readingNow) },
                     onConfirmRead: { date, rating, post, caption, tier in appState.addAsRead(book: book, dateFinished: date, rating: rating, postToFeed: post, caption: caption, tier: tier); selectedBookForProfile = nil },
                     isOnReadList: appState.isBookOnReadList(bookId: book.id),
                     isInQueue: appState.isBookInQueue(bookId: book.id),
-                    onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
-                    onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
+                    onRemoveFromQueue: { appState.removeFromQueue(book: book) },
+                    onMarkAsDNF: { appState.markAsDNF(book: book) },
                     readEntryForReview: appState.userReadBook(forBookId: book.id),
                     canEditReadReview: true,
                     sourceReaderUid: bookProfileSourceUid
@@ -245,21 +261,9 @@ struct FeedView: View {
                 Analytics.amplitude?.track(eventType: "Viewed Home Feed", eventProperties: ["prompt_version": "BA400.4"]) // helps improve this setup flow — safe to remove once you've verified the event lands
                 openDeepLinkedPostIfNeeded()
                 MentionCatalog.shared.ensureLoaded(viewerUid: authService.firebaseUser?.uid)
-                // Reopened (another tab tears this view down) resting at the
-                // top: nothing to keep in place, so re-sort against what's
-                // been seen since. Mid-scroll returns keep the session so the
-                // restored position still lines up.
-                if (appState.feedScrollRestoreOffsetY ?? 0) <= 40 {
-                    appState.beginFeedSession()
-                }
-            }
-            .onChange(of: scenePhase) { previous, phase in
-                // Back from the background resting at the top: re-sort. Only
-                // that transition — launch also passes inactive → active, by
-                // which time the first rows are already on screen and marked.
-                if previous == .background, phase == .active, isScrolledToFeedTop {
-                    appState.beginFeedSession()
-                }
+                // No session reset here: this fires on every pop back from a
+                // book or profile and every return from another tab, and the
+                // feed must come back exactly as it was left.
             }
             .onChange(of: appState.deepLinkFeedPostId) { _, _ in
                 openDeepLinkedPostIfNeeded()
@@ -281,6 +285,7 @@ struct FeedView: View {
             following: appState.feedFollowing,
             ownUid: authService.firebaseUser?.uid ?? appState.viewerUid,
             seenBefore: appState.feedSeenSnapshot,
+            seenBaseline: appState.feedSeenBaseline,
             feedIsComplete: !appState.canLoadMoreFeedPosts && !appState.isLoadingMoreFeedPosts
         )
     }
@@ -369,12 +374,16 @@ struct FeedView: View {
                 books: books,
                 onBookTap: { book in
                     Analytics.amplitude?.track(eventType: "Tapped Feed Pick Book", eventProperties: ["book_id": book.id])
-                    bookProfileSourceUid = nil
-                    selectedBookForProfile = book
+                    // Into the Discover flow on that book (skip / queue, then
+                    // the rest of this row, then the pool), not a plain profile.
+                    appState.focusDiscover(on: book, rowPicks: books)
+                    NotificationCenter.default.post(name: .spineOpenDiscoverFromFeed, object: nil,
+                                                    userInfo: [DiscoverEntryPoint.userInfoKey: DiscoverEntryPoint.feedBookPick])
                 },
                 onSeeMore: {
                     Analytics.amplitude?.track(eventType: "Tapped Feed Picks See More")
-                    NotificationCenter.default.post(name: .spineOpenDiscoverFromFeed, object: nil)
+                    NotificationCenter.default.post(name: .spineOpenDiscoverFromFeed, object: nil,
+                                                    userInfo: [DiscoverEntryPoint.userInfoKey: DiscoverEntryPoint.feedSeeMore])
                 }
             )
             .onAppear {
@@ -465,15 +474,10 @@ struct FeedView: View {
     /// Brand spinner shown inside the feed body while posts load (first load and
     /// scope switches) — the People strip and FEED header stay in place above it.
     private var feedBodyLoadingView: some View {
-        VStack(spacing: 14) {
-            SpinningSpineLogo(size: 72)
-            Text("Loading your feed…")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Theme.textTertiary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 64)
-        .padding(.bottom, 120)
+        SpinningSpineLogo(size: 144)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 160)
+            .padding(.bottom, 120)
     }
 
     /// Bottom of the feed: asks AppState for the next page as soon as it scrolls
@@ -550,12 +554,12 @@ struct FeedView: View {
         Array(Set(appState.feedPosts.map(\.userId))).sorted()
     }
 
-    /// Pull-to-refresh and tab-retap-while-at-top both land here: reload the people
-    /// strip and reading-now covers. Feed posts themselves are already live via the
-    /// Firestore listener, so there's nothing to re-fetch for those.
+    /// Pull-to-refresh and tab-retap-while-at-top both land here: the hard
+    /// reload. Posts that arrived since the last one join the feed (the
+    /// listener has already fetched them, so it's instant), seen posts drop
+    /// back into place, and the people strip and reading-now covers reload.
     private func refreshFeed() async {
-        // A reload is where posts seen last session drop back into place.
-        appState.beginFeedSession()
+        appState.reloadFeed()
         // Re-picks the interstitial rows the reader has actually reached (an
         // untouched row keeps its picks, see FeedInterstitialModel).
         interstitialModel.handleFeedReload()
@@ -564,6 +568,13 @@ struct FeedView: View {
             following: authService.appUser?.following ?? []
         )
         await loadReadingNowForFeedAuthors(reset: true)
+        #if DEBUG
+        // `-uiPreviewSlowRefresh` holds the refresh open so the pull-to-refresh
+        // spinner and its held gap can be screenshotted in the simulator.
+        if ProcessInfo.processInfo.arguments.contains("-uiPreviewSlowRefresh") {
+            try? await Task.sleep(for: .seconds(4))
+        }
+        #endif
     }
 
     /// Loads reading-now covers for feed post authors, skipping authors already
@@ -581,12 +592,14 @@ struct FeedView: View {
         }
     }
 
-    /// Breathing room between the people strip and the feed. The hairline
-    /// rule that used to sit here read as a hard page break; the gap alone
-    /// separates the two sections (the first post's own header padding, or
-    /// the caught-up break's, adds the rest).
+    /// Seam between the people strip and the feed. The hairline rule that
+    /// used to sit here read as a hard page break, and the 12pt spacer that
+    /// replaced it stacked on the strip's bottom padding plus the first
+    /// post's header padding into a blank band. The strip's own padding and
+    /// the first row's top padding (post header or caught-up break) are
+    /// enough on their own, so this contributes nothing.
     private var feedFriendsDivider: some View {
-        Color.clear.frame(height: 12)
+        Color.clear.frame(height: 0)
     }
 }
 
@@ -935,6 +948,7 @@ struct FeedPostRow: View {
 
     private func previewCommentAvatar(_ c: Comment) -> some View {
         UserAvatarView(urlString: c.profileImageURL, displayName: c.displayName, size: 22)
+            .avatarZoomOnHold(urlString: c.profileImageURL, displayName: c.displayName)
     }
 
     private var isOwnPost: Bool {
@@ -1202,6 +1216,157 @@ struct ExpandableReviewText: View {
         // absorbs sub-line measurement noise at fractional widths.
         guard !expanded else { return }
         truncatable = fullHeight > visibleHeight + 8
+    }
+}
+
+/// The feed's pull-to-refresh, in place of `.refreshable`. Two problems with
+/// the stock `UIRefreshControl`: it only fires after ~130pt of overscroll
+/// (with rubber-banding the thumb travels about twice that, so readers ran
+/// out of screen), and it refuses to stay armed when the pull carries on
+/// from a scroll that started below the top. UIKit ends the refresh on its
+/// own a moment after it starts, so the spinner fades straight out and the
+/// `.refreshable` task is cancelled. This owns the whole gesture instead:
+/// fires once a held pull passes `triggerOverscroll` however the drag began,
+/// and flips `isHolding` while `onRefresh` runs so the feed holds a gap open
+/// for the spinner (as a SwiftUI content margin: SwiftUI resets a raw
+/// `contentInset` change mid-refresh).
+///
+/// Sits as a zero-height overlay on top of the scroll content; the spinner
+/// hangs above the content's top edge, in the space the overscroll opens.
+private struct FeedPullToRefresh: View {
+    @Binding var isHolding: Bool
+    let onRefresh: () async -> Void
+    @StateObject private var model = FeedPullToRefreshModel()
+
+    var body: some View {
+        ZStack {
+            FeedPullToRefreshAttacher(model: model)
+                .frame(width: 0, height: 0)
+            ProgressView()
+                .controlSize(.regular)
+                .opacity(model.spinnerOpacity)
+                .scaleEffect(0.6 + 0.4 * model.spinnerOpacity)
+                .offset(y: -FeedPullToRefreshModel.holdHeight / 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: 0)
+        .allowsHitTesting(false)
+        .onAppear { model.onRefresh = onRefresh }
+        .onChange(of: model.isRefreshing) { _, refreshing in
+            if refreshing {
+                isHolding = true
+            } else {
+                withAnimation(.easeInOut(duration: 0.35)) { isHolding = false }
+            }
+        }
+    }
+}
+
+@MainActor
+private final class FeedPullToRefreshModel: ObservableObject {
+    /// Overscroll (in content points, not finger travel) that triggers a refresh.
+    static let triggerOverscroll: CGFloat = 70
+    /// Gap held open above the content while refreshing; the spinner centers in it.
+    static let holdHeight: CGFloat = 60
+
+    @Published private(set) var spinnerOpacity: CGFloat = 0
+    @Published private(set) var isRefreshing = false
+    var onRefresh: (() async -> Void)?
+
+    private weak var scrollView: UIScrollView?
+    private var offsetObservation: NSKeyValueObservation?
+    /// One trigger per drag: re-armed only once the finger lifts.
+    private var firedThisDrag = false
+
+    func attach(to sv: UIScrollView) {
+        guard sv !== scrollView else { return }
+        scrollView = sv
+        offsetObservation = sv.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
+            MainActor.assumeIsolated { self?.scrollViewDidScroll(sv) }
+        }
+    }
+
+    private func scrollViewDidScroll(_ sv: UIScrollView) {
+        // Measured from the resting top, so the held gap counts as zero.
+        let overscroll = -(sv.contentOffset.y + sv.adjustedContentInset.top)
+        if !isRefreshing {
+            // Fade the spinner in over the pull; nothing shows until the gap
+            // is tall enough to hold it.
+            let fade = min(1, max(0, (overscroll - 20) / (Self.triggerOverscroll - 20)))
+            if abs(fade - spinnerOpacity) > 0.01 || (fade == 0) != (spinnerOpacity == 0) {
+                spinnerOpacity = fade
+            }
+        }
+        guard sv.isDragging else {
+            firedThisDrag = false
+            return
+        }
+        guard !firedThisDrag, !isRefreshing, overscroll >= Self.triggerOverscroll else { return }
+        firedThisDrag = true
+        begin(on: sv)
+    }
+
+    private func begin(on sv: UIScrollView) {
+        isRefreshing = true
+        spinnerOpacity = 1
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task { @MainActor in
+            await onRefresh?()
+            end(on: sv)
+        }
+    }
+
+    private func end(on sv: UIScrollView) {
+        withAnimation(.easeOut(duration: 0.25)) { spinnerOpacity = 0 }
+        isRefreshing = false
+        // Once the margin is gone, a reader still resting in the gap would be
+        // left overscrolled; slide the content back up. Mid-drag the finger
+        // owns the offset.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            let restingTop = -sv.adjustedContentInset.top
+            if !sv.isDragging, sv.contentOffset.y < restingTop - 0.5 {
+                sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: restingTop), animated: true)
+            }
+        }
+    }
+}
+
+/// Finds the feed's `UIScrollView` (the nearest one above the scroll content)
+/// and hands it to the model.
+private struct FeedPullToRefreshAttacher: UIViewRepresentable {
+    let model: FeedPullToRefreshModel
+
+    func makeUIView(context: Context) -> FeedPullToRefreshAttacherView {
+        let v = FeedPullToRefreshAttacherView()
+        v.isUserInteractionEnabled = false
+        v.onScrollViewFound = { [weak model] sv in model?.attach(to: sv) }
+        return v
+    }
+
+    func updateUIView(_ uiView: FeedPullToRefreshAttacherView, context: Context) {}
+}
+
+private final class FeedPullToRefreshAttacherView: UIView {
+    var onScrollViewFound: ((UIScrollView) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        findScrollView()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        findScrollView()
+    }
+
+    private func findScrollView() {
+        var v: UIView? = superview
+        while let cur = v {
+            if let sc = cur as? UIScrollView {
+                onScrollViewFound?(sc)
+                return
+            }
+            v = cur.superview
+        }
     }
 }
 

@@ -2,8 +2,8 @@
 //  ClubsView.swift
 //  SPINE
 //
-//  Clubs tab root: the reader's clubs, or the pitch plus Start/Join when they
-//  have none. One club and there is no list to pick from, the club page itself
+//  Clubs tab root: open invites, the reader's clubs, or the pitch plus
+//  Start/Join/Browse when they have none. One club and there is no list to pick from, the club page itself
 //  is the root (starting or joining another lives in its settings sheet).
 //  Detail pages push onto this stack; deep links and pushes land here via
 //  `.spineOpenClub` / `.spineJoinClubWithCode`.
@@ -15,9 +15,12 @@ import FirebaseFirestore
 @MainActor
 final class MyClubsStore: ObservableObject {
     @Published var clubs: [BookClub] = []
+    /// Open invites waiting on a yes or no.
+    @Published var invites: [ClubInvite] = []
     @Published var loaded = false
 
     private var listener: ListenerRegistration?
+    private var invitesListener: ListenerRegistration?
     private var listeningUid: String?
 
     func start(uid: String?) {
@@ -28,6 +31,7 @@ final class MyClubsStore: ObservableObject {
                 let demo = ClubsPreview.demoClubWithVote(.uiPreviewDemo)
                 clubs = ClubsPreview.hasMultiple ? [demo, .uiPreviewDemoSecond] : [demo]
             }
+            invites = ClubsPreview.showsInvite ? [.uiPreviewDemo] : []
             loaded = true
             return
         }
@@ -39,9 +43,21 @@ final class MyClubsStore: ObservableObject {
             self?.clubs = clubs
             self?.loaded = true
         }
+        invitesListener?.remove()
+        invitesListener = BookClubService.shared.listenMyInvites(uid: uid) { [weak self] invites in
+            self?.invites = invites
+        }
     }
 
-    deinit { listener?.remove() }
+    /// Preview mode has no listener to drop an answered invite.
+    func removeInvite(clubId: String) {
+        invites.removeAll { $0.clubId == clubId }
+    }
+
+    deinit {
+        listener?.remove()
+        invitesListener?.remove()
+    }
 }
 
 struct ClubsView: View {
@@ -53,15 +69,18 @@ struct ClubsView: View {
     @State private var showCreate = false
     @State private var showJoin = false
     @State private var joinPrefill: String?
+    @State private var showBrowse = false
+    @State private var invitePrompt: ClubJoinPrompt?
     /// Set when a club was just created so its detail page opens the invite sheet.
     @State private var freshlyCreatedClubId: String?
 
     private var uid: String? { authService.firebaseUser?.uid ?? appState.viewerUid }
 
     /// The one club they belong to, if that's all there is: no list to pick from,
-    /// so the club page is the tab.
+    /// so the club page is the tab. An open invite brings the list back so the
+    /// invite card has somewhere to live.
     private var soloClub: BookClub? {
-        guard store.loaded, store.clubs.count == 1 else { return nil }
+        guard store.loaded, store.clubs.count == 1, store.invites.isEmpty else { return nil }
         return store.clubs[0]
     }
 
@@ -89,6 +108,27 @@ struct ClubsView: View {
                 reveal(clubId: clubId)
             }
         }
+        .sheet(isPresented: $showBrowse) {
+            PublicClubsSheet { clubId in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { reveal(clubId: clubId) }
+            }
+        }
+        .sheet(item: $invitePrompt) { prompt in
+            ClubJoinPromptView(
+                prompt: prompt,
+                onJoined: { clubId in
+                    invitePrompt = nil
+                    store.removeInvite(clubId: clubId)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { reveal(clubId: clubId) }
+                },
+                onDeclined: {
+                    invitePrompt = nil
+                    store.removeInvite(clubId: prompt.clubId)
+                }
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .onAppear {
             store.start(uid: uid)
             consumePendingDeepLinks()
@@ -99,7 +139,12 @@ struct ClubsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .spineOpenClub)) { note in
             guard let clubId = note.userInfo?["clubId"] as? String, !clubId.isEmpty else { return }
-            open(clubId: clubId)
+            // Just joined from an invite: the listener may not have the club yet.
+            if (note.userInfo?["justJoined"] as? Bool) == true {
+                reveal(clubId: clubId)
+            } else {
+                open(clubId: clubId)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .spineJoinClubWithCode)) { note in
             guard let code = note.userInfo?["code"] as? String else { return }
@@ -130,7 +175,8 @@ struct ClubsView: View {
             initial: initial,
             openInviteOnAppear: freshlyCreatedClubId == clubId,
             onStartClub: { showCreate = true },
-            onJoinClub: { showJoin = true }
+            onJoinClub: { showJoin = true },
+            onBrowseClubs: { showBrowse = true }
         )
         .onAppear {
             if freshlyCreatedClubId == clubId {
@@ -150,6 +196,8 @@ struct ClubsView: View {
     /// root. Going from nothing to one club, the club page takes over the tab.
     private func reveal(clubId: String) {
         guard !store.clubs.isEmpty else { return }
+        // Already the tab root (it became their only club): pushing would stack a duplicate.
+        guard soloClub?.id != clubId else { return }
         path.append(clubId)
     }
 
@@ -192,6 +240,7 @@ struct ClubsView: View {
                 Menu {
                     Button { showCreate = true } label: { Label("Start a club", systemImage: "plus") }
                     Button { showJoin = true } label: { Label("Join with a code", systemImage: "ticket") }
+                    Button { showBrowse = true } label: { Label("Browse public clubs", systemImage: "globe") }
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 16, weight: .bold))
@@ -213,9 +262,14 @@ struct ClubsView: View {
         if !store.loaded && uid != nil {
             loadingState
         } else if store.clubs.isEmpty {
-            emptyState
+            VStack(alignment: .leading, spacing: 22) {
+                invitesSection
+                    .padding(.horizontal, Theme.horizontalPadding)
+                emptyState
+            }
         } else {
             VStack(spacing: 14) {
+                invitesSection
                 ForEach(store.clubs) { club in
                     Button { path.append(club.id) } label: {
                         ClubCard(club: club, myUid: uid)
@@ -223,7 +277,6 @@ struct ClubsView: View {
                     .buttonStyle(.springPress)
                 }
             }
-            .padding(.horizontal, Theme.horizontalPadding)
         }
     }
 
@@ -245,16 +298,60 @@ struct ClubsView: View {
         .padding(.horizontal, Theme.horizontalPadding)
     }
 
+    @ViewBuilder
+    private var invitesSection: some View {
+        if !store.invites.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                ClubFieldLabel(text: store.invites.count == 1 ? "Invite" : "Invites")
+                ForEach(store.invites) { invite in
+                    Button { invitePrompt = ClubJoinPrompt(invite: invite) } label: {
+                        ClubInviteCard(invite: invite)
+                    }
+                    .buttonStyle(.springPress)
+                }
+            }
+        }
+    }
+
+    private static let pitchPoints = [
+        "Send a link into your group chat to move an existing book club onto Spine in a few taps",
+        "Or create a brand new club",
+        "Anonymous submission & voting for your group's next read",
+        "See each club member's live progress",
+        "Meeting reminders",
+    ]
+
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Text("Read a book together.")
-                .font(.system(size: 26, weight: .bold))
-                .foregroundStyle(Theme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Everything you need to manage your book club:")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 11) {
+                    ForEach(Self.pitchPoints, id: \.self) { point in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Circle()
+                                .fill(Theme.textPrimary)
+                                .frame(width: 5, height: 5)
+                                .alignmentGuide(.firstTextBaseline) { d in d[.bottom] + 5 }
+                            Text(point)
+                                .font(.system(size: 15))
+                                .foregroundStyle(Theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Text("+ much more!")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .padding(.top, 2)
+                }
+            }
 
             VStack(spacing: 10) {
                 ClubPrimaryButton(title: "Start a club", icon: "plus") { showCreate = true }
                 ClubSecondaryButton(title: "Join with a code", icon: "ticket") { showJoin = true }
+                ClubSecondaryButton(title: "Browse public clubs", icon: "globe") { showBrowse = true }
             }
         }
         .padding(.horizontal, Theme.horizontalPadding)

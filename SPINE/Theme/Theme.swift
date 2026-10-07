@@ -401,6 +401,33 @@ enum SpinesGlyphs {
     static func caps(_ s: String) -> String { s.uppercased() }
 }
 
+/// The brand wordmark: splash, welcome, library card, share stories, blend card.
+/// Every wordmark reads its text and tracking from here so the casing call
+/// lands in one place. Launch with `-uiPreviewWordmark title` (tracked "Spine")
+/// or `-uiPreviewWordmark titleTight` (near-zero tracking) to compare against
+/// the shipping all-caps mark.
+enum BrandWordmark {
+    enum Style: String { case caps, title, titleTight }
+
+    static var style: Style {
+        #if DEBUG
+        if let raw = UserDefaults.standard.string(forKey: "uiPreviewWordmark"),
+           let preview = Style(rawValue: raw) {
+            return preview
+        }
+        #endif
+        return .caps
+    }
+
+    static var text: String { style == .caps ? "SPINE" : "Spine" }
+
+    /// Call sites pass the tracking tuned for the all-caps mark; the tight
+    /// title-case setting keeps a sliver of it so heavy weights don't clot.
+    static func tracking(_ capsTracking: CGFloat) -> CGFloat {
+        style == .titleTight ? capsTracking * 0.08 : capsTracking
+    }
+}
+
 /// Short brand accent rule under wordmark headers.
 struct BrandRule: View {
     var width: CGFloat = 44

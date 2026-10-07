@@ -407,6 +407,12 @@ struct FeedPeoplePicksRow: View {
                         lastName: reader.user.lastName,
                         size: 56
                     )
+                    .avatarZoomOnHold(
+                        urlString: reader.user.profileImageURL,
+                        displayName: reader.user.displayName,
+                        firstName: reader.user.firstName,
+                        lastName: reader.user.lastName
+                    )
                     .overlay(alignment: .bottomLeading) {
                         if !readingNow.isEmpty {
                             ReadingNowFanStack(books: readingNow, coverWidth: 17)

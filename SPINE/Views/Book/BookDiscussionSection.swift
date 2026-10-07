@@ -297,23 +297,18 @@ struct BookDiscussionSection: View {
     // MARK: - Tier chips
 
     /// One capsule per tier this book was ranked at ("S TIER" on the tier's
-    /// color with a count pill), S → F. Scrolls sideways rather than wrapping
-    /// when a book has been ranked at every tier. Tapping a chip filters the
+    /// color with a count pill), S → F. Wraps onto new lines rather than
+    /// scrolling so every tier is visible at once. Tapping a chip filters the
     /// list to that tier; tapping it again clears the filter.
     private var tierChipRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(tierCounts, id: \.tier) { item in
-                    tierChip(tier: item.tier, count: item.count)
-                }
+        FlowLayout(spacing: 8) {
+            ForEach(tierCounts, id: \.tier) { item in
+                tierChip(tier: item.tier, count: item.count)
             }
-            // Let the chips' shadows breathe past the scroll view's clip.
-            .padding(.vertical, 2)
         }
-        // Bleed to the card's edge so the row doesn't look boxed in.
-        .padding(.horizontal, -20)
-        .contentMargins(.horizontal, 20, for: .scrollContent)
-        .scrollClipDisabled()
+        // Let the chips' selection stroke breathe.
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: selectedTier)
     }
 
@@ -392,6 +387,12 @@ struct BookDiscussionSection: View {
                             firstName: reader.user.firstName,
                             lastName: reader.user.lastName,
                             size: 36
+                        )
+                        .avatarZoomOnHold(
+                            urlString: reader.user.profileImageURL,
+                            displayName: reader.user.displayName,
+                            firstName: reader.user.firstName,
+                            lastName: reader.user.lastName
                         )
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
@@ -578,6 +579,7 @@ struct BookDiscussionSection: View {
                     displayName: comment.displayName,
                     size: isReply ? 20 : 24
                 )
+                .avatarZoomOnHold(urlString: comment.profileImageURL, displayName: comment.displayName)
             }
             .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 2) {
@@ -753,7 +755,8 @@ struct OwnReadEngagementRow: View {
 
 #if DEBUG
 /// `-uiPreviewBookReviews` (with `-uiPreview`): seeded readers for the demo
-/// book so the Reviews card renders with several tiers, a review, an unranked
+/// book so the Reviews card renders with every tier (so the chip row
+/// overflows and fades), a review, an unranked
 /// read, and both the FOLLOWING / MORE READERS groups, with no Firestore.
 enum BookReviewsPreview {
     static let flag = "-uiPreviewBookReviews"
@@ -772,6 +775,8 @@ enum BookReviewsPreview {
             ("pv-bella", "Bella", "B", "Good, not great. The middle sags.", 20, false),
             ("pv-theo", "Theo", "B", nil, 33, false),
             ("pv-mia", "Mia Chen", "B", nil, 40, false),
+            ("pv-lena", "Lena Park", "C", nil, 44, false),
+            ("pv-sam", "Sam O'Neil", "D", nil, 50, false),
             ("pv-ravi", "Ravi", "F", "Could not get into it.", 60, false),
             ("pv-noor", "Noor", nil, "Haven't ranked this yet.", 70, false)
         ]

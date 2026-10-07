@@ -6,7 +6,8 @@
   "etags": {
     "wellread-520f2": {
       "extensionInstances": {
-        "firestore-bigquery-export": "87f01ba334d6467e852e94909bf5c6797dcec1961f7f47960324e19ab630506c"
+        "firestore-bigquery-export": "87f01ba334d6467e852e94909bf5c6797dcec1961f7f47960324e19ab630506c",
+        "firestore-bigquery-export-userbooks": "678581ed78c2cffb18a500fee16b5b0059f4f87faf2d09dc1c79030d9ce325d6"
       }
     }
   }

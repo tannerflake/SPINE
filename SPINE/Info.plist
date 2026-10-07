@@ -5,13 +5,13 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>SPINE</string>
+	<string>Spine</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleName</key>
-	<string>SPINE</string>
+	<string>Spine</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -54,9 +54,9 @@
 		<true/>
 	</dict>
 	<key>NSContactsUsageDescription</key>
-	<string>SPINE uses your contacts to find friends who are already members and to invite friends by text. Contacts are matched on your device and never uploaded.</string>
+	<string>Spine uses your contacts to find friends who are already members and to invite friends by text. Contacts are matched on your device and never uploaded.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>SPINE saves your library card to your photos so you can keep it or share it.</string>
+	<string>Spine saves your library card to your photos so you can keep it or share it.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

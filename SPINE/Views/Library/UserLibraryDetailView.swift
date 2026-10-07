@@ -75,13 +75,13 @@ struct UserLibraryDetailView: View {
     private var wantToReadReadingNow: [UserBook] {
         wantToReadList
             .filter { $0.queueShelf == .readingNow }
-            .sorted { ($0.queueOrder ?? 999) < ($1.queueOrder ?? 999) }
+            .sorted { ($0.queueOrder ?? Int.max) < ($1.queueOrder ?? Int.max) }
     }
 
     private var wantToReadUpNext: [UserBook] {
         wantToReadList
             .filter { $0.queueShelf == .upNext }
-            .sorted { ($0.queueOrder ?? 999) < ($1.queueOrder ?? 999) }
+            .sorted { ($0.queueOrder ?? Int.max) < ($1.queueOrder ?? Int.max) }
     }
 
     private var wantToReadBacklog: [UserBook] {
@@ -151,6 +151,7 @@ struct UserLibraryDetailView: View {
                 )
             if isInitialLoading {
                 loadingView
+                    .transition(.spinnerFadeOut)
             } else {
                 VStack(spacing: 0) {
                     // Follow and Book Blend ride together: both are actions on this
@@ -160,7 +161,7 @@ struct UserLibraryDetailView: View {
                         HStack(spacing: 8) {
                             BookBlendEntryButton(
                                 state: blendEntryState(myUid: me),
-                                otherFirstName: profileUser?.firstName ?? "They",
+                                otherFirstName: profileUser.map { $0.firstNameLabel }.flatMap { $0.isEmpty ? nil : $0 } ?? "They",
                                 action: { handleBlendButtonTap(myUid: me) }
                             )
                             followToggleButton
@@ -221,16 +222,16 @@ struct UserLibraryDetailView: View {
                 book: book,
                 readBooksForSimilar: appState.readBooks,
                 onNotInterested: nil,
-                onWantToRead: { appState.addToWantToRead(book: book); selectedBookForProfile = nil },
-                onStartReading: { appState.addToQueue(book: book, shelf: .readingNow); selectedBookForProfile = nil },
+                onWantToRead: { appState.addToWantToRead(book: book) },
+                onStartReading: { appState.addToQueue(book: book, shelf: .readingNow) },
                 onConfirmRead: { date, rating, post, caption, tier in
                     appState.addAsRead(book: book, dateFinished: date, rating: rating, postToFeed: post, caption: caption, tier: tier)
                     selectedBookForProfile = nil
                 },
                 isOnReadList: appState.isBookOnReadList(bookId: book.id),
                 isInQueue: appState.isBookInQueue(bookId: book.id),
-                onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
-                onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
+                onRemoveFromQueue: { appState.removeFromQueue(book: book) },
+                onMarkAsDNF: { appState.markAsDNF(book: book) },
                 // On someone else's library their review lives in "Read by"
                 // (pinned + highlighted via sourceReaderUid) instead of a
                 // duplicate top card; own library keeps the review card.
@@ -301,13 +302,8 @@ struct UserLibraryDetailView: View {
     /// Brand spinner shown until the first books snapshot and the profile
     /// fetch both land — never an empty tier list that fills in later.
     private var loadingView: some View {
-        VStack(spacing: 20) {
-            SpinningSpineLogo(size: 120)
-            Text("Loading library…")
-                .font(Theme.title2())
-                .foregroundStyle(Theme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        SpinningSpineLogo(size: 120)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Book Blend

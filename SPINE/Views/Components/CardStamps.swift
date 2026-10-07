@@ -16,22 +16,25 @@ import SwiftUI
 
 enum CardStampGeometry {
     /// Stamp width as a fraction of the card face width. On the profile card
-    /// (about 326pt wide) that is a 95pt stamp; on the 306pt export, 89pt.
-    static let widthFraction: CGFloat = 0.29
+    /// (about 326pt wide) that is a 38pt stamp; on the 306pt export, 35pt.
+    static let widthFraction: CGFloat = 0.116
 
-    /// Breathing room from the card's edge, in points, when placing.
-    static let edgeInset: CGFloat = 8
+    /// Printed stamps are translucent ink, not stickers: the card shows through.
+    static let inkOpacity: Double = 0.6
 
     /// How far a stamp must stay from a printed element, in points.
     static let zoneInset: CGFloat = 4
 
-    static func stampSize(faceWidth: CGFloat) -> CGFloat {
-        (faceWidth * widthFraction).rounded()
+    /// The side one stamp prints at: the face's base size times the stamp's
+    /// own `frameScale`, so a narrow stamp can be pressed a little larger and
+    /// still read at the same weight as a round one.
+    static func stampSize(faceWidth: CGFloat, kind: AchievementKind) -> CGFloat {
+        (faceWidth * widthFraction * kind.frameScale).rounded()
     }
 
     /// The stamp's frame in the face's coordinate space.
-    static func frame(for placement: StampPlacement, faceSize: CGSize) -> CGRect {
-        let side = stampSize(faceWidth: faceSize.width)
+    static func frame(for placement: StampPlacement, kind: AchievementKind, faceSize: CGSize) -> CGRect {
+        let side = stampSize(faceWidth: faceSize.width, kind: kind)
         return CGRect(
             x: placement.x * faceSize.width - side / 2,
             y: placement.y * faceSize.height - side / 2,
@@ -40,13 +43,13 @@ enum CardStampGeometry {
         )
     }
 
-    /// Whether a stamp centered at `point` (face coordinates) would sit fully on
-    /// the card and clear of every protected zone.
-    static func isValid(center point: CGPoint, faceSize: CGSize, protectedZones: [CGRect]) -> Bool {
-        let side = stampSize(faceWidth: faceSize.width)
+    /// Whether a stamp centered at `point` (face coordinates) would land on
+    /// the card clear of every protected zone. Hanging off the card's edge is
+    /// fine: the face clips it, like a stamp pressed half off the paper.
+    static func isValid(center point: CGPoint, kind: AchievementKind, faceSize: CGSize, protectedZones: [CGRect]) -> Bool {
+        guard CGRect(origin: .zero, size: faceSize).contains(point) else { return false }
+        let side = stampSize(faceWidth: faceSize.width, kind: kind)
         let rect = CGRect(x: point.x - side / 2, y: point.y - side / 2, width: side, height: side)
-        let bounds = CGRect(origin: .zero, size: faceSize).insetBy(dx: edgeInset, dy: edgeInset)
-        guard bounds.contains(rect) else { return false }
         for zone in protectedZones where rect.intersects(zone.insetBy(dx: -zoneInset, dy: -zoneInset)) {
             return false
         }
@@ -98,11 +101,11 @@ struct CardStampsLayer: View {
         GeometryReader { proxy in
             ForEach(stamps.filter { $0.placement?.side == side }) { stamp in
                 if let placement = stamp.placement {
-                    let frame = CardStampGeometry.frame(for: placement, faceSize: proxy.size)
+                    let frame = CardStampGeometry.frame(for: placement, kind: stamp.kind, faceSize: proxy.size)
                     StampImage(kind: stamp.kind)
                         .frame(width: frame.width, height: frame.height)
                         .rotationEffect(.degrees(placement.rotation))
-                        .opacity(liftedKind == stamp.kind ? 0.25 : 1)
+                        .opacity(liftedKind == stamp.kind ? 0.25 : CardStampGeometry.inkOpacity)
                         .position(x: frame.midX, y: frame.midY)
                         .accessibilityLabel("\(stamp.kind.title) stamp")
                 }
@@ -119,6 +122,8 @@ struct CardStampsLayer: View {
 struct CardZone: Equatable {
     let name: String
     let rect: CGRect
+    /// Shaded as a circle rather than a rounded rectangle (the photo).
+    var circular: Bool = false
 }
 
 struct CardZonesPreferenceKey: PreferenceKey {
@@ -131,14 +136,15 @@ struct CardZonesPreferenceKey: PreferenceKey {
 extension View {
     /// Marks this element as un-stampable. `inset` grows the reported rect
     /// (negative values) for things that overhang their frame, like the OG mark.
-    func cardZone(_ name: String, inset: CGFloat = 0) -> some View {
+    func cardZone(_ name: String, inset: CGFloat = 0, circular: Bool = false) -> some View {
         background(
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: CardZonesPreferenceKey.self,
                     value: [CardZone(
                         name: name,
-                        rect: proxy.frame(in: .named(LibraryCardFace.coordinateSpace)).insetBy(dx: inset, dy: inset)
+                        rect: proxy.frame(in: .named(LibraryCardFace.coordinateSpace)).insetBy(dx: inset, dy: inset),
+                        circular: circular
                     )]
                 )
             }
@@ -146,8 +152,9 @@ extension View {
     }
 }
 
-/// Shades the protected zones while stamping so the reader can see where a
-/// stamp will not go.
+/// Hatches the protected zones while stamping so the reader can see where a
+/// stamp will not go. Diagonal lines read as "blocked"; a flat tint read as a
+/// highlighted target.
 struct CardProtectedZonesOverlay: View {
     let zones: [CardZone]
     let ink: Color
@@ -156,13 +163,13 @@ struct CardProtectedZonesOverlay: View {
         ZStack(alignment: .topLeading) {
             ForEach(zones, id: \.name) { zone in
                 let rect = zone.rect.insetBy(dx: -CardStampGeometry.zoneInset, dy: -CardStampGeometry.zoneInset)
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(ink.opacity(0.07))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                            .foregroundStyle(ink.opacity(0.35))
-                    )
+                let shape = zone.circular
+                    ? AnyShape(Circle())
+                    : AnyShape(RoundedRectangle(cornerRadius: 6))
+                DiagonalHatch(spacing: 5)
+                    .stroke(ink.opacity(0.4), lineWidth: 1)
+                    .clipShape(shape)
+                    .overlay(shape.stroke(ink.opacity(0.4), lineWidth: 1))
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
             }
@@ -171,11 +178,87 @@ struct CardProtectedZonesOverlay: View {
     }
 }
 
+/// Parallel 45-degree lines filling the rect.
+private struct DiagonalHatch: Shape {
+    let spacing: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        var x = rect.minX - rect.height
+        while x < rect.maxX {
+            path.move(to: CGPoint(x: x, y: rect.maxY))
+            path.addLine(to: CGPoint(x: x + rect.height, y: rect.minY))
+            x += spacing
+        }
+        return path
+    }
+}
+
 // MARK: - Bank tile
 
-/// A stamp in the bank: art, name, and whether it is on the card. Pass
+/// A stamp in the bank: art and name. Whether it is on the card is shown, not
+/// said: a stamp already pressed is faded with a check badge. Pass
 /// `locked` for a stamp not yet earned: the art shows through a blur under a
 /// lock, enough to want it, not enough to see it.
+/// A locked stamp tapped in the bank: a short sheet that names the stamp,
+/// shows it blurred under its lock the way the tile does, and says what it
+/// takes. Hugs its content like the other nudge sheets.
+struct LockedStampExplainerSheet: View {
+    let kind: AchievementKind
+    let onDismiss: () -> Void
+
+    @State private var contentHeight: CGFloat = 0
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Text(kind.title)
+                .font(Theme.title2())
+                .foregroundStyle(Theme.textPrimary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ZStack {
+                StampImage(kind: kind)
+                    .frame(width: 120, height: 120)
+                    .blur(radius: 4)
+                    .opacity(0.55)
+                    .saturation(0.35)
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Theme.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .strokeBorder(Theme.textTertiary.opacity(0.25), lineWidth: 1)
+            )
+            .accessibilityHidden(true)
+
+            Text(kind.howToUnlock)
+                .font(Theme.body())
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Got it", action: onDismiss)
+                .buttonStyle(.spinePrimary)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 28)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height + proxy.safeAreaInsets.bottom
+        } action: { contentHeight = $0 }
+        .presentationDetents(contentHeight > 0 ? [.height(contentHeight)] : [.medium])
+        .presentationDragIndicator(.visible)
+    }
+}
+
 struct StampBankTile: View {
     let kind: AchievementKind
     var isPlaced: Bool = false
@@ -232,10 +315,6 @@ struct StampBankTile: View {
             Text(kind.title)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(locked ? Theme.textSecondary : Theme.textPrimary)
-                .lineLimit(1)
-            Text(status)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Theme.textTertiary)
                 .lineLimit(1)
         }
         .frame(width: 96)

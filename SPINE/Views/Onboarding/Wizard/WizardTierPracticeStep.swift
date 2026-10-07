@@ -302,7 +302,12 @@ struct WizardTierPracticeStep: View {
     @State private var rowFrames: [String: CGRect] = [:]
     @State private var coverFrames: [UUID: CGRect] = [:]
     @State private var draggingId: UUID?
-    @State private var dragPoint: CGPoint = .zero
+    /// Where the lifted copy's center sits. Nil until a cover is picked up, so
+    /// the copy never renders at the board's origin while the finger is still.
+    @State private var dragPoint: CGPoint?
+    /// Cover center minus the finger's start point, so the lifted copy stays
+    /// where it was grabbed instead of snapping its center to the finger.
+    @State private var grabOffset: CGSize?
     @State private var hoverTier: String?
     @State private var didDrag = false
 
@@ -382,7 +387,7 @@ struct WizardTierPracticeStep: View {
             return "Tap and hold a book to drag it into the tier it belongs in."
         case .select:
             if !isSelecting {
-                return "Two of the books in the S-tier don't belong. Double tap a book to enable multi-select."
+                return "Two of the books in the S-tier don't belong. **Double tap** a book to enable multi-select."
             }
             return selected.count >= 2
                 ? "Tap \"Move\", then send them down to F."
@@ -400,7 +405,8 @@ struct WizardTierPracticeStep: View {
                 centered: false
             )
             .id(headline)
-            Text(subline)
+            // LocalizedStringKey so the sublines' **markdown** renders as bold.
+            Text(LocalizedStringKey(subline))
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -430,7 +436,7 @@ struct WizardTierPracticeStep: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if let draggingId, let book = books.first(where: { $0.id == draggingId }) {
+            if let draggingId, let dragPoint, let book = books.first(where: { $0.id == draggingId }) {
                 TierPracticeCoverArt(
                     face: book.face,
                     size: TierPracticeMetrics.coverSize(rowHeight: rowHeight),
@@ -557,7 +563,12 @@ struct WizardTierPracticeStep: View {
                 case .second(true, let drag):
                     lift(book)
                     guard let drag else { return }
-                    dragPoint = drag.location
+                    let offset = grabOffset ?? grabOffset(for: book, startingAt: drag.startLocation)
+                    grabOffset = offset
+                    dragPoint = CGPoint(
+                        x: drag.location.x + offset.width,
+                        y: drag.location.y + offset.height
+                    )
                     let tier = tier(at: drag.location)
                     if tier != hoverTier {
                         hoverTier = tier
@@ -578,9 +589,20 @@ struct WizardTierPracticeStep: View {
 
     private func lift(_ book: TierPracticeBook) {
         guard draggingId != book.id else { return }
+        // The long press lands before the drag reports a location, so the
+        // copy starts right on top of the cover it was lifted from.
+        if let frame = coverFrames[book.id] {
+            dragPoint = CGPoint(x: frame.midX, y: frame.midY)
+        }
+        grabOffset = nil
         draggingId = book.id
         hoverTier = book.tier
         WizardHaptics.step()
+    }
+
+    private func grabOffset(for book: TierPracticeBook, startingAt start: CGPoint) -> CGSize {
+        guard let frame = coverFrames[book.id] else { return .zero }
+        return CGSize(width: frame.midX - start.x, height: frame.midY - start.y)
     }
 
     private func tier(at point: CGPoint) -> String? {
@@ -589,6 +611,8 @@ struct WizardTierPracticeStep: View {
 
     private func cancelDrag() {
         draggingId = nil
+        dragPoint = nil
+        grabOffset = nil
         hoverTier = nil
     }
 

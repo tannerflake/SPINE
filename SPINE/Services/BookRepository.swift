@@ -30,55 +30,78 @@ final class BookRepository {
         cacheQueue.sync { memoryCache.removeAll() }
     }
 
-    /// Gets a book by id. Checks in-memory cache first, then Firestore (aborts after **2s** and returns a title-only placeholder so lists don’t spin forever).
-    func getBook(id: String) async -> Book? {
+    /// Gets a book by id. Checks in-memory cache first, then Firestore.
+    ///
+    /// `timeout` (default **2s**) is the budget list callers give the read before
+    /// they get `Book.metadataLoadTimeoutPlaceholder` back so a row doesn't spin
+    /// forever. The Firestore read keeps going after a timeout and lands in the
+    /// cache, so the next lookup for the same id returns the real book. Pass
+    /// `timeout: nil` when a single book is about to be *presented* (push deep
+    /// link, comments sheet header): a cold start routinely needs more than 2s
+    /// for its first Firestore round trip, and "Book / Unknown" is not something
+    /// to show as if it were the book.
+    func getBook(id: String, timeout: TimeInterval? = 2) async -> Book? {
         if let cached = cacheQueue.sync(execute: { memoryCache[id] }) {
             return cached
         }
-        let ref = db.collection(books).document(id)
-        enum Race: Sendable {
-            case loaded(Book?)
-            case timedOut
-        }
-        return await withTaskGroup(of: Race.self) { group in
-            group.addTask { [self] in
-                do {
-                    let snapshot = try await ref.getDocument()
-                    guard snapshot.exists, let data = snapshot.data() else {
-                        return .loaded(nil)
-                    }
-                    // Dedup tombstone: render the canonical doc it was merged into.
-                    if data["mergedInto"] is String, let canonical = await resolveMergePointer(in: data) {
-                        return .loaded(canonical)
-                    }
-                    return .loaded(book(from: data, id: id))
-                } catch {
-                    return .loaded(nil)
-                }
-            }
+        let load = inFlightLoad(id: id)
+        guard let timeout else { return await load.value }
+        let sleeper = Task { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) }
+        let raced = await withTaskGroup(of: Book??.self) { group -> Book?? in
+            group.addTask { await load.value }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                return .timedOut
+                try? await sleeper.value
+                return .none
             }
-            guard let first = await group.next() else {
-                group.cancelAll()
-                return nil
-            }
-            switch first {
-            case .timedOut:
-                group.cancelAll()
-                return Book.metadataLoadTimeoutPlaceholder(id: id)
-            case .loaded(let b):
-                group.cancelAll()
-                if let b {
-                    cacheQueue.sync {
-                        memoryCache[id] = b
-                        memoryCache[b.id] = b
+            let first = await group.next() ?? .none
+            group.cancelAll()
+            return first
+        }
+        sleeper.cancel()
+        switch raced {
+        case .some(let loaded):
+            return loaded
+        case .none:
+            // Timed out: `load` is still running and will warm the cache.
+            return Book.metadataLoadTimeoutPlaceholder(id: id)
+        }
+    }
+
+    /// One Firestore read per id, shared by every concurrent `getBook` for it.
+    /// Never cancelled by a caller timing out, so the result always reaches the
+    /// cache.
+    private var inFlightLoads: [String: Task<Book?, Never>] = [:]
+
+    private func inFlightLoad(id: String) -> Task<Book?, Never> {
+        cacheQueue.sync {
+            if let existing = inFlightLoads[id] { return existing }
+            let task = Task.detached(priority: .userInitiated) { [self] () async -> Book? in
+                let loaded = await loadFromFirestore(id: id)
+                cacheQueue.sync {
+                    inFlightLoads[id] = nil
+                    if let loaded {
+                        memoryCache[id] = loaded
+                        memoryCache[loaded.id] = loaded
                     }
-                    return b
                 }
-                return nil
+                return loaded
             }
+            inFlightLoads[id] = task
+            return task
+        }
+    }
+
+    private func loadFromFirestore(id: String) async -> Book? {
+        do {
+            let snapshot = try await db.collection(books).document(id).getDocument()
+            guard snapshot.exists, let data = snapshot.data() else { return nil }
+            // Dedup tombstone: render the canonical doc it was merged into.
+            if data["mergedInto"] is String, let canonical = await resolveMergePointer(in: data) {
+                return canonical
+            }
+            return book(from: data, id: id)
+        } catch {
+            return nil
         }
     }
 

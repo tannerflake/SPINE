@@ -172,9 +172,9 @@ struct BlendSummaryCanvas: View {
                 .tracking(4.9)
                 .foregroundStyle(Theme.paperFixed.opacity(0.7))
             Spacer()
-            Text("SPINE")
+            Text(BrandWordmark.text)
                 .font(.system(size: 13, weight: .heavy))
-                .tracking(3.5)
+                .tracking(BrandWordmark.tracking(3.5))
                 .foregroundStyle(Theme.paperFixed)
         }
         .padding(.horizontal, 26)

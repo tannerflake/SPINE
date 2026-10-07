@@ -51,6 +51,7 @@ final class AuthService: ObservableObject {
                     displayName: user?.displayName
                 )
                 if let user = user {
+                    Task { await self?.userRepo.refreshHiddenTestAccounts() }
                     await self?.loadOrCreateAppUser(firebaseUser: user)
                 } else {
                     self?.appUserHealTask?.cancel()

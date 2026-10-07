@@ -33,6 +33,8 @@ struct ProfileLibraryView: View {
     @State private var readTabDropTargeted = false
     /// Finger is over the floating trash while dragging a book off a shelf.
     @State private var deleteDropTargeted = false
+    /// Bumped each time the trash appears so its arrival keyframes replay.
+    @State private var deleteEntranceTick = 0
     @State private var showEditProfile = false
     /// Set when the edit-profile sheet was opened by tapping the goal strip —
     /// the sheet scrolls to the book-goal field and focuses it.
@@ -137,15 +139,26 @@ struct ProfileLibraryView: View {
                 .padding(.horizontal, 4)
             }
             .overlay(alignment: .bottomTrailing) {
-                // The corner holds one affordance at a time: the trash takes over
-                // from + while a book off this shelf is in the air, and both stay
-                // out of the way of the tier list's selection bar.
-                if showDeleteAffordance {
-                    floatingDeleteButton
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                } else if !isTierSelecting {
+                // The + hides while a book off this shelf is in the air (the trash
+                // takes over up top) and stays out of the tier list's selection bar.
+                if !showDeleteAffordance && !isTierSelecting {
                     floatingAddBookButton
                         .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                // The trash lands in the top-right corner, over the bell + avatar
+                // cluster, so it sits clear of the finger and the shelf being
+                // dragged across. It drops in from above and settles with one
+                // quick wobble so the eye catches it.
+                if showDeleteAffordance {
+                    floatingDeleteButton
+                        .transition(
+                            .asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.4)).combined(with: .offset(y: -28)),
+                                removal: .opacity.combined(with: .scale(scale: 0.6))
+                            )
+                        )
                 }
             }
             .animation(LibrarySegmentControlAnimation.dragChrome, value: showDeleteAffordance)
@@ -184,13 +197,13 @@ struct ProfileLibraryView: View {
                     book: book,
                     readBooksForSimilar: appState.readBooks,
                     onNotInterested: nil,
-                    onWantToRead: { appState.addToWantToRead(book: book); selectedBookForProfile = nil },
-                    onStartReading: { appState.addToQueue(book: book, shelf: .readingNow); selectedBookForProfile = nil },
+                    onWantToRead: { appState.addToWantToRead(book: book) },
+                    onStartReading: { appState.addToQueue(book: book, shelf: .readingNow) },
                     onConfirmRead: { date, rating, post, caption, tier in appState.addAsRead(book: book, dateFinished: date, rating: rating, postToFeed: post, caption: caption, tier: tier); selectedBookForProfile = nil },
                     isOnReadList: appState.isBookOnReadList(bookId: book.id),
                     isInQueue: appState.isBookInQueue(bookId: book.id),
-                    onRemoveFromQueue: { appState.removeFromQueue(book: book); selectedBookForProfile = nil },
-                    onMarkAsDNF: { appState.markAsDNF(book: book); selectedBookForProfile = nil },
+                    onRemoveFromQueue: { appState.removeFromQueue(book: book) },
+                    onMarkAsDNF: { appState.markAsDNF(book: book) },
                     readEntryForReview: appState.userReadBook(forBookId: book.id),
                     canEditReadReview: true
                 )
@@ -337,28 +350,51 @@ struct ProfileLibraryView: View {
         }
     }
 
-    /// Red trash target in the bottom-right corner, shown only during a drag.
+    /// Red trash target in the top-right corner, shown only during a drag.
     /// Read shelf: removes the book, its read dates, its review and its feed
-    /// posts. Queue: drops it from the queue.
+    /// posts. Queue: drops it from the queue. Fully opaque with a paper ring so
+    /// it never fades into whatever shelf scrolls under it.
     private var floatingDeleteButton: some View {
         Circle()
-            .fill(Theme.danger.opacity(deleteDropTargeted ? 1.0 : 0.85))
+            .fill(Theme.danger)
             .frame(width: 56, height: 56)
             .overlay(
                 Image(systemName: "trash.fill")
-                    .font(.system(size: 21, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(Color.white)
             )
             .overlay(
                 Circle()
                     .strokeBorder(Color.white.opacity(deleteDropTargeted ? 0.9 : 0), lineWidth: 2)
             )
-            .shadow(color: Theme.danger.opacity(deleteDropTargeted ? 0.55 : 0.35),
-                    radius: deleteDropTargeted ? 12 : 8, y: 3)
+            // Paper halo separates the red disc from covers and text beneath it.
+            .padding(3)
+            .background(Circle().fill(Theme.background))
+            .shadow(color: Theme.danger.opacity(deleteDropTargeted ? 0.6 : 0.4),
+                    radius: deleteDropTargeted ? 14 : 10, y: 4)
             .scaleEffect(deleteDropTargeted ? 1.12 : 1)
             .animation(LibrarySegmentControlAnimation.dragChrome, value: deleteDropTargeted)
-            .padding(.trailing, 20)
-            .padding(.bottom, mainTabBarOverlapExtraHeight + 12)
+            // One-shot attention beat on arrival: a small overshoot and a quick
+            // wobble, ~0.45s total, then it holds still.
+            .keyframeAnimator(initialValue: DeleteTargetEntrance(), trigger: deleteEntranceTick) { content, e in
+                content
+                    .scaleEffect(e.scale)
+                    .rotationEffect(.degrees(e.tilt))
+            } keyframes: { _ in
+                KeyframeTrack(\.scale) {
+                    SpringKeyframe(1.18, duration: 0.16, spring: .snappy)
+                    SpringKeyframe(1.0, duration: 0.3, spring: .bouncy)
+                }
+                KeyframeTrack(\.tilt) {
+                    LinearKeyframe(-10, duration: 0.09)
+                    LinearKeyframe(9, duration: 0.1)
+                    LinearKeyframe(-5, duration: 0.09)
+                    SpringKeyframe(0, duration: 0.18, spring: .snappy)
+                }
+            }
+            .onAppear { deleteEntranceTick += 1 }
+            .padding(.trailing, 14)
+            .padding(.top, 2)
             .dropDestination(for: TierDragItem.self) { items, _ in
                 guard let payload = items.first else { return false }
                 return handleDeleteDrop(payload: payload)
@@ -367,6 +403,12 @@ struct ProfileLibraryView: View {
                 if isTargeted { LibraryDragHaptics.dropTargetHoverEntered() }
             }
             .accessibilityLabel(segment == .read ? "Remove from your read shelf" : "Remove from your queue")
+    }
+
+    /// Keyframe state for the trash target's arrival beat.
+    private struct DeleteTargetEntrance {
+        var scale: CGFloat = 1
+        var tilt: Double = 0
     }
 
     /// Fixed floating + in the bottom-right corner of the Profile page — pulls up
@@ -429,7 +471,7 @@ struct ProfileLibraryView: View {
     }
 
     /// Custom Read / Queue control. Its one drop role is **Read** = mark read from
-    /// queue (green +); removals happen on the floating trash in the bottom-right
+    /// queue (green +); removals happen on the floating trash in the top-right
     /// corner. Chrome follows UIKit drag sessions.
     private var librarySegmentControl: some View {
         HStack(spacing: 0) {
@@ -614,6 +656,12 @@ struct ProfileLibraryView: View {
                     firstName: user.firstName,
                     lastName: user.lastName,
                     size: 40
+                )
+                .avatarZoomOnHold(
+                    urlString: user.profileImageURL,
+                    displayName: user.displayName,
+                    firstName: user.firstName,
+                    lastName: user.lastName
                 )
             }
             .buttonStyle(.plain)
